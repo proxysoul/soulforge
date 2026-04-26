@@ -192,10 +192,7 @@ export function getSecret(key: SecretKey, priority: KeyPriority = _defaultPriori
     if (!val) return null;
     // Check if it's a comma-separated list (multiple keys)
     if (val.includes(",")) {
-      const keys = val
-        .split(",")
-        .map((k: string) => k.trim())
-        .filter(Boolean);
+      const keys = val.split(",").map((k: string) => k.trim()).filter(Boolean);
       if (keys.length > 0) return keys[0] ?? null; // Simplified: just return first for now
     }
     return val;
@@ -384,10 +381,7 @@ export function getProviderApiKey(
     if (!val) return undefined;
     // Check if it's a comma-separated list (multiple keys)
     if (val.includes(",")) {
-      const keys = val
-        .split(",")
-        .map((k: string) => k.trim())
-        .filter(Boolean);
+      const keys = val.split(",").map((k: string) => k.trim()).filter(Boolean);
       if (keys.length > 0) return keys[0] ?? undefined; // Simplified: just return first for now
     }
     return val;
