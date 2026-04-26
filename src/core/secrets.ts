@@ -186,7 +186,17 @@ export function getSecretSources(
 
 export function getSecret(key: SecretKey, priority: KeyPriority = _defaultPriority): string | null {
   const envVar = ENV_MAP[key];
-  const getEnv = () => (envVar ? (process.env[envVar] ?? null) : null);
+  const getEnv = () => {
+    if (!envVar) return null;
+    const val = process.env[envVar];
+    if (!val) return null;
+    // Check if it's a comma-separated list (multiple keys)
+    if (val.includes(",")) {
+      const keys = val.split(",").map((k: string) => k.trim()).filter(Boolean);
+      if (keys.length > 0) return keys[0] ?? null; // Simplified: just return first for now
+    }
+    return val;
+  };
   const getApp = () => {
     if (keychainAvailable()) {
       const value = keychainGet(key);
@@ -264,6 +274,92 @@ export function getStorageBackend(): "keychain" | "file" {
   return keychainAvailable() ? "keychain" : "file";
 }
 
+/**
+ * Add a key to a pool of multiple keys for a given SecretKey.
+ * Stored as a JSON array in the file backend; keychain stores only the first key.
+ * Returns the updated list of keys.
+ */
+export function addPooledKey(key: SecretKey | string, value: string): string[] {
+  // For keychain, just overwrite with the new single key (keychain limitation)
+  if (keychainAvailable()) {
+    keychainSet(key as SecretKey, value);
+    return [value];
+  }
+
+  const data = fileRead();
+  const existing = data[key as string] as string | undefined;
+  let keys: string[] = [];
+  if (existing) {
+    try {
+      const parsed = JSON.parse(existing) as unknown;
+      if (Array.isArray(parsed)) keys = parsed as string[];
+      else keys = [existing];
+    } catch {
+      keys = [existing];
+    }
+  }
+  keys.push(value);
+  data[key as string] = JSON.stringify(keys);
+  fileWrite(data);
+  return keys;
+}
+
+/**
+ * Get all pooled keys for a SecretKey.
+ * Returns an array of key strings, or empty array if none set.
+ */
+export function getPooledKeys(key: SecretKey | string): string[] {
+  if (keychainAvailable()) {
+    const value = keychainGet(key as SecretKey);
+    return value ? [value] : [];
+  }
+
+  const data = fileRead();
+  const existing = data[key as string] as string | undefined;
+  if (!existing) return [];
+
+  try {
+    const parsed = JSON.parse(existing) as unknown;
+    if (Array.isArray(parsed)) return parsed as string[];
+    return [existing];
+  } catch {
+    return [existing];
+  }
+}
+
+/**
+ * Remove a specific key from the pool.
+ */
+export function removePooledKey(key: SecretKey | string, value: string): string[] {
+  if (keychainAvailable()) {
+    keychainDelete(key as SecretKey);
+    return [];
+  }
+
+  const data = fileRead();
+  const existing = data[key as string] as string | undefined;
+  if (!existing) return [];
+
+  let keys: string[] = [];
+  try {
+    keys = JSON.parse(existing) as string[];
+    if (!Array.isArray(keys)) keys = [existing];
+  } catch {
+    keys = [existing];
+  }
+
+  keys = keys.filter((k) => k !== value);
+  if (keys.length === 0) {
+    delete data[key as string];
+  } else if (keys.length === 1) {
+    data[key as string] = keys[0] ?? ""; // Simplify back to single string
+  } else {
+    data[key as string] = JSON.stringify(keys);
+  }
+  fileWrite(data);
+  return keys;
+}
+
 export type { SecretKey };
 
 /** Reverse lookup: given an env var name, find its SecretKey */
@@ -280,7 +376,16 @@ export function getProviderApiKey(
   const secretKey = ENV_TO_SECRET.get(envVar);
   if (secretKey) return getSecret(secretKey, priority) ?? undefined;
 
-  const getEnv = () => process.env[envVar] ?? undefined;
+  const getEnv = () => {
+    const val = process.env[envVar];
+    if (!val) return undefined;
+    // Check if it's a comma-separated list (multiple keys)
+    if (val.includes(",")) {
+      const keys = val.split(",").map((k: string) => k.trim()).filter(Boolean);
+      if (keys.length > 0) return keys[0] ?? undefined; // Simplified: just return first for now
+    }
+    return val;
+  };
   const getApp = () => {
     if (keychainAvailable()) {
       const value = keychainGet(envVar as SecretKey);
