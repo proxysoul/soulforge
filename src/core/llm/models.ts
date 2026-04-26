@@ -1,8 +1,9 @@
 import { toErrorMessage } from "../../utils/errors.js";
-import { getProviderApiKey } from "../secrets.js";
+// getProviderApiKey is used in other parts of the file or removed if unused
 import { getIOClient } from "../workers/io-client.js";
 import { inferModelGroup } from "./model-utils.js";
 import { getAllProviders, getProvider, onProvidersChanged } from "./providers/index.js";
+import { getPooledApiKey } from "./credential-pool.js";
 import type { ProviderModelInfo } from "./providers/types.js";
 
 // Re-export for backward compatibility
@@ -434,7 +435,7 @@ interface AnthropicModelEntry {
  */
 async function fetchAnthropicContextWindows(): Promise<Map<string, number>> {
   const map = new Map<string, number>();
-  const apiKey = getProviderApiKey("ANTHROPIC_API_KEY");
+  const apiKey = getPooledApiKey("anthropic");
   if (!apiKey) return map;
   try {
     const res = await fetch("https://api.anthropic.com/v1/models", {
@@ -518,9 +519,9 @@ export async function fetchVercelGatewayModels(): Promise<GroupedModelsResult> {
 }
 
 async function fetchVercelGatewayGrouped(): Promise<GroupedModelsResult> {
-  const apiKey = getProviderApiKey("AI_GATEWAY_API_KEY");
+  const apiKey = getPooledApiKey("vercel_gateway");
   if (!apiKey) {
-    return { subProviders: [], modelsByProvider: {}, error: "AI_GATEWAY_API_KEY not set" };
+    return { subProviders: [], modelsByProvider: {}, error: "vercel_gateway credentials not set" };
   }
 
   try {
@@ -550,7 +551,7 @@ async function fetchVercelGatewayGrouped(): Promise<GroupedModelsResult> {
 }
 
 async function fetchLLMGatewayGrouped(): Promise<GroupedModelsResult> {
-  const apiKey = getProviderApiKey("LLM_GATEWAY_API_KEY");
+  const apiKey = getPooledApiKey("llmgateway");
 
   try {
     const headers: Record<string, string> = {};
@@ -581,7 +582,7 @@ async function fetchLLMGatewayGrouped(): Promise<GroupedModelsResult> {
 }
 
 async function fetchOpenRouterGrouped(): Promise<GroupedModelsResult> {
-  const apiKey = getProviderApiKey("OPENROUTER_API_KEY");
+  const apiKey = getPooledApiKey("openrouter");
   const headers: Record<string, string> = {};
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 

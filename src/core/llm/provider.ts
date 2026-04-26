@@ -1,6 +1,7 @@
 import type { LanguageModel } from "ai";
 import { getProviderApiKey } from "../secrets.js";
 import { getAllProviders, getProvider } from "./providers/index.js";
+import { getPooledApiKey } from "./credential-pool.js";
 
 export interface ProviderStatus {
   id: string;
@@ -31,8 +32,13 @@ export async function checkProviders(): Promise<ProviderStatus[]> {
       let available: boolean;
       if (p.checkAvailability) {
         available = await p.checkAvailability();
+      } else if (p.envVar === "") {
+        available = true;
       } else {
-        available = p.envVar === "" ? true : Boolean(getProviderApiKey(p.envVar));
+        // Check direct key first, then pooled credentials
+        const directKey = p.envVar ? getProviderApiKey(p.envVar) : undefined;
+        const pooledKey = getPooledApiKey(p.id);
+        available = Boolean(directKey || pooledKey);
       }
       return { id: p.id, name: p.name, envVar: p.envVar, available };
     }),
