@@ -6,8 +6,10 @@ import { saveGlobalConfig } from "../../config/index.js";
 import { providerIcon } from "../../core/icons.js";
 import { getAllProviders } from "../../core/llm/providers/index.js";
 import {
+  addPooledKey,
   deleteSecret,
   getDefaultKeyPriority,
+  getPooledKeys,
   getSecretSources,
   getStorageBackend,
   type KeyPriority,
@@ -134,15 +136,25 @@ export function ApiKeySettings({ visible, onClose }: Props) {
     const mapKey = (k: KeyItem): MenuRow[] => {
       const sources = keys[k.id];
       if (!sources) return [];
+      const allKeys = getPooledKeys(k.id);
+      const metaExtra = allKeys.length > 1 ? ` [${allKeys.length} keys]` : "";
       const out: MenuRow[] = [
         {
           id: k.id,
           kind: "set",
           targetKey: k.id,
           label: `${providerIcon(k.providerId)}  ${k.label}`,
-          meta: formatBadges(sources),
+          meta: formatBadges(sources) + metaExtra,
           active: sources.active !== "none",
           status: sources.active !== "none" ? "online" : "offline",
+        },
+        {
+          id: `${k.id}-add`,
+          kind: "set",
+          targetKey: `add:${k.id}`,
+          label: `Add another key for ${k.label}`,
+          status: "online",
+          meta: "pool additional keys",
         },
       ];
       if (sources.keychain || sources.file) {
@@ -216,12 +228,23 @@ export function ApiKeySettings({ visible, onClose }: Props) {
       setMode("menu");
       return;
     }
-    const result = setSecret(inputTarget, inputValue.trim());
-    if (result.success) {
-      const where = result.storage === "keychain" ? "OS keychain" : (result.path ?? "secrets.json");
-      popFlash("ok", `Saved to ${where}`);
+    // Check if this is an additional key (if input starts with "add:")
+    const isAddMode = inputTarget.startsWith("add:");
+    const targetKey = isAddMode ? inputTarget.slice(4) as SecretKey : inputTarget;
+    const keyValue = inputValue.trim();
+
+    if (isAddMode) {
+      // Add to pool of keys
+      const keys = addPooledKey(targetKey, keyValue);
+      popFlash("ok", `Added key (total: ${keys.length} keys in pool)`);
     } else {
-      popFlash("err", "Failed to save key");
+      const result = setSecret(targetKey, keyValue);
+      if (result.success) {
+        const where = result.storage === "keychain" ? "OS keychain" : (result.path ?? "secrets.json");
+        popFlash("ok", `Saved to ${where}`);
+      } else {
+        popFlash("err", "Failed to save key");
+      }
     }
     refresh(keyItems);
     setMode("menu");
