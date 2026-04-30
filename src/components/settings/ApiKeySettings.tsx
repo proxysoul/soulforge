@@ -230,7 +230,7 @@ export function ApiKeySettings({ visible, onClose }: Props) {
     }
     // Check if this is an additional key (if input starts with "add:")
     const isAddMode = inputTarget.startsWith("add:");
-    const targetKey = isAddMode ? inputTarget.slice(4) as SecretKey : inputTarget;
+    const targetKey = isAddMode ? (inputTarget.slice(4) as SecretKey) : inputTarget;
     const keyValue = inputValue.trim();
 
     if (isAddMode) {
@@ -240,7 +240,8 @@ export function ApiKeySettings({ visible, onClose }: Props) {
     } else {
       const result = setSecret(targetKey, keyValue);
       if (result.success) {
-        const where = result.storage === "keychain" ? "OS keychain" : (result.path ?? "secrets.json");
+        const where =
+          result.storage === "keychain" ? "OS keychain" : (result.path ?? "secrets.json");
         popFlash("ok", `Saved to ${where}`);
       } else {
         popFlash("err", "Failed to save key");

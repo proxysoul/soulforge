@@ -1,9 +1,9 @@
 import { toErrorMessage } from "../../utils/errors.js";
 // getProviderApiKey is used in other parts of the file or removed if unused
 import { getIOClient } from "../workers/io-client.js";
+import { getPooledApiKey } from "./credential-pool.js";
 import { inferModelGroup } from "./model-utils.js";
 import { getAllProviders, getProvider, onProvidersChanged } from "./providers/index.js";
-import { getPooledApiKey } from "./credential-pool.js";
 import type { ProviderModelInfo } from "./providers/types.js";
 
 // Re-export for backward compatibility
