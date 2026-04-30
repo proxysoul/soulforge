@@ -126,6 +126,11 @@ export function extractFromToolResult(
 export function extractFromUserMessage(wsm: WorkingStateManager, message: ModelMessage): void {
   const text = messageText(message);
   if (!text) return;
+  // Skip the synthetic memory recall pair — it's not user input. Letting it
+  // through pollutes userRequirements with memory bodies that look like
+  // requests, and the recalled memories themselves are accessible from the DB
+  // any time recall surfaces them again post-compaction.
+  if (text.includes("<recalled_memories>")) return;
 
   if (!wsm.getState().task) {
     wsm.setTask(truncate(text, 400));
@@ -141,6 +146,9 @@ export function extractFromUserMessage(wsm: WorkingStateManager, message: ModelM
 export function extractFromAssistantMessage(wsm: WorkingStateManager, message: ModelMessage): void {
   const text = messageText(message);
   if (!text || text.length < 20) return;
+  // Skip the recall-pair acknowledgement ("Acknowledged — N relevant memor…")
+  // — it's a synthetic ack, not assistant reasoning worth preserving.
+  if (/^Acknowledged — \d+ relevant memor(?:y|ies) surfaced\.$/.test(text.trim())) return;
 
   const sentences = text
     .split(/(?<=[.!?])\s+/)

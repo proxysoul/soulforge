@@ -86,6 +86,9 @@ function buildForgePrepareStep(
     buildSoulMapDiff(): string | null;
     commitSoulMapDiff(): void;
     buildSkillsBlock(): string | null;
+    buildMemoryRecallMessages(
+      lastUserMessage: string,
+    ): Promise<[{ role: "user"; content: string }, { role: "assistant"; content: string }] | null>;
   },
   tabId?: string,
   codeExecution?: boolean,
@@ -99,6 +102,15 @@ function buildForgePrepareStep(
   // To maintain prefix stability for Anthropic prompt caching, we re-insert previous
   // injects at their original positions so the API always sees an append-only history.
   const previousInjects: Array<{ cleanInsertAt: number; message: ModelMessage }> = [];
+
+  // Memory recall injects — same re-insert pattern, but spliced BEFORE the latest
+  // user turn (not appended at the tail) so the agent reads the recall block in
+  // the context of the user message that triggered it. One pair per user turn.
+  const recallInjects: Array<{
+    cleanInsertAt: number;
+    pair: [ModelMessage, ModelMessage];
+  }> = [];
+  let lastUserTurnCount = 0;
 
   // Proxy instructions message — injected once as the first user message so the proxy
   // cloaking doesn't strip it (it only replaces the system prompt, not user messages).
@@ -181,6 +193,45 @@ function buildForgePrepareStep(
 
     if (contextManager) {
       soulMapDiff = contextManager.buildSoulMapDiff();
+    }
+
+    // ── Memory recall injection ──────────────────────────────────────
+    // On every fresh user turn, ask the context manager for a recall pair
+    // (cached by lastUserMessage + edited-files snapshot + memory generation
+    // — see ContextManager.buildMemoryRecallMessages). When the pair changes,
+    // splice it in just before the new user message so the agent reads
+    // memory in context.
+    if (contextManager) {
+      const userTurnCount = countUserTurns(sanitized);
+      if (userTurnCount > lastUserTurnCount) {
+        lastUserTurnCount = userTurnCount;
+        const lastUserIdx = findLastUserIndex(sanitized);
+        const lastUserText = lastUserIdx >= 0 ? extractText(sanitized[lastUserIdx]) : "";
+        if (lastUserText) {
+          try {
+            const pair = await contextManager.buildMemoryRecallMessages(lastUserText);
+            if (pair && lastUserIdx >= 0) {
+              recallInjects.push({
+                cleanInsertAt: lastUserIdx,
+                pair: [
+                  {
+                    role: "user" as const,
+                    content: pair[0].content,
+                    providerOptions: EPHEMERAL_CACHE,
+                  } as ModelMessage,
+                  {
+                    role: "assistant" as const,
+                    content: pair[1].content,
+                    providerOptions: EPHEMERAL_CACHE,
+                  } as ModelMessage,
+                ],
+              });
+            }
+          } catch {
+            // Recall failures are silent — never break the step.
+          }
+        }
+      }
     }
 
     // [6] Plan mode nudges — hint only, no activeTools forcing
@@ -287,18 +338,27 @@ function buildForgePrepareStep(
     //   Step N:   [...clean_17, INJECT_9]
     //   Step N+1: [...clean_17, INJECT_9, asst, tool, INJECT_10]
     //   Step N+2: [...clean_17, INJECT_9, asst, tool, INJECT_10, asst, tool, INJECT_11]
-    if (tailParts.length > 0 || previousInjects.length > 0) {
+    if (tailParts.length > 0 || previousInjects.length > 0 || recallInjects.length > 0) {
       const msgs = result.messages ?? [...sanitized];
       const cleanMsgCount = msgs.length;
 
-      // Re-insert all previous injects at their original positions.
-      // cleanInsertAt is relative to the clean array; offset accounts for prior splices.
+      // Combine prior injects (tail user-msgs + recall pairs) sorted by their
+      // CLEAN insert index, then splice them in left-to-right with a running
+      // offset. Tail injects use cleanInsertAt = clean tail; recall pairs use
+      // cleanInsertAt = the user-message index they were attached to.
+      type Splice = { at: number; messages: ModelMessage[] };
+      const splices: Splice[] = [
+        ...previousInjects.map((p) => ({ at: p.cleanInsertAt, messages: [p.message] })),
+        ...recallInjects.map((r) => ({ at: r.cleanInsertAt, messages: [...r.pair] })),
+      ];
+      splices.sort((a, b) => a.at - b.at);
+
       let offset = 0;
-      for (const prev of previousInjects) {
-        const insertAt = prev.cleanInsertAt + offset;
+      for (const sp of splices) {
+        const insertAt = sp.at + offset;
         if (insertAt <= msgs.length) {
-          msgs.splice(insertAt, 0, prev.message);
-          offset++;
+          msgs.splice(insertAt, 0, ...sp.messages);
+          offset += sp.messages.length;
         }
       }
 
@@ -836,4 +896,35 @@ export function createForgeAgent({
     providerOptions: wrappedProviderOptions,
     ...(subagentHeaders ? { headers: subagentHeaders } : {}),
   });
+}
+function countUserTurns(messages: ModelMessage[]): number {
+  let n = 0;
+  for (const m of messages) {
+    if (m.role === "user") n++;
+  }
+  return n;
+}
+
+function findLastUserIndex(messages: ModelMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") return i;
+  }
+  return -1;
+}
+
+function extractText(message: ModelMessage | undefined): string {
+  if (!message) return "";
+  const c = message.content as unknown;
+  if (typeof c === "string") return c.trim();
+  if (Array.isArray(c)) {
+    const parts: string[] = [];
+    for (const p of c) {
+      if (p && typeof p === "object" && "type" in p && (p as { type: string }).type === "text") {
+        const t = (p as { text?: unknown }).text;
+        if (typeof t === "string") parts.push(t);
+      }
+    }
+    return parts.join("\n").trim();
+  }
+  return "";
 }

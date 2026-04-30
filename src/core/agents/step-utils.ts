@@ -26,6 +26,13 @@ export interface PrepareStepOptions {
   contextWindow?: number;
   disablePruning?: boolean;
   tabId?: string;
+  /** When set, recall a memory pair on each fresh user turn and splice in
+   *  before the user message (cache-stable). */
+  contextManager?: {
+    buildMemoryRecallMessages(
+      lastUserMessage: string,
+    ): Promise<[{ role: "user"; content: string }, { role: "assistant"; content: string }] | null>;
+  };
 }
 
 // Context-proportional thresholds (fraction of model's context window).
@@ -373,6 +380,7 @@ export function buildPrepareStep({
   contextWindow: ctxWindow,
   disablePruning,
   tabId,
+  contextManager,
 }: PrepareStepOptions): PrepareStepResult {
   const cw = Math.min(ctxWindow ?? DEFAULT_CONTEXT_WINDOW, MAX_SUBAGENT_CONTEXT);
   const nudgeThreshold = Math.floor(cw * OUTPUT_NUDGE_PCT);
@@ -387,8 +395,15 @@ export function buildPrepareStep({
   // to keep the system prompt stable for prefix caching.
   const previousInjects: Array<{ cleanInsertAt: number; message: ModelMessage }> = [];
 
+  // Memory recall injects — spliced before the user turn that triggered them.
+  const recallInjects: Array<{
+    cleanInsertAt: number;
+    pair: [ModelMessage, ModelMessage];
+  }> = [];
+  let lastUserTurnCount = 0;
+
   // biome-ignore lint/suspicious/noExplicitAny: TOOLS generic is invariant — tool-agnostic functions use <any> (same as SDK's stepCountIs/hasToolCall)
-  const prepareStep: PrepareStepFunction<any> = ({ stepNumber, steps, messages }) => {
+  const prepareStep: PrepareStepFunction<any> = async ({ stepNumber, steps, messages }) => {
     const result: {
       toolChoice?: "required" | "auto" | "none";
       activeTools?: string[];
@@ -634,17 +649,51 @@ export function buildPrepareStep({
       result.activeTools = [];
     }
 
+    // ── Memory recall injection (subagent) ────────────────────────
+    if (contextManager) {
+      const baseMsgs = sanitizedMessages ?? messages;
+      const userTurnCount = countUserTurnsLocal(baseMsgs);
+      if (userTurnCount > lastUserTurnCount) {
+        lastUserTurnCount = userTurnCount;
+        const lastUserIdx = findLastUserIndexLocal(baseMsgs);
+        const lastUserText = lastUserIdx >= 0 ? extractTextLocal(baseMsgs[lastUserIdx]) : "";
+        if (lastUserText) {
+          try {
+            const pair = await contextManager.buildMemoryRecallMessages(lastUserText);
+            if (pair && lastUserIdx >= 0) {
+              recallInjects.push({
+                cleanInsertAt: lastUserIdx,
+                pair: [
+                  { role: "user" as const, content: pair[0].content } as ModelMessage,
+                  { role: "assistant" as const, content: pair[1].content } as ModelMessage,
+                ],
+              });
+            }
+          } catch {
+            // silent
+          }
+        }
+      }
+    }
+
     // Re-insert previous injects + append new one for cache-stable prefix.
-    if (hints.length > 0 || previousInjects.length > 0) {
+    if (hints.length > 0 || previousInjects.length > 0 || recallInjects.length > 0) {
       const msgs = result.messages ?? [...(sanitizedMessages ?? messages)];
       const cleanMsgCount = msgs.length;
 
+      type Splice = { at: number; messages: ModelMessage[] };
+      const splices: Splice[] = [
+        ...previousInjects.map((p) => ({ at: p.cleanInsertAt, messages: [p.message] })),
+        ...recallInjects.map((r) => ({ at: r.cleanInsertAt, messages: [...r.pair] })),
+      ];
+      splices.sort((a, b) => a.at - b.at);
+
       let offset = 0;
-      for (const prev of previousInjects) {
-        const insertAt = prev.cleanInsertAt + offset;
+      for (const sp of splices) {
+        const insertAt = sp.at + offset;
         if (insertAt <= msgs.length) {
-          msgs.splice(insertAt, 0, prev.message);
-          offset++;
+          msgs.splice(insertAt, 0, ...sp.messages);
+          offset += sp.messages.length;
         }
       }
 
@@ -705,3 +754,35 @@ export function buildSymbolLookup(repoMap?: {
 }
 
 export { compactOldToolResults, KEEP_RECENT_MESSAGES };
+
+function countUserTurnsLocal(messages: ModelMessage[]): number {
+  let n = 0;
+  for (const m of messages) {
+    if (m.role === "user") n++;
+  }
+  return n;
+}
+
+function findLastUserIndexLocal(messages: ModelMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") return i;
+  }
+  return -1;
+}
+
+function extractTextLocal(message: ModelMessage | undefined): string {
+  if (!message) return "";
+  const c = message.content as unknown;
+  if (typeof c === "string") return c.trim();
+  if (Array.isArray(c)) {
+    const parts: string[] = [];
+    for (const p of c) {
+      if (p && typeof p === "object" && "type" in p && (p as { type: string }).type === "text") {
+        const t = (p as { text?: unknown }).text;
+        if (typeof t === "string") parts.push(t);
+      }
+    }
+    return parts.join("\n").trim();
+  }
+  return "";
+}

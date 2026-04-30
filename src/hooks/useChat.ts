@@ -1128,7 +1128,7 @@ export function useChat({
         setCoreMessages(newMessages);
         emitCacheReset(); // Old read results are gone — allow re-reads
         const trackedFiles = contextManager.getTrackedFiles();
-        contextManager.resetConversationTracking();
+        contextManager.resetForCompaction();
         for (const f of trackedFiles.edited) {
           try {
             contextManager.onFileChanged(f);

@@ -12,6 +12,7 @@ import type { SymbolForSummary } from "../intelligence/repo-map.js";
 import { resolveModel } from "../llm/provider.js";
 import { EPHEMERAL_CACHE, supportsTemperature } from "../llm/provider-options.js";
 import { MemoryManager } from "../memory/manager.js";
+import { MemoryRecall } from "../memory/recall.js";
 import {
   buildDirectoryTree,
   buildSystemPrompt as buildPrompt,
@@ -33,6 +34,7 @@ import { detectToolchain } from "./toolchain.js";
 export interface SharedContextResources {
   repoMap: IntelligenceClient;
   memoryManager: MemoryManager;
+  memoryRecall?: MemoryRecall;
   workspaceCoordinator?: import("../coordination/WorkspaceCoordinator.js").WorkspaceCoordinator;
   parent?: ContextManager;
 }
@@ -52,6 +54,16 @@ export class ContextManager {
   private hasGhCli: boolean | null = null;
   private skills = new Map<string, string>();
   private memoryManager: MemoryManager;
+  private memoryRecall: MemoryRecall;
+  /** Cache for buildMemoryRecallMessages — keyed on (memGen, editEpoch, lastUserMsg, editedFiles). */
+  private recallCache: {
+    key: string;
+    pair: [{ role: "user"; content: string }, { role: "assistant"; content: string }] | null;
+  } | null = null;
+  /** Bumped on every onFileEdited so recall cache misses when the working set shifts. */
+  private recallEditEpoch = 0;
+  /** Memory ids surfaced earlier in this turn-stream — skipped on subsequent recall to avoid duplicate <recalled_memories> blocks. Cleared on cache reset (compaction, /clear, session restore). */
+  private surfacedMemoryIds = new Set<string>();
   private forgeMode: ForgeMode = "default";
   private editorFile: string | null = null;
   private editorOpen = false;
@@ -99,12 +111,15 @@ export class ContextManager {
     if (shared) {
       this.repoMap = shared.repoMap;
       this.memoryManager = shared.memoryManager;
+      this.memoryRecall = shared.memoryRecall ?? this.createMemoryRecall();
       this.shared = shared;
       this.isChild = true;
       this.wireFileEventHandlers();
     } else {
       this.memoryManager = new MemoryManager(cwd);
+      this.memoryManager.noteSessionStart();
       this.repoMap = new IntelligenceClient(cwd);
+      this.memoryRecall = this.createMemoryRecall();
       setIntelligenceClient(this.repoMap);
       this.wireFileEventHandlers();
       if (this.repoMapEnabled) {
@@ -129,6 +144,7 @@ export class ContextManager {
 
     onStep?.("Opening the memory vaults…");
     const memoryManager = new MemoryManager(cwd);
+    memoryManager.noteSessionStart();
     await tick();
 
     onStep?.("Mapping the codebase…");
@@ -151,10 +167,91 @@ export class ContextManager {
     return {
       repoMap: this.repoMap,
       memoryManager: this.memoryManager,
+      memoryRecall: this.memoryRecall,
       workspaceCoordinator: this.shared?.workspaceCoordinator,
       parent: this,
     };
   }
+
+  getMemoryRecall(): MemoryRecall {
+    return this.memoryRecall;
+  }
+
+  private createMemoryRecall(): MemoryRecall {
+    const projectDb = this.memoryManager.getDbForScope("project");
+    return new MemoryRecall(
+      {
+        searchUnicode: (q, l) => projectDb.searchUnicode(q, l),
+        searchTrigram: (q, l) => projectDb.searchTrigram(q, l),
+        searchTrigramWithBigram: (q, l) => projectDb.searchTrigramWithBigram(q, l),
+        findByFileIds: (ids, l) => projectDb.findByFileIds(ids, l),
+        findByPaths: (paths, l) => projectDb.findByPaths(paths, l),
+        topByUsage: (l) => projectDb.topByUsage(l),
+        readMany: (ids) => projectDb.readMany(ids),
+      },
+      this.repoMap,
+    );
+  }
+
+  async buildMemoryRecallMessages(
+    lastUserMessage: string,
+  ): Promise<[{ role: "user"; content: string }, { role: "assistant"; content: string }] | null> {
+    const editedPaths = [...this.editedFiles].map((abs) =>
+      abs.startsWith(`${this.cwd}/`) ? abs.slice(this.cwd.length + 1) : abs,
+    );
+    const memGen = this.memoryManager.generation;
+    const cacheKey = `${memGen}|${this.recallEditEpoch}|${lastUserMessage}|${editedPaths.join(",")}`;
+    if (this.recallCache && this.recallCache.key === cacheKey) {
+      return this.recallCache.pair;
+    }
+
+    let results: import("../memory/types.js").MemoryRecallResult[];
+    try {
+      results = await this.memoryRecall.recall({
+        query: lastUserMessage,
+        editedFiles: editedPaths,
+      });
+    } catch {
+      this.recallCache = { key: cacheKey, pair: null };
+      return null;
+    }
+    const fresh = results.filter((r) => !this.surfacedMemoryIds.has(r.record.id));
+    if (fresh.length === 0) {
+      this.recallCache = { key: cacheKey, pair: null };
+      return null;
+    }
+
+    const lines: string[] = ["<recalled_memories>"];
+    const surfacedIds: Array<{ scope: "global" | "project"; id: string }> = [];
+    for (const { record } of fresh) {
+      const scope = this.resolveMemoryScope(record.id);
+      surfacedIds.push({ scope, id: record.id });
+      this.surfacedMemoryIds.add(record.id);
+      const cat = record.category ?? "—";
+      lines.push(`[${cat}] ${record.id.slice(0, 8)} — ${record.summary}`);
+      if (record.details) lines.push(`  ${record.details}`);
+    }
+    lines.push("</recalled_memories>");
+
+    this.memoryManager.recordRecallAcross(surfacedIds);
+
+    const userMessage = lines.join("\n");
+    const assistantAck = `Acknowledged — ${String(surfacedIds.length)} relevant memor${surfacedIds.length === 1 ? "y" : "ies"} surfaced.`;
+    const pair: [{ role: "user"; content: string }, { role: "assistant"; content: string }] = [
+      { role: "user" as const, content: userMessage },
+      { role: "assistant" as const, content: assistantAck },
+    ];
+    this.recallCache = { key: cacheKey, pair };
+    return pair;
+  }
+
+  /** Locate which scope DB owns a memory id (project first, then global). */
+  private resolveMemoryScope(id: string): "global" | "project" {
+    return this.memoryManager.read("project", id) ? "project" : "global";
+  }
+
+  /** Provider options for the memory recall message pair — cached ephemerally. */
+  static readonly MEMORY_RECALL_PROVIDER_OPTIONS = EPHEMERAL_CACHE;
 
   setTabId(tabId: string): void {
     this.tabId = tabId;
@@ -176,7 +273,10 @@ export class ContextManager {
   private unsubRead: (() => void) | null = null;
 
   private wireFileEventHandlers(): void {
-    this.unsubEdit = onFileEdited((absPath) => this.onFileChanged(absPath));
+    this.unsubEdit = onFileEdited((absPath) => {
+      this.recallEditEpoch++;
+      this.onFileChanged(absPath);
+    });
     this.unsubRead = onFileRead((absPath) => this.trackMentionedFile(absPath));
     setNeovimFileWrittenHandler((absPath) => {
       emitFileEdited(absPath, "");
@@ -425,15 +525,41 @@ export class ContextManager {
     };
   }
 
-  /** Reset per-conversation tracking (call on new session / context clear / compaction) */
+  /**
+   * Reset per-conversation tracking. Use for new session / context clear /
+   * session restore. **Not** for compaction — that crosses no semantic boundary,
+   * so already-surfaced memory ids must persist (otherwise they re-inject after
+   * the summary already folded them in). Use `resetForCompaction()` instead.
+   */
   resetConversationTracking(): void {
     this.editedFiles.clear();
+    this.surfacedMemoryIds.clear();
+    this.recallCache = null;
     this.mentionedFiles.clear();
 
     this.conversationTokens = 0;
     if (this.repoMapCache) this.repoMapCache.at = 0;
     // Increment generation so buildInstructions() re-renders the soul map
     // with fresh DB state instead of returning the stale cached string.
+    this.repoMapGeneration++;
+    this.soulMapDiffChangedFiles.clear();
+    this.soulMapDiffSeq = 0;
+    this.soulMapSnapshotPaths.clear();
+    this.soulMapDiffBlocks.clear();
+    this.pendingSoulMapDiff = null;
+    this.lastEmittedSoulMapDiff = null;
+    this.warmRepoMapCache();
+  }
+
+  /**
+   * Lighter reset for mid-session compaction. Keeps `surfacedMemoryIds` so
+   * memories already shown this conversation don't re-inject after the summary
+   * already references them. Soul-map diff state still resets — the post-compact
+   * message stream is a fresh prefix from the model's perspective.
+   */
+  resetForCompaction(): void {
+    this.recallCache = null;
+    if (this.repoMapCache) this.repoMapCache.at = 0;
     this.repoMapGeneration++;
     this.soulMapDiffChangedFiles.clear();
     this.soulMapDiffSeq = 0;
