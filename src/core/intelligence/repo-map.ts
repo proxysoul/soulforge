@@ -3822,6 +3822,39 @@ export class RepoMap {
     );
   }
 
+  /**
+   * Resolve a relative path to its stable Soul Map file id.
+   * Returns null when the file is not indexed.
+   */
+  getFileIdByPath(relPath: string): number | null {
+    if (!this.ready) return null;
+    const row = this.db
+      .query<{ id: number }, [string]>("SELECT id FROM files WHERE path = ?")
+      .get(relPath);
+    return row?.id ?? null;
+  }
+
+  /** Reverse lookup: stable file id → current path. */
+  getFilePathById(id: number): string | null {
+    if (!this.ready) return null;
+    const row = this.db
+      .query<{ path: string }, [number]>("SELECT path FROM files WHERE id = ?")
+      .get(id);
+    return row?.path ?? null;
+  }
+
+  /** Blast radius lookup by stable file id (no path round-trip). */
+  getFileBlastRadiusById(id: number): number {
+    if (!this.ready) return 0;
+    return (
+      this.db
+        .query<{ c: number }, [number]>(
+          "SELECT COUNT(DISTINCT source_file_id) AS c FROM edges WHERE target_file_id = ?",
+        )
+        .get(id)?.c ?? 0
+    );
+  }
+
   private extractTokenSignatures(
     fileId: number,
     symbols: Array<{ name: string; kind: string; location: { line: number; endLine?: number } }>,

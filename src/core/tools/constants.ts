@@ -8,6 +8,7 @@ export const CORE_TOOL_NAMES: string[] = [
   "glob",
   "shell",
   "project",
+  "memory",
 ];
 
 /** Tool catalog — name + one-liner for all tools. Used by /tools popup and request_tools listing. */

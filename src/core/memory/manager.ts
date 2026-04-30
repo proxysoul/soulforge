@@ -1,14 +1,33 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { MemoryDB } from "./db.js";
-import { migrateOldMemory } from "./migrate.js";
-import type { MemoryCategory, MemoryRecord, MemoryScope, MemoryScopeConfig } from "./types.js";
+import {
+  MemoryDB,
+  type MemoryListOpts,
+  type MemoryWriteInput,
+  type MemoryWriteResult,
+} from "./db.js";
+import type {
+  MemoryCategory,
+  MemoryFileRef,
+  MemoryRecord,
+  MemoryScope,
+  MemoryScopeConfig,
+} from "./types.js";
+
+export interface CleanupTracker {
+  /** ISO timestamp of last successful cleanup pass, or null. */
+  lastCleanupAt: string | null;
+  /** Sessions started since last cleanup. Drives the hint threshold. */
+  sessionsSinceCleanup: number;
+}
 
 type SettingsScope = "project" | "global";
 
 const CONFIG_FILE = "memory-config.json";
-const DEFAULT_CONFIG: MemoryScopeConfig = { writeScope: "global", readScope: "all" };
+const DEFAULT_CONFIG: MemoryScopeConfig = { writeScope: "project", readScope: "all" };
+
+export type ScopedMemory = MemoryRecord & { scope: MemoryScope };
 
 export class MemoryManager {
   private globalDb: MemoryDB;
@@ -17,6 +36,13 @@ export class MemoryManager {
   private _scopeConfig: MemoryScopeConfig = { ...DEFAULT_CONFIG };
   private _settingsScope: SettingsScope = "project";
   private _generation = 0;
+  /**
+   * In-memory mirror of the cleanup tracker persisted alongside the scope
+   * config. `lastCleanupAt`: ISO timestamp; `sessionsSinceCleanup`: count of
+   * fresh sessions since the user last ran /memory cleanup. Used by the hint
+   * banner threshold (≥20 sessions, ≥30 memories, ≥10 stale candidates).
+   */
+  private _cleanup: CleanupTracker = { lastCleanupAt: null, sessionsSinceCleanup: 0 };
 
   get scopeConfig(): MemoryScopeConfig {
     return this._scopeConfig;
@@ -31,6 +57,10 @@ export class MemoryManager {
     return this._settingsScope;
   }
 
+  get cleanupTracker(): Readonly<CleanupTracker> {
+    return this._cleanup;
+  }
+
   constructor(cwd: string) {
     this.cwd = cwd;
 
@@ -41,8 +71,6 @@ export class MemoryManager {
     this.projectDb = new MemoryDB(projectPath, "project");
 
     this.loadConfig();
-    this.tryMigrate();
-    this.cleanupStaleCheckpoints();
   }
 
   private configPath(scope: "project" | "global"): string {
@@ -56,10 +84,13 @@ export class MemoryManager {
       const path = this.configPath(scope);
       if (!existsSync(path)) continue;
       try {
-        const data = JSON.parse(readFileSync(path, "utf-8")) as MemoryScopeConfig;
+        const data = JSON.parse(readFileSync(path, "utf-8")) as MemoryScopeConfig & {
+          cleanup?: CleanupTracker;
+        };
         if (data.writeScope && data.readScope) {
-          this._scopeConfig = data;
+          this._scopeConfig = { writeScope: data.writeScope, readScope: data.readScope };
           this._settingsScope = scope;
+          if (data.cleanup) this._cleanup = data.cleanup;
           return;
         }
       } catch {}
@@ -70,7 +101,8 @@ export class MemoryManager {
     const path = this.configPath(to);
     const dir = dirname(path);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(path, JSON.stringify(this._scopeConfig, null, 2), "utf-8");
+    const payload = { ...this._scopeConfig, cleanup: this._cleanup };
+    writeFileSync(path, JSON.stringify(payload, null, 2), "utf-8");
     this._settingsScope = to;
   }
 
@@ -89,23 +121,12 @@ export class MemoryManager {
     this.saveConfig(scope);
   }
 
-  private cleanupStaleCheckpoints(): void {
-    this.projectDb.deleteStaleCheckpoints();
-    this.globalDb.deleteStaleCheckpoints();
-  }
-
-  private tryMigrate(): void {
-    const oldDir = join(this.cwd, ".soulforge", "memory");
-    if (!existsSync(oldDir)) return;
-
-    const hasData = this.projectDb.list().length > 0;
-    if (hasData) return;
-
-    migrateOldMemory(oldDir, this.projectDb);
-  }
-
   private getDb(scope: MemoryScope): MemoryDB {
     return scope === "global" ? this.globalDb : this.projectDb;
+  }
+
+  getDbForScope(scope: MemoryScope): MemoryDB {
+    return this.getDb(scope);
   }
 
   private getReadDbs(scope: MemoryScope | "both" | "all" | "none"): MemoryDB[] {
@@ -119,20 +140,30 @@ export class MemoryManager {
     return this._generation;
   }
 
-  write(
-    scope: MemoryScope,
-    record: Omit<MemoryRecord, "id" | "created_at" | "updated_at"> & { id?: string },
-  ): MemoryRecord {
-    const result = this.getDb(scope).write(record);
+  write(scope: MemoryScope, input: MemoryWriteInput): MemoryWriteResult {
+    const result = this.getDb(scope).write(input);
     this._generation++;
     return result;
   }
 
-  list(
-    scope: MemoryScope | "both" | "all",
-    opts?: { category?: MemoryCategory; tag?: string },
-  ): (MemoryRecord & { scope: MemoryScope })[] {
-    const results: (MemoryRecord & { scope: MemoryScope })[] = [];
+  read(scope: MemoryScope, id: string): MemoryRecord | null {
+    return this.getDb(scope).read(id);
+  }
+
+  /**
+   * Locate a memory by id across read scopes — useful for tools that don't
+   * know which DB the id lives in. Returns the first match.
+   */
+  findById(scope: MemoryScope | "both" | "all", id: string): ScopedMemory | null {
+    for (const db of this.getReadDbs(scope)) {
+      const r = db.read(id);
+      if (r) return { ...r, scope: db.scope };
+    }
+    return null;
+  }
+
+  list(scope: MemoryScope | "both" | "all", opts?: MemoryListOpts): ScopedMemory[] {
+    const results: ScopedMemory[] = [];
     for (const db of this.getReadDbs(scope)) {
       for (const m of db.list(opts)) {
         results.push({ ...m, scope: db.scope });
@@ -141,85 +172,188 @@ export class MemoryManager {
     return results;
   }
 
-  search(
-    query: string,
-    scope: MemoryScope | "both" | "all",
-    limit?: number,
-  ): (MemoryRecord & { scope: MemoryScope })[] {
-    const results: (MemoryRecord & { scope: MemoryScope })[] = [];
-    for (const db of this.getReadDbs(scope)) {
-      for (const m of db.search(query, limit)) {
-        results.push({ ...m, scope: db.scope });
-      }
-    }
-    return results;
+  listByScope(scope: MemoryScope, opts?: MemoryListOpts): ScopedMemory[] {
+    const db = this.getDb(scope);
+    return db.list(opts).map((m) => ({ ...m, scope }));
   }
 
-  delete(scope: MemoryScope, id: string): boolean {
-    const result = this.getDb(scope).delete(id);
-    if (result) this._generation++;
-    return result;
+  softDelete(scope: MemoryScope, id: string): boolean {
+    const ok = this.getDb(scope).softDelete(id);
+    if (ok) this._generation++;
+    return ok;
+  }
+
+  restore(scope: MemoryScope, id: string): boolean {
+    const ok = this.getDb(scope).restore(id);
+    if (ok) this._generation++;
+    return ok;
+  }
+
+  pin(scope: MemoryScope, id: string): boolean {
+    const ok = this.getDb(scope).pin(id);
+    if (ok) this._generation++;
+    return ok;
+  }
+
+  unpin(scope: MemoryScope, id: string): boolean {
+    const ok = this.getDb(scope).unpin(id);
+    if (ok) this._generation++;
+    return ok;
+  }
+
+  supersede(scope: MemoryScope, oldId: string, newId: string): boolean {
+    const ok = this.getDb(scope).supersede(oldId, newId);
+    if (ok) this._generation++;
+    return ok;
+  }
+
+  recordRecall(scope: MemoryScope, ids: string[]): void {
+    if (ids.length === 0) return;
+    this.getDb(scope).recordRecall(ids);
+  }
+
+  recordRecallAcross(entries: Array<{ scope: MemoryScope; id: string }>): void {
+    if (entries.length === 0) return;
+    const byScope = new Map<MemoryScope, string[]>();
+    for (const e of entries) {
+      const arr = byScope.get(e.scope);
+      if (arr) arr.push(e.id);
+      else byScope.set(e.scope, [e.id]);
+    }
+    for (const [scope, ids] of byScope) this.getDb(scope).recordRecall(ids);
+  }
+
+  addFileRef(scope: MemoryScope, memoryId: string, path: string, fileId: number | null): void {
+    this.getDb(scope).addFileRef(memoryId, path, fileId);
+  }
+
+  listFileRefs(scope: MemoryScope, memoryId: string): MemoryFileRef[] {
+    return this.getDb(scope).listFileRefs(memoryId);
   }
 
   clearScope(scope: MemoryScope | "all"): number {
     let cleared = 0;
     const dbs = scope === "all" ? [this.projectDb, this.globalDb] : [this.getDb(scope)];
     for (const db of dbs) {
-      cleared += db.deleteAll();
+      cleared += db.clearAll();
     }
     if (cleared > 0) this._generation++;
     return cleared;
   }
 
-  listByScope(scope: MemoryScope): (MemoryRecord & { scope: MemoryScope })[] {
-    const db = this.getDb(scope);
-    return db.list().map((m) => ({ ...m, scope }));
+  /**
+   * Aggregated duplicate-content groups across the requested read scopes.
+   * Each group: kept (most-recent/pinned) + dupes (soft-delete candidates).
+   * Used by Quick cleanup mode.
+   */
+  findDuplicates(scope: MemoryScope | "both" | "all"): Array<{
+    scope: MemoryScope;
+    kept: MemoryRecord;
+    dupes: MemoryRecord[];
+  }> {
+    const out: Array<{ scope: MemoryScope; kept: MemoryRecord; dupes: MemoryRecord[] }> = [];
+    for (const db of this.getReadDbs(scope)) {
+      for (const g of db.findDuplicates()) out.push({ scope: db.scope, ...g });
+    }
+    return out;
+  }
+
+  /**
+   * Memories whose every linked file is missing on disk. Caller supplies the
+   * existence resolver so the manager doesn't import fs directly (keeps it
+   * mockable in tests).
+   */
+  findDeadFileRefs(
+    scope: MemoryScope | "both" | "all",
+    fileExists: (path: string) => boolean,
+  ): Array<{ scope: MemoryScope; record: MemoryRecord; deadPaths: string[] }> {
+    const out: Array<{ scope: MemoryScope; record: MemoryRecord; deadPaths: string[] }> = [];
+    for (const db of this.getReadDbs(scope)) {
+      for (const r of db.findDeadFileRefs(fileExists)) out.push({ scope: db.scope, ...r });
+    }
+    return out;
+  }
+
+  /** Bottom-N by decay (age × use_count⁻¹), pinned excluded. */
+  staleCandidates(
+    scope: MemoryScope | "both" | "all",
+    limit = 25,
+  ): Array<{ scope: MemoryScope; record: MemoryRecord; ageDays: number }> {
+    const out: Array<{ scope: MemoryScope; record: MemoryRecord; ageDays: number }> = [];
+    for (const db of this.getReadDbs(scope)) {
+      for (const r of db.staleCandidates(limit)) out.push({ scope: db.scope, ...r });
+    }
+    out.sort((a, b) => b.ageDays - a.ageDays);
+    return out.slice(0, limit);
+  }
+
+  /** Increment session counter — call once per fresh session start. */
+  noteSessionStart(): void {
+    this._cleanup = {
+      ...this._cleanup,
+      sessionsSinceCleanup: this._cleanup.sessionsSinceCleanup + 1,
+    };
+    this.saveConfig(this._settingsScope);
+  }
+
+  /** Reset cleanup tracker after a successful cleanup pass. */
+  noteCleanupCompleted(): void {
+    this._cleanup = { lastCleanupAt: new Date().toISOString(), sessionsSinceCleanup: 0 };
+    this.saveConfig(this._settingsScope);
+  }
+
+  /**
+   * Cleanup-hint criteria: ≥20 sessions since last cleanup AND ≥30 active
+   * memories AND ≥10 stale candidates. Returns null when not warranted so
+   * the UI can render nothing instead of empty state.
+   */
+  cleanupHint(): { sessions: number; total: number; stale: number } | null {
+    const total = this.projectDb.activeCount() + this.globalDb.activeCount();
+    if (total < 30) return null;
+    if (this._cleanup.sessionsSinceCleanup < 20) return null;
+    const stale = this.staleCandidates("all", 25).length;
+    if (stale < 10) return null;
+    return { sessions: this._cleanup.sessionsSinceCleanup, total, stale };
   }
 
   buildMemoryIndex(): string | null {
     const projectIdx = this.projectDb.getIndex();
     const globalIdx = this.globalDb.getIndex();
-
     if (projectIdx.total === 0 && globalIdx.total === 0) return null;
 
-    const parts = [
-      "You have persistent memory. Use memory(action: search) to recall. Only write when the USER explicitly asks you to remember something.",
-      `Write scope: ${this._scopeConfig.writeScope} | Read scope: ${this._scopeConfig.readScope}`,
-      "",
-    ];
-
-    let totalChars = parts.reduce((s, p) => s + p.length, 0);
-    const addIndex = (label: string, idx: typeof projectIdx) => {
-      if (idx.total === 0) return;
-      const cats = Object.entries(idx.byCategory)
-        .map(([k, v]) => `${k}(${String(v)})`)
-        .join(" ");
-      parts.push(`${label} (${String(idx.total)}): ${cats}`);
-      totalChars += parts[parts.length - 1]?.length ?? 0;
-      if (idx.recent.length > 0) {
-        for (const title of idx.recent) {
-          const line = `  - ${title.length > 80 ? `${title.slice(0, 77)}...` : title}`;
-          if (totalChars + line.length > 800) {
-            parts.push(`  ... +${String(idx.total - idx.recent.indexOf(title))} more`);
-            break;
-          }
-          parts.push(line);
-          totalChars += line.length;
-        }
-        if (idx.total > idx.recent.length && !parts[parts.length - 1]?.startsWith("  ...")) {
-          parts.push(`  ... +${String(idx.total - idx.recent.length)} more`);
-        }
+    const fmt = (label: string, idx: typeof projectIdx): string | null => {
+      if (idx.total === 0) return null;
+      const cats: string[] = [];
+      for (const [k, v] of Object.entries(idx.byCategory) as [MemoryCategory, number][]) {
+        if (v > 0) cats.push(`${k} ${String(v)}`);
       }
+      const pinned = idx.pinned > 0 ? `, ${String(idx.pinned)} pinned` : "";
+      const catStr = cats.length > 0 ? ` — ${cats.join(", ")}` : "";
+      return `${label}: ${String(idx.total)}${catStr}${pinned}`;
     };
 
-    addIndex("Project", projectIdx);
-    addIndex("Global", globalIdx);
-
-    return parts.join("\n");
+    const lines = [
+      "Persistent memory active. Relevant entries surface automatically when you edit or mention related files. Use memory(action: search) for explicit lookup. Write only durable, non-code knowledge the user wants remembered.",
+    ];
+    const proj = fmt("project", projectIdx);
+    const glob = fmt("global", globalIdx);
+    if (proj) lines.push(proj);
+    if (glob) lines.push(glob);
+    const out = lines.join("\n");
+    // Hard cap ~200 tokens (≈800 chars). Defensive: current shape always fits,
+    // but a future schema growth shouldn't blow the prompt budget silently.
+    return out.length > 800 ? `${out.slice(0, 797)}...` : out;
   }
 
   close(): void {
     this.globalDb.close();
     this.projectDb.close();
+  }
+
+  getLegacyBackupPaths(): { project: string | null; global: string | null } {
+    return {
+      project: this.projectDb.legacyBackupPath,
+      global: this.globalDb.legacyBackupPath,
+    };
   }
 }

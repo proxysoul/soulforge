@@ -452,6 +452,18 @@ export class IntelligenceClient extends WorkerClient {
     return this.call("getFileBlastRadius", relPath);
   }
 
+  async getFileIdByPath(relPath: string): Promise<number | null> {
+    return this.call("getFileIdByPath", relPath);
+  }
+
+  async getFilePathById(id: number): Promise<string | null> {
+    return this.call("getFilePathById", id);
+  }
+
+  async getFileBlastRadiusById(id: number): Promise<number> {
+    return this.call("getFileBlastRadiusById", id);
+  }
+
   async getFileDiffBlock(relPath: string): Promise<{
     blastRadius: number;
     symbols: Array<{ name: string; kind: string; signature: string | null; line: number }>;

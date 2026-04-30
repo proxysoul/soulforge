@@ -365,7 +365,7 @@ export function buildTools(
 ) {
   const effectiveCwd = cwd ?? process.cwd();
   const mm = opts?.memoryManager ?? new MemoryManager(effectiveCwd);
-  const memoryTool = createMemoryTool(mm);
+  const memoryTool = createMemoryTool({ manager: mm, intelligence: opts?.repoMap ?? null });
   const skillsEnabled = opts?.agentSkills === true;
   const skillsTool =
     skillsEnabled && opts?.contextManager
