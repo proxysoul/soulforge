@@ -3128,11 +3128,11 @@ export function useChat({
           const isAbort = abortController.signal.aborted;
           const msg = err instanceof Error ? err.message : String(err);
           const isTransient =
-            /overloaded|529|429|rate.?limit|too many requests|503|502|timeout|timed out|fetch failed|network|econnreset|econnrefused|enotfound|eai_again|socket hang up|connection (?:error|reset|refused|closed)|stream (?:error|closed)|premature close|terminated|aborted.*connection/i.test(
+            /overloaded|529|429|rate.?limit|too many requests|503|502|timeout|timed out|fetch failed|network|econnreset|econnrefused|enotfound|eai_again|socket hang up|connection (?:error|reset|refused|closed)|stream (?:error|closed)|premature close|terminated|aborted.*connection|enginecore/i.test(
               msg,
             );
           const isConnErr =
-            /cannot connect|unable to connect|fetch failed|failed to fetch|socket hang up|econnreset|econnrefused|enotfound|eai_again|network error|stream (?:error|closed)|premature close|terminated|connection (?:error|reset|refused|closed)/i.test(
+            /cannot connect|unable to connect|fetch failed|failed to fetch|socket hang up|econnreset|econnrefused|enotfound|eai_again|network error|stream (?:error|closed)|premature close|terminated|connection (?:error|reset|refused|closed)|enginecore/i.test(
               msg,
             );
           if (!proxyBounced && isConnErr && getActiveProviderId() === "proxy") {
@@ -3332,9 +3332,11 @@ export function useChat({
           }
 
           const rawMsg = err instanceof Error ? err.message : String(err);
-          // Log non-abort errors to /errors for debugging
+          const rawStack = err instanceof Error ? err.stack : undefined;
+          // Log non-abort errors to /errors for debugging — include stack trace
           if (!isAbort) {
-            logBackgroundError("agent-error", rawMsg);
+            const fullError = rawStack ? `${rawMsg}\n\n${rawStack}` : rawMsg;
+            logBackgroundError("agent-error", fullError);
           }
           // ── StopFailure hook ──
           if (!isAbort) {
