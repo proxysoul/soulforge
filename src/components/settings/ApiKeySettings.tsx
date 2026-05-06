@@ -133,12 +133,27 @@ export function ApiKeySettings({ visible, onClose }: Props) {
     const direct = keyItems.filter((k) => !k.grouped);
     const gateways = keyItems.filter((k) => k.grouped);
 
-    const mapKey = (k: KeyItem): MenuRow[] => {
-      const sources = keys[k.id];
-      if (!sources) return [];
-      const allKeys = getPooledKeys(k.id);
-      const metaExtra = allKeys.length > 1 ? ` [${allKeys.length} keys]` : "";
-      const out: MenuRow[] = [
+     const mapKey = (k: KeyItem): MenuRow[] => {
+       const sources = keys[k.id];
+       if (!sources) return [];
+       // Count keys from the active source (used for rotation)
+       let activeCount = 0;
+       if (sources.active === "env") {
+         const envVal = process.env[k.envVar];
+         if (envVal) {
+           activeCount = envVal
+             .split(",")
+             .map((s: string) => s.trim())
+             .filter(Boolean).length;
+         }
+       } else if (sources.active === "keychain") {
+         activeCount = 1;
+       } else if (sources.active === "file") {
+         const pooled = getPooledKeys(k.id);
+         activeCount = pooled.length;
+       }
+       const metaExtra = activeCount > 1 ? ` [${activeCount} keys]` : "";
+       const out: MenuRow[] = [
         {
           id: k.id,
           kind: "set",
