@@ -2,7 +2,6 @@ import type { LanguageModel } from "ai";
 import { getProviderApiKey } from "../secrets.js";
 import { getPooledApiKey } from "./credential-pool.js";
 import { getAllProviders, getProvider } from "./providers/index.js";
-import { getPooledApiKey } from "./credential-pool.js";
 
 export interface ProviderStatus {
   id: string;
