@@ -3127,13 +3127,14 @@ export function useChat({
           }
           const isAbort = abortController.signal.aborted;
           const msg = err instanceof Error ? err.message : String(err);
+          const chain = causeChain(err);
           const isTransient =
             /overloaded|529|429|rate.?limit|too many requests|503|502|timeout|timed out|fetch failed|network|econnreset|econnrefused|enotfound|eai_again|socket hang up|connection (?:error|reset|refused|closed)|stream (?:error|closed)|premature close|terminated|aborted.*connection/i.test(
-              msg,
+              chain,
             );
           const isConnErr =
             /cannot connect|unable to connect|fetch failed|failed to fetch|socket hang up|econnreset|econnrefused|enotfound|eai_again|network error|stream (?:error|closed)|premature close|terminated|connection (?:error|reset|refused|closed)/i.test(
-              msg,
+              chain,
             );
           if (!proxyBounced && isConnErr && getActiveProviderId() === "proxy") {
             proxyBounced = true;
@@ -3332,9 +3333,13 @@ export function useChat({
           }
 
           const rawMsg = err instanceof Error ? err.message : String(err);
-          // Log non-abort errors to /errors for debugging
+          const rawStack = err instanceof Error ? err.stack : undefined;
+          const rawChain = causeChain(err);
+          // Log non-abort errors to /errors for debugging — include cause chain + stack trace
           if (!isAbort) {
-            logBackgroundError("agent-error", rawMsg);
+            const parts = [rawChain];
+            if (rawStack) parts.push(rawStack);
+            logBackgroundError("agent-error", parts.join("\n\n"));
           }
           // ── StopFailure hook ──
           if (!isAbort) {
@@ -3847,4 +3852,15 @@ export function useChat({
     setForgeMode,
     cycleMode: cycleModeFn,
   };
+}
+function causeChain(err: unknown): string {
+  const parts: string[] = [];
+  let cur: unknown = err;
+  const seen = new Set<unknown>();
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    parts.push(cur instanceof Error ? `${cur.name}: ${cur.message}` : String(cur));
+    cur = (cur as { cause?: unknown })?.cause;
+  }
+  return parts.join("\n  caused by: ");
 }
