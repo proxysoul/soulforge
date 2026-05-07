@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { generateText } from "ai";
+import { logBackgroundError } from "../../stores/errors.js";
 import { useRepoMapStore } from "../../stores/repomap.js";
 import type { EditorIntegration, ForgeMode, TaskRouter } from "../../types/index.js";
 import { toErrorMessage } from "../../utils/errors.js";
@@ -254,7 +255,12 @@ export class ContextManager {
         const store = useRepoMapStore.getState();
         store.setSemanticStatus("generating");
         store.setSemanticProgress(`${String(count)} stale — regenerating...`);
-        this.generateSemanticSummaries(modelId).catch(() => {});
+        this.generateSemanticSummaries(modelId).catch((e) => {
+          logBackgroundError(
+            "context-manager",
+            `generateSemanticSummaries failed: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        });
       } else {
         const stats = this.repoMap.getStatsCached();
         useRepoMapStore.getState().setSemanticCount(stats.summaries);
@@ -390,7 +396,12 @@ export class ContextManager {
             this.pendingSoulMapDiff = null;
           }
         })
-        .catch(() => {});
+        .catch((e) => {
+          logBackgroundError(
+            "context-manager",
+            `prefetchDiffBlock failed: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        });
     }, 300);
   }
 
@@ -467,7 +478,12 @@ export class ContextManager {
       if (this.soulMapSnapshotPaths.size === 0) {
         this.soulMapSnapshotPaths = new Set(result.paths);
       }
-    } catch {}
+    } catch (e) {
+      logBackgroundError(
+        "context-manager",
+        `warmRepoMapCache failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
     this.repoMapRefreshing = false;
   }
 
