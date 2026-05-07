@@ -139,6 +139,18 @@ soulforge --headless --chat            # browse by timestamp
 
 Or open `/session history` inside SoulForge. Sessions live in `~/.soulforge/sessions/`.
 
+## Windows: command not found / fails to start
+
+SoulForge is not natively supported on Windows. Run it inside [WSL](https://learn.microsoft.com/en-us/windows/wsl/install):
+
+```powershell
+wsl --install
+# then inside WSL:
+brew install proxysoul/tap/soulforge   # or: bun install -g @proxysoul/soulforge
+```
+
+Native Windows support is tracked in [#57](https://github.com/proxysoul/soulforge/issues/57).
+
 ## Still stuck?
 
 - [GitHub Issues](https://github.com/proxysoul/soulforge/issues)

@@ -150,6 +150,47 @@ Pick keys and add custom providers on the dedicated pages:
 - [Custom providers](/providers/custom) — any OpenAI-compatible API.
 - [Copilot](/providers/copilot) — use your GitHub Copilot subscription.
 
+## Auth & key storage
+
+Keys go to your OS keychain when available, with a file fallback otherwise.
+
+| Platform | Backend |
+|----------|---------|
+| macOS | Login Keychain (`security`), service `soulforge` |
+| Linux | libsecret via `secret-tool` (GNOME Keyring, KWallet) |
+| Linux without `secret-tool` | `~/.soulforge/secrets.json`, mode `0600` |
+| Windows (WSL) | Same as Linux above |
+
+`soulforge --set-key <provider> <key>` writes to whichever backend is active. Inspect with `soulforge --list-providers`.
+
+### Lookup order
+
+```json
+{ "keyPriority": "env" }
+```
+
+| Value | Order |
+|-------|-------|
+| `"env"` (default) | env var → keychain → file |
+| `"app"` | keychain → file → env var |
+
+Use `"app"` when shell-exported keys keep overriding stored ones.
+
+### Pass a key per-launch
+
+Env vars work for the TUI too — useful for one-off sessions or CI:
+
+```bash
+LLM_GATEWAY_API_KEY=sk-... soulforge
+ANTHROPIC_API_KEY=sk-ant-... soulforge
+```
+
+Nothing is persisted. There is no `--key` flag — the TUI only reads stored keys and env vars.
+
+### Remove a key
+
+`/keys` inside the TUI lists every provider with delete shortcuts. Or delete from the keychain directly (`security delete-generic-password -a soulforge -s anthropic-api-key` on macOS).
+
 ## Instruction files
 
 Auto-load project rules from AI-tool markdown files:
