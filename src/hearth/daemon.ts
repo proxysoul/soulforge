@@ -193,12 +193,16 @@ export class HearthDaemon {
     if (existsSync(this.config.daemon.socketPath)) {
       try {
         unlinkSync(this.config.daemon.socketPath);
-      } catch {}
+      } catch (e) {
+        this.log(`failed to remove socket: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
     // Remove pidfile so the UI knows we're gone.
     try {
       unlinkSync(DEFAULT_PID_PATH);
-    } catch {}
+    } catch (e) {
+      this.log(`failed to remove pidfile: ${e instanceof Error ? e.message : String(e)}`);
+    }
     this.log("hearth stopped");
   }
 
@@ -360,7 +364,9 @@ export class HearthDaemon {
     if (existsSync(path)) {
       try {
         unlinkSync(path);
-      } catch {}
+      } catch (e) {
+        this.log(`failed to remove stale socket: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
     // Cache our euid once — every connection compares against this. Bun/Node
     // expose process.geteuid() on darwin+linux; fall back to process.getuid()
@@ -411,7 +417,9 @@ export class HearthDaemon {
       server.listen(path, () => {
         try {
           chmodSync(path, 0o600);
-        } catch {}
+        } catch (e) {
+          this.log(`failed to chmod socket: ${e instanceof Error ? e.message : String(e)}`);
+        }
         resolve();
       });
     });

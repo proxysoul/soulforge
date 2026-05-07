@@ -435,7 +435,9 @@ export class RepoMap {
            symbol_name = COALESCE((SELECT s.name FROM symbols s WHERE s.id = semantic_summaries.symbol_id), '')
          WHERE file_path = '' AND symbol_id IN (SELECT id FROM symbols)`,
       );
-    } catch {}
+    } catch (e) {
+      console.error("[repo-map] backfillSummaryPaths failed:", e instanceof Error ? e.message : String(e));
+    }
   }
 
   private cleanOrphanedSummaries(): void {
@@ -446,7 +448,9 @@ export class RepoMap {
       this.db.run(
         "DELETE FROM semantic_summaries WHERE symbol_id NOT IN (SELECT id FROM symbols) AND (source != 'llm' OR file_path = '')",
       );
-    } catch {}
+    } catch (e) {
+      console.error("[repo-map] cleanOrphanedSummaries failed:", e instanceof Error ? e.message : String(e));
+    }
   }
 
   get isReady(): boolean {
@@ -2593,12 +2597,14 @@ export class RepoMap {
         try {
           const st = await statAsync(absPath);
           this.indexFile(absPath, relPath, st.mtimeMs, language);
-        } catch {}
+        } catch (e) {
+          this.onError?.(`reindex failed for ${relPath}: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
       this.markDirty();
     };
 
-    process().catch(() => {});
+    process().catch((e) => { console.error("[repo-map] flushReindex failed:", e instanceof Error ? e.message : String(e)); });
   }
 
   private markDirty(): void {
@@ -2655,7 +2661,9 @@ export class RepoMap {
       try {
         const content = readFileSync(join(this.cwd, file.path), "utf-8");
         fileContents.set(file.id, content.split("\n"));
-      } catch {}
+      } catch (e) {
+        console.error(`[repo-map] failed to read ${file.path} for call graph:`, e instanceof Error ? e.message : String(e));
+      }
       if (i % 20 === 19) await tick();
     }
 
@@ -4767,7 +4775,9 @@ export class RepoMap {
     if (this.flushPromise) {
       try {
         await this.flushPromise;
-      } catch {}
+      } catch (e) {
+        console.error("[repo-map] error awaiting pending flush during close:", e instanceof Error ? e.message : String(e));
+      }
     }
     this.db.close();
   }
