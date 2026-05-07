@@ -1756,6 +1756,15 @@ export function useChat({
 
       const unsubAgentStats = onAgentStats((event) => {
         if (!isOurDispatch(event.parentToolCallId)) return;
+        useStatusBarStore.getState().upsertDispatchAgent(event.parentToolCallId, {
+          agentId: event.agentId,
+          modelId: event.modelId,
+          toolUses: event.toolUses,
+          input: event.tokenUsage.input,
+          output: event.tokenUsage.output,
+          cacheRead: event.cacheHits ?? 0,
+          cacheWrite: event.cacheWrite ?? 0,
+        });
         const prev = subagentCumulative.get(event.agentId) ?? {
           input: 0,
           output: 0,
@@ -1807,14 +1816,44 @@ export function useChat({
 
       const unsubMultiAgent = onMultiAgentEvent((event) => {
         if (!isOurDispatch(event.parentToolCallId)) return;
-        // ── SubagentStart / SubagentStop hooks ──
+        // ── Per-agent snapshot for /context Dispatch tab ──
+        if (event.type === "dispatch-start") {
+          useStatusBarStore
+            .getState()
+            .startDispatch(event.parentToolCallId, event.totalAgents ?? 0);
+        }
         if (event.type === "agent-start" && event.agentId) {
+          useStatusBarStore.getState().upsertDispatchAgent(event.parentToolCallId, {
+            agentId: event.agentId,
+            role: event.role,
+            modelId: event.modelId,
+            tier: event.tier,
+            task: event.task,
+            state: "running",
+          });
+          // ── SubagentStart hook ──
           runHooks({
             event: "SubagentStart",
             toolInput: { agent_id: event.agentId, agent_type: event.role },
             sessionId: sessionIdRef.current,
             cwd,
           }).catch(() => {});
+        }
+        if ((event.type === "agent-done" || event.type === "agent-error") && event.agentId) {
+          useStatusBarStore.getState().upsertDispatchAgent(event.parentToolCallId, {
+            agentId: event.agentId,
+            role: event.role,
+            modelId: event.modelId,
+            tier: event.tier,
+            task: event.task,
+            toolUses: event.toolUses,
+            ...(event.tokenUsage
+              ? { input: event.tokenUsage.input, output: event.tokenUsage.output }
+              : {}),
+            ...(event.cacheHits != null ? { cacheRead: event.cacheHits } : {}),
+            succeeded: event.succeeded,
+            state: event.type === "agent-error" ? "error" : "done",
+          });
         }
         if (event.type === "agent-done" && event.agentId) {
           runHooks({
@@ -1829,6 +1868,7 @@ export function useChat({
           queueMicrotaskFlush();
         }
         if (event.type === "dispatch-done") {
+          useStatusBarStore.getState().finishDispatch(event.parentToolCallId);
           completedResultChars.clear();
           subagentCumulative.clear();
           if (visibleRef.current) useStatusBarStore.getState().setSubagentChars(0);

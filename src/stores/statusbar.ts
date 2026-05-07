@@ -360,6 +360,30 @@ interface ProcessRss {
 
 const ZERO_PROCESS_RSS: ProcessRss = { mainMB: 0, nvimMB: 0, proxyMB: 0, lspMB: 0 };
 
+export interface LastDispatchAgent {
+  agentId: string;
+  role?: string;
+  modelId?: string;
+  tier?: string;
+  task?: string;
+  toolUses: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  succeeded?: boolean;
+  state: "running" | "done" | "error";
+}
+
+export interface LastDispatchSnapshot {
+  parentToolCallId: string;
+  startedAt: number;
+  finishedAt?: number;
+  totalAgents: number;
+  completedAgents: number;
+  agents: Record<string, LastDispatchAgent>;
+}
+
 interface StatusBarState {
   tokenUsage: TokenUsage;
   activeModel: string;
@@ -376,6 +400,8 @@ interface StatusBarState {
   v2Slots: number;
   /** True when the user is browsing a past checkpoint */
   browsingCheckpoint: boolean;
+  /** Most recent dispatch (cleared/replaced on each new dispatch-start). */
+  lastDispatch: LastDispatchSnapshot | null;
   setTokenUsage: (usage: TokenUsage, modelId?: string) => void;
   resetTokenUsage: () => void;
   setContext: (contextTokens: number, chatChars: number) => void;
@@ -388,6 +414,12 @@ interface StatusBarState {
   setCompactElapsed: (s: number) => void;
   setCompactionStrategy: (s: CompactionStrategy) => void;
   setV2Slots: (n: number) => void;
+  startDispatch: (parentToolCallId: string, totalAgents: number) => void;
+  upsertDispatchAgent: (
+    parentToolCallId: string,
+    agent: Partial<LastDispatchAgent> & { agentId: string },
+  ) => void;
+  finishDispatch: (parentToolCallId: string) => void;
 }
 
 export const useStatusBarStore = create<StatusBarState>()(
@@ -409,6 +441,7 @@ export const useStatusBarStore = create<StatusBarState>()(
     compactionStrategy: "v2",
     v2Slots: 0,
     browsingCheckpoint: false,
+    lastDispatch: null,
 
     setTokenUsage: (usage, modelId) =>
       set({ tokenUsage: usage, ...(modelId ? { activeModel: modelId } : {}) }),
@@ -433,6 +466,49 @@ export const useStatusBarStore = create<StatusBarState>()(
     setCompactionStrategy: (s) => set({ compactionStrategy: s }),
     setV2Slots: (n) => set({ v2Slots: n }),
     setBrowsingCheckpoint: (v) => set({ browsingCheckpoint: v }),
+
+    startDispatch: (parentToolCallId, totalAgents) =>
+      set({
+        lastDispatch: {
+          parentToolCallId,
+          startedAt: Date.now(),
+          totalAgents,
+          completedAgents: 0,
+          agents: {},
+        },
+      }),
+    upsertDispatchAgent: (parentToolCallId, agent) =>
+      set((s) => {
+        const cur = s.lastDispatch;
+        if (!cur || cur.parentToolCallId !== parentToolCallId) return s;
+        const prev = cur.agents[agent.agentId] ?? {
+          agentId: agent.agentId,
+          toolUses: 0,
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          state: "running" as const,
+        };
+        const merged: LastDispatchAgent = { ...prev, ...agent };
+        const wasRunning = prev.state === "running";
+        const nowDone = merged.state === "done" || merged.state === "error";
+        const completedAgents =
+          wasRunning && nowDone ? cur.completedAgents + 1 : cur.completedAgents;
+        return {
+          lastDispatch: {
+            ...cur,
+            completedAgents,
+            agents: { ...cur.agents, [agent.agentId]: merged },
+          },
+        };
+      }),
+    finishDispatch: (parentToolCallId) =>
+      set((s) => {
+        const cur = s.lastDispatch;
+        if (!cur || cur.parentToolCallId !== parentToolCallId) return s;
+        return { lastDispatch: { ...cur, finishedAt: Date.now() } };
+      }),
   })),
 );
 

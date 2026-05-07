@@ -76,7 +76,7 @@ interface UIState {
   routerSlotPicking: keyof TaskRouter | null;
   commandPickerConfig: CommandPickerConfig | null;
   infoPopupConfig: InfoPopupConfig | null;
-  statusDashboardTab: "Context" | "System";
+  statusDashboardTab: "Context" | "System" | "Dispatch";
 
   codeExpanded: Record<string, boolean>;
   changesExpanded: boolean;
@@ -122,7 +122,7 @@ export const useUIStore = create<UIState>()(
     routerSlotPicking: null,
     commandPickerConfig: null,
     infoPopupConfig: null,
-    statusDashboardTab: "Context" as const,
+    statusDashboardTab: "Context" as const as "Context" | "System" | "Dispatch",
 
     codeExpanded: {},
     changesExpanded: false,

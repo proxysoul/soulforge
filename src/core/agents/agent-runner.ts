@@ -3,7 +3,6 @@ import { type LanguageModel, RetryError } from "ai";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { TaskTier } from "../../types/index.js";
 import { getActiveProviderId } from "../llm/provider.js";
-import { detectModelFamily } from "../llm/provider-options.js";
 import { bounceProxy, proxyHealthProbe } from "../proxy/lifecycle.js";
 
 import { taskListTool } from "../tools/task-list.js";
@@ -15,28 +14,23 @@ import {
   normalizePath,
 } from "./agent-bus.js";
 import {
+  busFooter,
   type DoneToolResult,
   extractFinalText,
-  formatDoneResult,
-  synthesizeDoneFromResults,
+  truncateAgentText,
   writeAgentContext,
 } from "./agent-results.js";
 import { codeBase } from "./code.js";
 import { exploreBase } from "./explore.js";
 import { emitMultiAgentEvent } from "./subagent-events.js";
-import {
-  autoPostCompletionSummary,
-  buildStepCallbacks,
-  createAgent,
-  type SubagentModels,
-} from "./subagent-tools.js";
+import { buildStepCallbacks, createAgent, type SubagentModels } from "./subagent-tools.js";
 
 const MAX_NO_EDIT_RETRIES = 1;
 
 import { loadConfig } from "../../config/index.js";
 import { resolveRetrySettings } from "../retry/settings.js";
 
-export const DEFAULT_MAX_CONCURRENT_AGENTS = 3;
+const DEFAULT_MAX_CONCURRENT_AGENTS = 3;
 
 export function getMaxConcurrentAgents(): number {
   const v = loadConfig().taskRouter?.maxConcurrentAgents;
@@ -215,36 +209,6 @@ export function stripContextManagement(opts?: ProviderOptions): ProviderOptions 
     }
   }
   return changed ? (out as ProviderOptions) : opts;
-}
-
-const FAMILY_TO_KEYS: Record<string, Set<string>> = {
-  claude: new Set(["anthropic", "proxy", "llmgateway", "openrouter", "vercel_gateway"]),
-  openai: new Set(["openai", "proxy", "llmgateway", "openrouter", "vercel_gateway"]),
-  google: new Set(["google", "proxy", "llmgateway", "openrouter", "vercel_gateway"]),
-};
-
-/**
- * Strip provider option keys that don't match the subagent's model family.
- * Prevents Claude-specific options (thinking, effort) from being sent to
- * OpenAI/Google models, which may reject unknown parameters.
- */
-export function stripMismatchedProviderOptions(
-  opts: ProviderOptions | undefined,
-  modelId: string,
-): ProviderOptions | undefined {
-  if (!opts) return opts;
-  const family = detectModelFamily(modelId) as string;
-  const allowedKeys = FAMILY_TO_KEYS[family];
-  if (!allowedKeys) return undefined;
-  const out: Record<string, unknown> = {};
-  let kept = 0;
-  for (const [key, val] of Object.entries(opts)) {
-    if (allowedKeys.has(key)) {
-      out[key] = val;
-      kept++;
-    }
-  }
-  return kept > 0 ? (out as ProviderOptions) : undefined;
 }
 
 export async function runAgentTask(
@@ -494,25 +458,25 @@ export async function runAgentTask(
       const agentFindings = bus.getFindings().filter((f) => f.agentId === task.agentId);
       let doneResult: DoneToolResult | null = null;
 
-      // Extract final text from the last step that has content.
-      // Fallback: synthesize from tool results if agent wrote nothing.
+      // Pass agent text through verbatim — no synthesis. If empty, fall back
+      // to a flat list of files touched via the bus.
       const agentText = extractFinalText(result);
-      if (agentText.length > 50) {
+      if (agentText.length > 0) {
         doneResult = { summary: agentText };
       } else {
-        doneResult = synthesizeDoneFromResults(result, agentFindings, task);
-        if (result.steps.length === 0) {
-          const busReads = bus.getFileReadRecords(task.agentId);
-          if (busReads.length > 0 && doneResult.filesExamined?.length === 0) {
-            doneResult.filesExamined = busReads.map((r) => r.path);
-          }
-        }
+        const busReads = bus.getFileReadRecords(task.agentId);
+        const readPaths = [...new Set(busReads.map((r) => r.path))];
+        const editPaths = [...bus.getEditedFiles(task.agentId).keys()];
+        const fallback = busFooter(readPaths, editPaths);
+        doneResult = {
+          summary: fallback || `No output from agent for: ${task.task.slice(0, 200)}`,
+        };
       }
 
       // succeeded = agent produced a result.
       // For code agents: must have actually edited files (read-only runs are failures).
       // For desloppify: no-edit is valid (clean code needs no fixes).
-      const hasResult = !!doneResult && (doneResult.summary?.length ?? 0) > 10;
+      const hasResult = !!doneResult && (doneResult.summary?.length ?? 0) > 0;
       const codeEdited =
         task.role !== "code" ||
         task.agentId === "desloppify" ||
@@ -590,17 +554,18 @@ export async function runAgentTask(
               // Check if retry produced edits
               const retryEdits = bus.getEditedFiles(task.agentId);
               if (retryEdits.size > 0) {
-                // Retry succeeded — rebuild result from retry
+                // Retry succeeded — rebuild result from retry text verbatim
                 const retryText = extractFinalText(retryResult);
-                const retryDone =
-                  retryText.length > 50
-                    ? { summary: retryText }
-                    : synthesizeDoneFromResults(
-                        retryResult,
-                        bus.getFindings().filter((f) => f.agentId === task.agentId),
-                        task,
-                      );
-                doneResult = retryDone;
+                if (retryText.length > 0) {
+                  doneResult = { summary: retryText };
+                } else {
+                  const editPaths = [...retryEdits.keys()];
+                  doneResult = {
+                    summary:
+                      busFooter([], editPaths) ||
+                      `Retry edited ${String(editPaths.length)} file(s)`,
+                  };
+                }
                 succeeded = true;
 
                 // Accumulate token usage from retry
@@ -625,7 +590,29 @@ export async function runAgentTask(
         }
       }
 
-      const resultText = formatDoneResult(doneResult);
+      // Build the agent's result text: agent's summary verbatim + bus footer.
+      // Write the full text to disk; truncate the inline copy if oversized.
+      const busReadPaths = [...new Set(bus.getFileReadRecords(task.agentId).map((r) => r.path))];
+      const busEditPaths = [...bus.getEditedFiles(task.agentId).keys()];
+      const footer = busFooter(busReadPaths, busEditPaths);
+      const fullText = footer ? `${doneResult.summary}\n\n${footer}` : doneResult.summary;
+
+      let archivePath: string | undefined;
+      try {
+        archivePath = await writeAgentContext(
+          parentToolCallId,
+          task.agentId,
+          task,
+          result,
+          agentFindings,
+          doneResult.summary,
+          process.cwd(),
+          task.tabId,
+        );
+      } catch {}
+
+      const resultText = truncateAgentText(fullText, archivePath);
+      doneResult.archivePath = archivePath;
 
       // Post-edit diff verification: confirm code agent edits actually changed files
       let editVerificationWarning: string | undefined;
@@ -665,8 +652,6 @@ export async function runAgentTask(
       };
       bus.setResult(agentResult);
 
-      autoPostCompletionSummary(bus, task);
-
       emitMultiAgentEvent({
         parentToolCallId,
         type: "agent-done",
@@ -703,19 +688,6 @@ export async function runAgentTask(
           tabId: task.tabId,
         });
       }
-      try {
-        const agentText = extractFinalText(result);
-        await writeAgentContext(
-          parentToolCallId,
-          task.agentId,
-          task,
-          result,
-          agentFindings,
-          agentText,
-          process.cwd(),
-          task.tabId,
-        );
-      } catch {}
 
       return { doneResult, resultText, callbacks, result: agentResult };
     } catch (error) {
@@ -790,16 +762,7 @@ export async function runAgentTask(
     });
   }
 
-  const doneResult: DoneToolResult | null = salvaged
-    ? {
-        summary: `Partial result (agent errored): ${errMsg.slice(0, 200)}`,
-        filesExamined: agentReads.map((r) => r.path),
-        ...(agentEdits.length > 0
-          ? { filesEdited: agentEdits.map((f) => ({ file: f, changes: "edited" })) }
-          : {}),
-        keyFindings: agentFindings.map((f) => ({ file: f.label, detail: f.content })),
-      }
-    : null;
+  const doneResult: DoneToolResult | null = salvaged ? { summary: errorResultText } : null;
 
   return {
     doneResult,

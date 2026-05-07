@@ -657,12 +657,12 @@ describe("symbol enrichment", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildPrepareStep — step gating", () => {
-	it("forces toolChoice: required on step 0", () => {
+	it("does not force toolChoice on step 0 — model decides if a tool is needed", () => {
 		const result = callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 0, messages: [] },
 		);
-		expect(result?.toolChoice).toBe("required");
+		expect(result?.toolChoice).toBeUndefined();
 	});
 
 	it("returns undefined on step 1 with empty messages (no pruning at step < 2)", () => {

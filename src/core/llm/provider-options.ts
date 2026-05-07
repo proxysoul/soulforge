@@ -232,7 +232,7 @@ function getModelCapabilities(modelId: string): ModelCapabilities {
     provider: "anthropic",
     thinking: true,
     adaptiveThinking: true,
-    effort: true,
+    effort: !base.includes("haiku"),
     speed: base.includes("opus"),
     contextManagement: !base.includes("haiku"),
     interleavedThinking: true,
@@ -307,16 +307,12 @@ export function supportsTemperature(modelId: string): boolean {
   return v.major < 5 && (v.major < 4 || v.minor < 7);
 }
 
-/** Effort levels supported by the given Claude model, in descending order of capability.
- *  Returns null for non-Claude models (effort is Anthropic-specific).
- *  Per https://platform.claude.com/docs/en/build-with-claude/effort:
- *  - Opus 4.7: low, medium, high, xhigh, max
- *  - Opus 4.6 / Sonnet 4.6: low, medium, high, max (NO xhigh)
- *  - Opus 4.5: low, medium, high (NO xhigh, NO max)
- *  - Other effort-capable Claude: low, medium, high */
 export function getSupportedClaudeEfforts(modelId: string): EffortLevel[] | null {
   const base = extractBaseModel(modelId);
   if (!base.startsWith("claude")) return null;
+
+  // Haiku does not support the effort parameter — Anthropic API rejects it.
+  if (base.includes("haiku")) return null;
 
   // Opus 4.7+: full range
   const v = parseOpusVersion(base);

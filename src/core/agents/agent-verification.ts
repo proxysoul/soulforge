@@ -72,7 +72,7 @@ export async function runDesloppify(
   try {
     const { resultText } = await runAgentTask(
       desloppifyTask,
-      { ...models, emberModel: models.desloppifyModel },
+      { ...models, emberModel: models.desloppifyModel, parentMessagesRef: undefined },
       bus,
       parentToolCallId,
       tasks.length + 1,
@@ -183,9 +183,14 @@ export async function runVerifier(
   bus.registerTasks([verifyTask]);
 
   try {
+    // Verifier must NOT inherit parentMessagesRef — doppelganger mode would
+    // replay the parent forge's full chat history as the prefix, which Anthropic
+    // cannot cache (different breakpoint position vs the parent's last call).
+    // Without parentMessagesRef, verifier runs as a regular spark: same forge
+    // instructions + tools as parent → prefix cache hits the parent's prior prefix.
     const { resultText } = await runAgentTask(
       verifyTask,
-      { ...models, sparkModel: reviewModel },
+      { ...models, sparkModel: reviewModel, parentMessagesRef: undefined },
       bus,
       parentToolCallId,
       tasks.length + 1,

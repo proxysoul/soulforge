@@ -2,12 +2,13 @@ import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
 import { tool } from "ai";
 import { z } from "zod";
+import { loadConfig } from "../../config/index.js";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { AgentFeatures } from "../../types/index.js";
 import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
 import { getModelContextWindow } from "../llm/models.js";
-import { supportsProgrammaticToolCalling } from "../llm/provider-options.js";
-
+import { buildProviderOptions, supportsProgrammaticToolCalling } from "../llm/provider-options.js";
+import { wrapWithBusCache } from "../tools/bus-cache.js";
 import { getActiveTaskTab } from "../tools/task-list.js";
 import { deriveTool } from "../tools/tool-utils.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
@@ -21,7 +22,6 @@ import {
   selectModel,
   sleep,
   stripContextManagement,
-  stripMismatchedProviderOptions,
 } from "./agent-runner.js";
 import { runDesloppify, runVerifier } from "./agent-verification.js";
 import { createCodeAgent } from "./code.js";
@@ -187,7 +187,6 @@ export function buildStepCallbacks(parentToolCallId: string, agentId?: string, m
         inputTokenDetails?: {
           cacheReadTokens?: number;
           cacheWriteTokens?: number;
-          noCacheTokens?: number;
         };
       };
     }) => {
@@ -216,26 +215,6 @@ export function buildStepCallbacks(parentToolCallId: string, agentId?: string, m
   };
 }
 
-export function autoPostCompletionSummary(bus: AgentBus, task: AgentTask): void {
-  const readMap = bus.getFilesRead(task.agentId);
-  const readFiles = readMap.get(task.agentId) ?? [];
-  const editedMap = bus.getEditedFiles(task.agentId);
-  const editedFiles = [...editedMap.keys()];
-
-  if (readFiles.length === 0 && editedFiles.length === 0) return;
-
-  const parts: string[] = [];
-  if (readFiles.length > 0) parts.push(`Read: ${readFiles.join(", ")}`);
-  if (editedFiles.length > 0) parts.push(`Edited: ${editedFiles.join(", ")}`);
-
-  bus.postFinding({
-    agentId: task.agentId,
-    label: `${task.agentId} completed — ${String(readFiles.length)} files read, ${String(editedFiles.length)} edited`,
-    content: parts.join("\n"),
-    timestamp: Date.now(),
-  });
-}
-
 export async function createAgent(
   task: AgentTask,
   models: SubagentModels,
@@ -254,24 +233,20 @@ export async function createAgent(
   // Ember: different model or code role → lean tools, lean prompt, no cache sharing overhead.
   const useSpark = models.forgeInstructions != null && tier === "spark";
 
-  // Strip context management (subagents are short-lived) and provider options
-  // that don't match the subagent's model family (e.g. anthropic thinking → GPT)
-  let subagentProviderOptions = stripMismatchedProviderOptions(
-    stripContextManagement(models.providerOptions),
-    modelId,
-  );
-
-  if (useExplore && subagentProviderOptions) {
-    const patched: Record<string, unknown> = {};
-    for (const [provider, val] of Object.entries(subagentProviderOptions)) {
-      if (val && typeof val === "object" && "effort" in val) {
-        patched[provider] = { ...(val as Record<string, unknown>), effort: "low" };
-      } else {
-        patched[provider] = val;
-      }
-    }
-    subagentProviderOptions = patched as ProviderOptions;
-  }
+  // Rebuild provider options from scratch for the subagent's model — same path
+  // the main forge uses (buildProviderOptions). This guarantees per-model
+  // capability gating (no effort on Haiku, no thinking on GPT, etc.) instead of
+  // ad-hoc patching the parent's options.
+  const subagentConfig = loadConfig();
+  const explorePerfOverride =
+    useExplore && subagentConfig.performance?.effort && subagentConfig.performance.effort !== "off"
+      ? {
+          ...subagentConfig,
+          performance: { ...subagentConfig.performance, effort: "low" as const },
+        }
+      : subagentConfig;
+  const built = await buildProviderOptions(modelId, explorePerfOverride);
+  const subagentProviderOptions = stripContextManagement(built.providerOptions);
 
   const contextWindow = await getModelContextWindow(modelId);
   const forgeInstructions = useSpark ? models.forgeInstructions : undefined;
@@ -282,10 +257,22 @@ export async function createAgent(
   const agentRole = useExplore ? ("explore" as const) : ("code" as const);
   // Strip programmatic tool calling (allowedCallers) for models that don't support it (e.g. Haiku)
   const stripProgrammatic = !supportsProgrammaticToolCalling(modelId);
-  const forgeToolsGuarded =
-    useSpark && models.forgeTools
-      ? guardForgeTools(models.forgeTools as Record<string, unknown>, agentRole, stripProgrammatic)
-      : undefined;
+  // Wrap with bus cache so spark file reads/edits register with bus tracking
+  // (recordFileRead / recordFileEdit). deriveTool preserves description, schema,
+  // toModelOutput → cache prefix stays byte-identical.
+  let forgeToolsGuarded: Record<string, unknown> | undefined;
+  if (useSpark && models.forgeTools) {
+    const guarded = guardForgeTools(
+      models.forgeTools as Record<string, unknown>,
+      agentRole,
+      stripProgrammatic,
+    );
+    forgeToolsGuarded = wrapWithBusCache(
+      guarded as Record<string, { execute?: (a: never, o: never) => unknown }>,
+      bus,
+      task.agentId,
+    ) as Record<string, unknown>;
+  }
 
   const isSoloAgent = task.agentId === "desloppify" || task.agentId === "verifier";
   const opts = {
@@ -387,7 +374,7 @@ function matchSkillsToTask(
 }
 
 /** @internal — exported for testing */
-export function parseTargetFileRange(f: string): {
+function parseTargetFileRange(f: string): {
   path: string;
   startLine?: number;
   endLine?: number;
@@ -405,7 +392,7 @@ export function parseTargetFileRange(f: string): {
 }
 
 /** @internal — exported for testing */
-export function normalizeTargetPath(f: string): string {
+function normalizeTargetPath(f: string): string {
   return normalizePath(parseTargetFileRange(f).path);
 }
 
@@ -1010,22 +997,14 @@ export function buildSubagentTools(models: SubagentModels) {
             );
           }
 
-          const allGaps: string[] = [];
-          const allConnections: string[] = [];
+          const archivePaths: string[] = [];
           for (const [agentId, done] of doneResults) {
-            if (done?.gaps) allGaps.push(...done.gaps.map((g) => `[${agentId}] ${g}`));
-            if (done?.connections)
-              allConnections.push(...done.connections.map((c) => `[${agentId}] ${c}`));
+            if (done?.archivePath) archivePaths.push(`- [${agentId}] ${done.archivePath}`);
           }
-          if (allGaps.length > 0 || allConnections.length > 0) {
-            const crossCut: string[] = ["\n### Cross-Cutting Analysis"];
-            if (allGaps.length > 0) {
-              crossCut.push("**Gaps:**", ...allGaps.map((g) => `- ${g}`));
-            }
-            if (allConnections.length > 0) {
-              crossCut.push("**Connections:**", ...allConnections.map((c) => `- ${c}`));
-            }
-            sections.push(crossCut.join("\n"));
+          if (archivePaths.length > 0) {
+            sections.push(
+              `\n### Full agent outputs\n${archivePaths.join("\n")}\n(Read these files for the complete agent text when truncated.)`,
+            );
           }
 
           if (failed.length > 0) {
@@ -1093,46 +1072,7 @@ export function buildSubagentTools(models: SubagentModels) {
       },
       toModelOutput({ output }: { toolCallId: string; input: unknown; output: unknown }) {
         const dispatch = output as DispatchOutput | string;
-        if (typeof dispatch === "string") {
-          return {
-            type: "text" as const,
-            value: `<dispatch_result>\n${dispatch}\n</dispatch_result>`,
-          };
-        }
-
-        const parts: string[] = [];
-
-        if (dispatch.filesEdited.length > 0) {
-          parts.push(`Files edited: ${dispatch.filesEdited.join(", ")}`);
-        }
-
-        // Extract just the summary from each agent — drop verbose findings/gaps/connections
-        const rawText = dispatch.output;
-        const agentSummaries = rawText.match(/### [✓✗!] Agent: .+[\s\S]*?(?=### [✓✗!] Agent:|$)/g);
-        if (agentSummaries) {
-          for (const section of agentSummaries) {
-            const headerMatch = section.match(/^### [✓✗!] Agent: (.+)/);
-            const header = headerMatch?.[1]?.trim() ?? "agent";
-            // Take only lines before "Key findings:" / "Files examined:" / "Gaps:" sections
-            const lines = section.split("\n").slice(1);
-            const summaryLines: string[] = [];
-            for (const line of lines) {
-              if (/^(?:Key findings:|Files examined:|Gaps:|Connections:|Verified:)/.test(line))
-                break;
-              if (line.trim()) summaryLines.push(line.trim());
-            }
-            if (summaryLines.length > 0) {
-              parts.push(`[${header}] ${summaryLines.join(" ")}`);
-            }
-          }
-        } else if (rawText.trim()) {
-          // Single agent or unstructured — pass through full text
-          const text = rawText.trim();
-          if (text) parts.push(text);
-        }
-
-        const value = parts.join("\n");
-
+        const value = typeof dispatch === "string" ? dispatch : dispatch.output;
         return {
           type: "text" as const,
           value: `<dispatch_result>\n${value}\n</dispatch_result>`,

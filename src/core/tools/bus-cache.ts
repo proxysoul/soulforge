@@ -1,7 +1,6 @@
 import { readFile as readFileAsync } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type AgentBus, normalizePath } from "../agents/agent-bus.js";
-import type { IntelligenceClient } from "../workers/intelligence-client.js";
 import { deriveTool } from "./tool-utils.js";
 
 interface WrappableTool {
@@ -14,76 +13,21 @@ export function wrapWithBusCache(
   tools: Record<string, WrappableTool>,
   bus: AgentBus,
   agentId: string,
-  repoMap?: IntelligenceClient,
 ): Record<string, WrappableTool> {
   const wrapped = { ...tools };
-
-  const CACHE_HIT_LINES_THRESHOLD = 80;
-
-  async function tagCacheHit(result: unknown, path: string): Promise<unknown> {
-    const text =
-      typeof result === "string"
-        ? result
-        : String((result as Record<string, unknown>)?.output ?? "");
-    const lineCount = text.split("\n").length;
-    if (lineCount < CACHE_HIT_LINES_THRESHOLD) return result;
-
-    let symbols: Array<{ name: string; kind: string; line: number; endLine: number | null }> = [];
-    if (repoMap) {
-      try {
-        symbols = (await repoMap.getFileSymbolRanges(path)).map((s) => ({
-          name: s.qualifiedName ?? s.name,
-          kind: s.kind,
-          line: s.line,
-          endLine: s.endLine,
-        }));
-      } catch {}
-    }
-
-    if (symbols.length === 0) {
-      const tag = "[Cached]";
-      if (typeof result === "string") return `${tag}\n${result}`;
-      if (result && typeof result === "object" && "output" in result) {
-        return { ...(result as Record<string, unknown>), output: `${tag}\n${text}` };
-      }
-      return result;
-    }
-
-    const top = symbols.slice(0, 12);
-    const symbolHint = `Exported symbols: ${top.map((s) => `${s.name} (${s.kind} :${String(s.line)}-${String(s.endLine ?? s.line)})`).join(", ")}${symbols.length > 12 ? `, +${String(symbols.length - 12)} more` : ""}`;
-
-    const stub = [
-      `[Cached — ${String(lineCount)} lines, already read by another agent]`,
-      symbolHint,
-      `Use read(files=[{path:"${path}", target, name}]) for symbols, or ranges:[{start:N, end:M}] for sections.`,
-      `Use check_findings to see what peer agents found in this file.`,
-    ].join("\n");
-
-    if (result && typeof result === "object") {
-      return { ...(result as Record<string, unknown>), output: stub };
-    }
-    return { success: true, output: stub };
-  }
 
   function makeCachedExecute(
     origExecute: (args: Record<string, unknown>, opts?: unknown) => Promise<unknown>,
     keyFn: (args: Record<string, unknown>) => string | null,
-    onExecute?: (args: Record<string, unknown>, cached: boolean) => void,
   ): WrappableTool["execute"] {
     return (async (args: Record<string, unknown>, opts: unknown) => {
       const key = keyFn(args);
       if (key) {
         const acquired = bus.acquireToolResult(agentId, key);
-        if (acquired.hit === true) {
-          onExecute?.(args, true);
-          return acquired.result;
-        }
+        if (acquired.hit === true) return acquired.result;
         if (acquired.hit === "waiting") {
           const waited = await acquired.result;
-          if (waited != null) {
-            onExecute?.(args, true);
-            return waited;
-          }
+          if (waited != null) return waited;
         }
       }
       const result = await origExecute(args, opts);
@@ -96,86 +40,67 @@ export function wrapWithBusCache(
               : JSON.stringify(result);
         bus.cacheToolResult(agentId, key, content);
       }
-      onExecute?.(args, false);
       return result;
     }) as WrappableTool["execute"];
   }
 
   const readFile = tools.read;
   if (readFile?.execute) {
-    const origExecute = readFile.execute as (
-      args: { path: string; startLine?: number; endLine?: number },
-      opts?: unknown,
-    ) => Promise<unknown>;
+    type ReadFileSpec = {
+      path: string;
+      ranges?: Array<{ start: number; end: number }>;
+      target?: string;
+      name?: string;
+    };
+    type LegacyArgs = { path?: string; startLine?: number; endLine?: number };
+    type BatchArgs = { files?: ReadFileSpec[] | ReadFileSpec; fresh?: boolean };
+
+    const origExecute = readFile.execute as (args: unknown, opts?: unknown) => Promise<unknown>;
+
+    const collectPaths = (args: BatchArgs & LegacyArgs): ReadFileSpec[] => {
+      // Forge batched read: { files: [{path, ranges?}] }
+      if (Array.isArray(args.files)) return args.files;
+      if (args.files && typeof args.files === "object") return [args.files as ReadFileSpec];
+      // Legacy per-call: { path, startLine?, endLine? }
+      if (typeof args.path === "string") {
+        return [
+          {
+            path: args.path,
+            ...(args.startLine != null || args.endLine != null
+              ? { ranges: [{ start: args.startLine ?? 1, end: args.endLine ?? 0 }] }
+              : {}),
+          },
+        ];
+      }
+      return [];
+    };
 
     wrapped.read = deriveTool(readFile, {
-      execute: (async (
-        args: { path: string; startLine?: number; endLine?: number },
-        opts: unknown,
-      ) => {
-        const normalized = normalizePath(args.path);
-
-        if (args.startLine != null || args.endLine != null) {
-          const result = await origExecute(args, opts);
-          bus.recordFileRead(agentId, normalized, {
-            tool: "read",
-            startLine: args.startLine,
-            endLine: args.endLine,
-            cached: false,
-          });
-          return result;
+      execute: (async (args: BatchArgs & LegacyArgs, opts: unknown) => {
+        const result = await origExecute(args, opts);
+        // Record every path the read tool touched, regardless of input shape.
+        for (const spec of collectPaths(args)) {
+          if (!spec?.path) continue;
+          const normalized = normalizePath(spec.path);
+          if (!normalized) continue;
+          if (spec.ranges && spec.ranges.length > 0) {
+            for (const r of spec.ranges) {
+              bus.recordFileRead(agentId, normalized, {
+                tool: "read",
+                startLine: r.start,
+                endLine: r.end,
+                cached: false,
+              });
+            }
+          } else {
+            bus.recordFileRead(agentId, normalized, {
+              tool: "read",
+              ...(spec.target ? { target: spec.target, name: spec.name } : {}),
+              cached: false,
+            });
+          }
         }
-
-        // Check if a peer agent is currently reading this file — wait for them
-        // to finish so we can use their fresh result (they just read from disk).
-        // For "done" (previously cached) entries, always re-read from disk to
-        // avoid serving stale content.
-        const acquired = bus.acquireFileRead(agentId, normalized);
-
-        if (acquired.cached === "waiting") {
-          // Another agent is actively reading this file right now — wait for
-          // their disk read to complete and use that fresh content.
-          const content = await acquired.content;
-          if (content != null) {
-            bus.recordFileRead(agentId, normalized, { tool: "read", cached: true });
-            return tagCacheHit(content, normalized);
-          }
-          // Reader failed — fall through to read from disk ourselves
-        }
-
-        // Whether the bus said "cached" (stale) or "miss", always read from disk.
-        const peerAlreadyRead = acquired.cached === true;
-        const gen = acquired.cached === false ? acquired.gen : -1;
-        try {
-          const result = await origExecute(args, opts);
-          const isOutline =
-            result &&
-            typeof result === "object" &&
-            (result as Record<string, unknown>).outlineOnly === true;
-          if (isOutline) {
-            if (gen >= 0) bus.failFileRead(normalized, gen);
-            return result;
-          }
-          // Store fresh content in bus so concurrent readers can use it
-          if (gen >= 0) {
-            const rawText =
-              typeof result === "string"
-                ? result
-                : typeof (result as Record<string, unknown>)?.output === "string"
-                  ? String((result as Record<string, unknown>).output)
-                  : JSON.stringify(result);
-            bus.releaseFileRead(normalized, rawText, gen);
-          }
-          bus.recordFileRead(agentId, normalized, { tool: "read", cached: false });
-          // If a peer already read this file, return a token-efficient stub
-          if (peerAlreadyRead) {
-            return tagCacheHit(result, normalized);
-          }
-          return result;
-        } catch (error) {
-          if (gen >= 0) bus.failFileRead(normalized, gen);
-          throw error;
-        }
+        return result;
       }) as WrappableTool["execute"],
     });
   }
@@ -295,7 +220,6 @@ export function wrapWithBusCache(
   const cacheSpecs: Array<{
     name: string;
     keyFn: (args: Record<string, unknown>) => string | null;
-    onExecute?: (args: Record<string, unknown>, cached: boolean) => void;
   }> = [
     {
       name: "grep",
@@ -382,7 +306,6 @@ export function wrapWithBusCache(
         execute: makeCachedExecute(
           t.execute as (args: Record<string, unknown>, opts?: unknown) => Promise<unknown>,
           spec.keyFn,
-          spec.onExecute,
         ),
       });
     }

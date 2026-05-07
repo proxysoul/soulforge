@@ -419,9 +419,9 @@ export function buildPrepareStep({
     }
     if (sanitizedMessages) result.messages = sanitizedMessages;
 
-    if (stepNumber === 0) {
-      result.toolChoice = "required";
-    }
+    // Step 0: leave toolChoice unset. The model decides if tools are needed.
+    // Forcing required-tool on step 0 made tiny tasks call a no-op tool then stop
+    // with zero text, leaking the task description as the fallback summary.
 
     // Tool result compaction: summarize old results to save tokens.
     // Only runs when pruning is enabled via /provider-settings toggle.

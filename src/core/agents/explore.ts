@@ -83,7 +83,7 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
   } else {
     let tools = buildEmberExploreTools({ repoMap: options?.repoMap, tabId: options?.tabId });
     if (hasBus) {
-      tools = wrapWithBusCache(tools, bus, agentId, options?.repoMap) as typeof tools;
+      tools = wrapWithBusCache(tools, bus, agentId) as typeof tools;
     }
     allTools = { ...tools, ...busTools };
   }

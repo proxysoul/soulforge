@@ -174,8 +174,19 @@ function handleContextClear(input: string, ctx: CommandContext): void {
   sysMsg(ctx, cleared.length > 0 ? `Cleared: ${cleared.join(", ")}` : "Nothing to clear.");
 }
 
-function handleContext(_input: string, _ctx: CommandContext): void {
-  useUIStore.setState({ statusDashboardTab: "Context" });
+function handleContext(input: string, _ctx: CommandContext): void {
+  const cmd = input.trim().toLowerCase();
+  const tab = cmd.includes("dispatch")
+    ? ("Dispatch" as const)
+    : cmd.includes("system")
+      ? ("System" as const)
+      : ("Context" as const);
+  useUIStore.setState({ statusDashboardTab: tab });
+  useUIStore.getState().openModal("statusDashboard");
+}
+
+function handleDispatchStatus(_input: string, _ctx: CommandContext): void {
+  useUIStore.setState({ statusDashboardTab: "Dispatch" });
   useUIStore.getState().openModal("statusDashboard");
 }
 
@@ -193,6 +204,7 @@ function handleTools(_input: string, _ctx: CommandContext): void {
 
 export function register(map: Map<string, CommandHandler>): void {
   map.set("/context", handleContext);
+  map.set("/dispatch-status", handleDispatchStatus);
   map.set("/memory", handleMemory);
   map.set("/repo-map", handleRepoMap);
   map.set("/tools", handleTools);

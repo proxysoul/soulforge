@@ -23,8 +23,7 @@ export interface MultiAgentEvent {
     | "agent-error"
     | "agent-retry"
     | "agent-warning"
-    | "dispatch-done"
-    | "dispatch-eval";
+    | "dispatch-done";
   agentId?: string;
   role?: import("./agent-bus.js").AgentRole;
   task?: string;
@@ -49,8 +48,6 @@ export interface MultiAgentEvent {
   succeeded?: boolean;
   /** Warning message for complexity or verification issues */
   warning?: string;
-  /** Whether this agent was auto-retried */
-  retried?: boolean;
 }
 
 export interface AgentStatsEvent {

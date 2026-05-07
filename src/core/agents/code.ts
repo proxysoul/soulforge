@@ -73,7 +73,7 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
       repoMap: options?.repoMap,
     });
     if (hasBus) {
-      tools = wrapWithBusCache(tools, bus, agentId, options?.repoMap) as typeof tools;
+      tools = wrapWithBusCache(tools, bus, agentId) as typeof tools;
     }
     allTools = { ...tools, ...busTools };
   }

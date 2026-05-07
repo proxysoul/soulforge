@@ -18,6 +18,7 @@ import {
   computeTotalCostFromBreakdown,
   isModelFree,
   isModelLocal,
+  type LastDispatchSnapshot,
   type TokenUsage,
   useStatusBarStore,
   ZERO_USAGE,
@@ -52,8 +53,8 @@ function fmtMem(mb: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${String(mb)} MB`;
 }
 
-// Sidebar tabs — five focused panels.
-const TABS = ["Usage", "Prompt", "Cost", "Tabs", "System"] as const;
+// Sidebar tabs — six focused panels.
+const TABS = ["Usage", "Prompt", "Cost", "Tabs", "Dispatch", "System"] as const;
 type Tab = (typeof TABS)[number];
 
 function fmtCost(c: number): string {
@@ -385,6 +386,12 @@ export function StatusDashboard({
     { id: "Prompt" as const, label: "Prompt", icon: "note", blurb: "system sections" },
     { id: "Cost" as const, label: "Cost", icon: "sparkle", blurb: "per-model spend" },
     { id: "Tabs" as const, label: "Tabs", icon: "tabs", blurb: "per-tab summary" },
+    {
+      id: "Dispatch" as const,
+      label: "Dispatch",
+      icon: "dispatch",
+      blurb: "last dispatch · cache",
+    },
     { id: "System" as const, label: "System", icon: "system", blurb: "runtime · health" },
   ];
 
@@ -448,6 +455,9 @@ export function StatusDashboard({
         />
       )}
       {tab === "Tabs" && <TabsPane tabMgr={tabMgr} getTabUsage={getTabUsage} contentW={contentW} />}
+      {tab === "Dispatch" && (
+        <DispatchPane sb={sb} contentW={contentW} scrollOffset={scrollOffset} scrollH={scrollH} />
+      )}
       {tab === "System" && (
         <SystemPane
           sb={sb}
@@ -891,6 +901,192 @@ function TabsPane({
         rows={rows}
       />
     </Section>
+  );
+}
+
+function DispatchPane({
+  sb,
+  contentW,
+  scrollOffset,
+  scrollH,
+}: {
+  sb: ReturnType<typeof useStatusBarStore.getState>;
+  contentW: number;
+  scrollOffset: number;
+  scrollH: number;
+}) {
+  const t = useTheme();
+  const dispatch: LastDispatchSnapshot | null = sb.lastDispatch;
+  const ref = useRef<ScrollBoxRenderable>(null);
+  useEffect(() => {
+    ref.current?.scrollTo(scrollOffset);
+  }, [scrollOffset]);
+
+  if (!dispatch) {
+    return (
+      <box flexDirection="column" paddingX={2} paddingY={2}>
+        <text bg={t.bgPopup} fg={t.textMuted}>
+          No dispatch yet this session.
+        </text>
+      </box>
+    );
+  }
+
+  const agents = Object.values(dispatch.agents);
+  agents.sort((a, b) => a.agentId.localeCompare(b.agentId));
+
+  let totalIn = 0;
+  let totalOut = 0;
+  let totalCache = 0;
+  let totalCacheWrite = 0;
+  let totalTools = 0;
+  for (const a of agents) {
+    totalIn += a.input ?? 0;
+    totalOut += a.output ?? 0;
+    totalCache += a.cacheRead ?? 0;
+    totalCacheWrite += a.cacheWrite ?? 0;
+    totalTools += a.toolUses ?? 0;
+  }
+  const allInput = totalIn;
+  const overallCachePct =
+    allInput > 0 ? Math.min(100, Math.round((totalCache / allInput) * 100)) : 0;
+
+  const elapsed = (dispatch.finishedAt ?? Date.now()) - dispatch.startedAt;
+  const elapsedLabel =
+    elapsed < 1000
+      ? `${String(elapsed)}ms`
+      : elapsed < 60_000
+        ? `${(elapsed / 1000).toFixed(1)}s`
+        : `${String(Math.floor(elapsed / 60_000))}m ${String(Math.floor((elapsed % 60_000) / 1000))}s`;
+
+  interface AgentRow {
+    agent: string;
+    tier: string;
+    model: string;
+    state: string;
+    tools: string;
+    input: string;
+    output: string;
+    cache: string;
+    cachePct: string;
+  }
+
+  const compactModel = (raw: string): string => {
+    let s = raw
+      .replace(/^Claude\s+/i, "")
+      .replace(/^GPT\s+/i, "GPT-")
+      .replace(/^Gemini\s+/i, "");
+    if (s.length > 14) s = `${s.slice(0, 13)}…`;
+    return s;
+  };
+
+  const rows: AgentRow[] = agents.map((a) => {
+    const cacheRead = a.cacheRead ?? 0;
+    const input = a.input ?? 0;
+    const pct = input > 0 ? Math.round((cacheRead / input) * 100) : 0;
+    const stateLabel =
+      a.state === "running"
+        ? `${icon("spinner")} run`
+        : a.state === "error"
+          ? `${icon("error")} err`
+          : a.succeeded === false
+            ? `${icon("warning")} done`
+            : `${icon("success")} done`;
+    const model = a.modelId ? compactModel(getShortModelLabel(a.modelId)) : "—";
+    const agentLabel = a.agentId.length > 18 ? `${a.agentId.slice(0, 17)}…` : a.agentId;
+    const tier =
+      a.tier === "spark"
+        ? `${icon("spark")} spark`
+        : a.tier === "ember"
+          ? `${icon("ember")} ember`
+          : "—";
+    return {
+      agent: agentLabel,
+      tier,
+      model,
+      state: stateLabel,
+      tools: String(a.toolUses ?? 0),
+      input: fmtTokens(input),
+      output: fmtTokens(a.output ?? 0),
+      cache: cacheRead > 0 ? fmtTokens(cacheRead) : "—",
+      cachePct: cacheRead > 0 ? `${String(pct)}%` : "—",
+    };
+  });
+
+  return (
+    <box flexDirection="column" flexGrow={1} minHeight={0}>
+      <Section
+        title="Last Dispatch"
+        description={`${String(dispatch.completedAgents)}/${String(dispatch.totalAgents)} agents · ${elapsedLabel}`}
+      >
+        <ProgressBar
+          label="Cache"
+          labelWidth={10}
+          pct={overallCachePct}
+          width={contentW - 4}
+          value={totalCache > 0 ? `${fmtTokens(totalCache)}  (${String(overallCachePct)}%)` : "—"}
+          color={totalCache > 0 ? t.success : t.textFaint}
+        />
+        <VSpacer />
+        <Field
+          label="Input"
+          labelWidth={14}
+          value={
+            <text bg={t.bgPopup} fg={t.info}>
+              {fmtTokens(totalIn)}
+            </text>
+          }
+        />
+        <Field
+          label="Output"
+          labelWidth={14}
+          value={
+            <text bg={t.bgPopup} fg={t.warning}>
+              {fmtTokens(totalOut)}
+            </text>
+          }
+        />
+        {totalCacheWrite > 0 && (
+          <Field
+            label="Cache Write"
+            labelWidth={14}
+            value={
+              <text bg={t.bgPopup} fg={t.warning}>
+                {fmtTokens(totalCacheWrite)}
+              </text>
+            }
+          />
+        )}
+        <Field label="Tool calls" labelWidth={14} value={String(totalTools)} />
+      </Section>
+
+      <Section title="Per Agent">
+        {rows.length === 0 ? (
+          <text bg={t.bgPopup} fg={t.textMuted}>
+            No agents recorded.
+          </text>
+        ) : (
+          <scrollbox ref={ref} height={Math.max(4, scrollH - 8)}>
+            <Table
+              width={contentW - 4}
+              maxRows={rows.length}
+              columns={[
+                { key: "agent", align: "left" },
+                { key: "tier", align: "left", width: 9 },
+                { key: "model", align: "left", width: 14 },
+                { key: "state", align: "left", width: 7 },
+                { key: "tools", align: "right", width: 5 },
+                { key: "input", align: "right", width: 8 },
+                { key: "output", align: "right", width: 8 },
+                { key: "cache", align: "right", width: 8 },
+                { key: "cachePct", align: "right", width: 6 },
+              ]}
+              rows={rows}
+            />
+          </scrollbox>
+        )}
+      </Section>
+    </box>
   );
 }
 
