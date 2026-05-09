@@ -732,10 +732,26 @@ export function createForgeAgent({
         parentMessagesRef,
       });
 
+  // Plan mode requires `plan`/`update_plan_step` tools; `ask_user` is broadly useful too.
+  // When no `interactive` callbacks are provided (headless, edge cases on session resume),
+  // build the interactive tools with safe no-op fallbacks so the model can still call them.
+  // The `plan` tool persists its result to .soulforge/plans/ regardless, so the plan is
+  // recoverable even when no UI approval flow is wired.
+  const interactiveCallbacks: InteractiveCallbacks = interactive ?? {
+    onPlanCreate: () => {},
+    onPlanStepUpdate: () => {},
+    onPlanReview: async () => "execute" as const,
+    onAskUser: async (_q, options, allowSkip) =>
+      allowSkip ? "__skipped__" : (options[0]?.value ?? ""),
+    onOpenEditor: async () => {},
+    onWebSearchApproval: async () => true,
+    onFetchPageApproval: async () => true,
+  };
+
   const allTools = {
     ...orderedTools,
     ...subagentTools,
-    ...(interactive ? buildInteractiveTools(interactive, { cwd, sessionId, forgeMode }) : {}),
+    ...buildInteractiveTools(interactiveCallbacks, { cwd, sessionId, forgeMode }),
   };
 
   // Cache breakpoints: system prompt (via instructions) + first 2 messages.

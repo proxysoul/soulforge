@@ -469,10 +469,13 @@ export function useChat({
     return next;
   }, [setForgeMode]);
 
-  // Sync forgeMode to contextManager when tab becomes visible (tab switch)
+  // Sync forgeMode to contextManager on mount (covers session resume) and on
+  // every change. Each tab has its own contextManager (TabInstance.tsx), so
+  // syncing for inactive tabs is safe — the agent only reads forgeMode at
+  // turn start, which only happens when the tab is active anyway.
   useEffect(() => {
-    if (visible) contextManager.setForgeMode(forgeMode);
-  }, [visible, forgeMode, contextManager]);
+    contextManager.setForgeMode(forgeMode);
+  }, [forgeMode, contextManager]);
 
   // Sync co-author flag with git module + shell interceptor
   useEffect(() => {
