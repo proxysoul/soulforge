@@ -584,13 +584,29 @@ export class MemoryDB {
   }
 
   softDelete(id: string): boolean {
-    const result = this.db.query("UPDATE memories SET hidden = 1 WHERE id = ?").run(id);
-    return result.changes > 0;
+    const tx = this.db.transaction(() => {
+      const r = this.db.query("UPDATE memories SET hidden = 1 WHERE id = ?").run(id);
+      if (r.changes > 0) {
+        // Prune similar-edges so hidden rows don't leak into similarClusters /
+        // listEdges from peer nodes. Re-inferred on restore via embedAndLink.
+        this.db
+          .query("DELETE FROM memory_edges WHERE (src_id = ? OR dst_id = ?) AND kind = 'similar'")
+          .run(id, id);
+      }
+      return r.changes > 0;
+    });
+    return tx();
   }
 
   restore(id: string): boolean {
-    const result = this.db.query("UPDATE memories SET hidden = 0 WHERE id = ?").run(id);
-    return result.changes > 0;
+    const r = this.db.query("UPDATE memories SET hidden = 0 WHERE id = ?").run(id);
+    if (r.changes > 0) {
+      // Re-link: edges were pruned at soft-delete time.
+      try {
+        this.embedAndLink(id);
+      } catch {}
+    }
+    return r.changes > 0;
   }
 
   pin(id: string): boolean {
@@ -991,6 +1007,11 @@ export class MemoryDB {
     if (!source) return [];
     const vec = embed(source);
     this.setEmbedding(id, vec, EMBED_MODEL);
+
+    // Hidden rows: embedding stays (in case the row is later restored), but
+    // we never create new edges to or from them — that would leak hidden ids
+    // into similarClusters / listEdges from peers.
+    if (record.hidden) return [];
 
     const others = this.listEmbeddings(EMBED_MODEL).filter((o) => o.id !== id);
     const scored = others

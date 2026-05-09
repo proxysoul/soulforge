@@ -63,10 +63,11 @@ export class MemoryManager {
     return this._cleanup;
   }
 
-  constructor(cwd: string) {
+  constructor(cwd: string, globalDir?: string) {
     this.cwd = cwd;
+    this._globalDir = globalDir ?? join(homedir(), ".soulforge");
 
-    const globalPath = join(homedir(), ".soulforge", "memory.db");
+    const globalPath = join(this._globalDir, "memory.db");
     const projectPath = join(cwd, ".soulforge", "memory.db");
 
     this.globalDb = new MemoryDB(globalPath, "global");
@@ -77,7 +78,7 @@ export class MemoryManager {
 
   private configPath(scope: "project" | "global"): string {
     return scope === "global"
-      ? join(homedir(), ".soulforge", CONFIG_FILE)
+      ? join(this._globalDir, CONFIG_FILE)
       : join(this.cwd, ".soulforge", CONFIG_FILE);
   }
 
@@ -474,4 +475,6 @@ export class MemoryManager {
   clearPending(): number {
     return this.pending().clear();
   }
+
+  private _globalDir: string;
 }
