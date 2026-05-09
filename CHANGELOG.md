@@ -2,6 +2,14 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.14.9] — 2026-05-09
+
+### Bug Fixes
+
+- **plan-mode**: always register plan tools and sync mode on resume
+### Miscellaneous
+
+- remove test_scaffold tool
 ## [2.14.8] — 2026-05-08
 
 ### Bug Fixes
