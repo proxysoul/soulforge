@@ -222,6 +222,32 @@ export class MemoryDB {
 
   write(input: MemoryWriteInput): MemoryWriteResult {
     const hash = MemoryDB.computeContentHash(input.summary, input.details);
+
+    if (input.id) {
+      const existingById = this.read(input.id);
+      if (existingById) {
+        const otherWithHash = this.getByContentHash(hash);
+        if (otherWithHash && otherWithHash.id !== input.id) {
+          throw new Error(
+            `Cannot upsert ${input.id}: another memory ${otherWithHash.id} already has the same content_hash`,
+          );
+        }
+        const now = new Date().toISOString();
+        const topicsJson = JSON.stringify(input.topics ?? existingById.topics);
+        this.db
+          .query(
+            `UPDATE memories
+             SET summary = ?, details = ?, topics = ?, category = ?, content_hash = ?,
+                 last_used_at = ?, hidden = 0
+             WHERE id = ?`,
+          )
+          .run(input.summary, input.details, topicsJson, input.category, hash, now, input.id);
+        const updated = this.read(input.id);
+        if (!updated) throw new Error(`Failed to read memory ${input.id} after upsert`);
+        return { record: updated, deduped: false };
+      }
+    }
+
     const existing = this.getByContentHash(hash);
     if (existing) {
       const now = new Date().toISOString();
@@ -405,7 +431,8 @@ export class MemoryDB {
         )
         .all(expanded, limit);
       return rows.map((r, idx) => ({ id: r.id, rowid: r.rowid, bm25: r.bm25, rank: idx + 1 }));
-    } catch {
+    } catch (err) {
+      if (isDbClosedError(err)) throw err;
       return [];
     }
   }
@@ -430,7 +457,8 @@ export class MemoryDB {
         )
         .all(ftsQuery, limit);
       return rows.map((r, idx) => ({ id: r.id, rowid: r.rowid, bm25: r.bm25, rank: idx + 1 }));
-    } catch {
+    } catch (err) {
+      if (isDbClosedError(err)) throw err;
       return [];
     }
   }
@@ -893,4 +921,9 @@ function toRecord(row: RawMemoryRow): MemoryRecord {
     hidden: row.hidden === 1,
     superseded_by: row.superseded_by,
   };
+}
+function isDbClosedError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes("closed") || msg.includes("not open") || msg.includes("misuse");
 }

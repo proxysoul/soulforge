@@ -179,8 +179,14 @@ describe("Concurrency — MemoryDB", () => {
 		try {
 			const ids: string[] = [];
 			for (let i = 0; i < 100; i++) {
-				const r = db.write({ title: `Concurrent ${i}`, category: "fact", tags: [`t${i}`] });
-				ids.push(r.id);
+				const r = db.write({
+					summary: `Concurrent ${i}`,
+					details: "",
+					category: null,
+					topics: [`t${i}`],
+					source: "agent",
+				});
+				ids.push(r.record.id);
 			}
 
 			expect(db.list().length).toBe(100);
@@ -193,66 +199,82 @@ describe("Concurrency — MemoryDB", () => {
 		}
 	});
 
-	it("concurrent upserts to same ID preserve last write", () => {
+	it("upserts to same ID overwrite content", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
 			for (let i = 0; i < 50; i++) {
-				db.write({ id: "contested", title: `Version ${i}`, category: "fact", tags: [] });
+				db.write({
+					id: "contested",
+					summary: `Version ${i}`,
+					details: "",
+					category: null,
+					topics: [],
+					source: "agent",
+				});
 			}
 
 			const final = db.read("contested");
 			expect(final).not.toBeNull();
-			expect(final!.title).toBe("Version 49");
+			expect(final!.summary).toBe("Version 49");
+			expect(db.list().length).toBe(1);
 		} finally {
 			db.close();
 		}
 	});
 
-	it("write + delete interleaving doesn't corrupt FTS", () => {
+	it("write + soft-delete interleaving doesn't corrupt FTS", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
 			for (let i = 0; i < 50; i++) {
 				const r = db.write({
-					title: `Interleave uniqueterm${i}`,
-					category: "fact",
-					tags: [],
+					summary: `Interleave uniqueterm${i}xz`,
+					details: "",
+					category: null,
+					topics: [],
+					source: "agent",
 				});
-				if (i % 2 === 0) db.delete(r.id);
+				if (i % 2 === 0) db.softDelete(r.record.id);
 			}
 
-			// FTS should be consistent with main table
+			// active list (hidden=0) should reflect non-deleted
 			const list = db.list();
 			expect(list.length).toBe(25);
 
-			// Search should only find non-deleted
-			const found = db.search("uniqueterm0");
-			expect(found.length).toBe(0); // deleted (even index)
+			// FTS should only return non-hidden rows. Trailing 'xz' avoids
+			// prefix-overlap collisions (uniqueterm1* ↛ uniqueterm10..19).
+			const found = db.searchUnicode("uniqueterm0xz");
+			expect(found.length).toBe(0); // soft-deleted (even index)
 
-			const found1 = db.search("uniqueterm1");
+			const found1 = db.searchUnicode("uniqueterm1xz");
 			expect(found1.length).toBe(1); // kept (odd index)
 		} finally {
 			db.close();
 		}
 	});
 
-	it("deleteAll during search doesn't throw", () => {
+	it("clearAll during search doesn't throw", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
 			for (let i = 0; i < 100; i++) {
-				db.write({ title: `Searchable term${i}`, category: "fact", tags: [] });
+				db.write({
+					summary: `Searchable term${i}`,
+					details: "",
+					category: null,
+					topics: [],
+					source: "agent",
+				});
 			}
 
-			// Search then immediately deleteAll
-			const results = db.search("Searchable");
-			db.deleteAll();
+			// Search then immediately clearAll
+			const hits = db.searchUnicode("Searchable");
+			db.clearAll();
 
-			// Results from before delete should still be valid objects
-			expect(results.length).toBeGreaterThan(0);
-			expect(results[0]!.title).toContain("Searchable");
+			// Hit ids from before clear should still be valid objects
+			expect(hits.length).toBeGreaterThan(0);
 
 			// DB should be empty now
 			expect(db.list().length).toBe(0);
-			expect(db.search("Searchable").length).toBe(0);
+			expect(db.searchUnicode("Searchable").length).toBe(0);
 		} finally {
 			db.close();
 		}
@@ -276,8 +298,22 @@ describe("Concurrency — MemoryDB file-backed", () => {
 		const db2 = new MemoryDB(dbPath, "project");
 
 		try {
-			db1.write({ id: "from-db1", title: "Written by DB1", category: "fact", tags: [] });
-			db2.write({ id: "from-db2", title: "Written by DB2", category: "fact", tags: [] });
+			db1.write({
+				id: "from-db1",
+				summary: "Written by DB1",
+				details: "",
+				category: null,
+				topics: [],
+				source: "agent",
+			});
+			db2.write({
+				id: "from-db2",
+				summary: "Written by DB2",
+				details: "",
+				category: null,
+				topics: [],
+				source: "agent",
+			});
 
 			// Both should be visible from either connection (WAL mode)
 			const list1 = db1.list();
@@ -298,8 +334,20 @@ describe("Concurrency — MemoryDB file-backed", () => {
 
 		try {
 			for (let i = 0; i < 50; i++) {
-				db1.write({ title: `DB1 record ${i}`, category: "fact", tags: [] });
-				db2.write({ title: `DB2 record ${i}`, category: "decision", tags: [] });
+				db1.write({
+					summary: `DB1 record ${i}`,
+					details: "",
+					category: null,
+					topics: [],
+					source: "agent",
+				});
+				db2.write({
+					summary: `DB2 record ${i}`,
+					details: "",
+					category: "decision",
+					topics: [],
+					source: "agent",
+				});
 			}
 
 			const total = db1.list().length;
@@ -650,26 +698,38 @@ describe("Boundary — extract terms limit", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Error paths — MemoryDB", () => {
-	it("empty title is accepted (no NOT NULL violation on empty string)", () => {
+	it("empty summary is accepted (no NOT NULL violation on empty string)", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
-			const r = db.write({ title: "", category: "fact", tags: [] });
-			expect(r.title).toBe("");
-			const read = db.read(r.id);
-			expect(read!.title).toBe("");
+			const r = db.write({
+				summary: "",
+				details: "",
+				category: null,
+				topics: [],
+				source: "agent",
+			});
+			expect(r.record.summary).toBe("");
+			const read = db.read(r.record.id);
+			expect(read!.summary).toBe("");
 		} finally {
 			db.close();
 		}
 	});
 
-	it("very long title (10k chars) is stored and retrieved", () => {
+	it("very long summary (10k chars) is stored and retrieved", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
-			const longTitle = "x".repeat(10_000);
-			const r = db.write({ title: longTitle, category: "fact", tags: [] });
-			const read = db.read(r.id);
-			expect(read!.title).toBe(longTitle);
-			expect(read!.title.length).toBe(10_000);
+			const long = "x".repeat(10_000);
+			const r = db.write({
+				summary: long,
+				details: "",
+				category: null,
+				topics: [],
+				source: "agent",
+			});
+			const read = db.read(r.record.id);
+			expect(read!.summary).toBe(long);
+			expect(read!.summary.length).toBe(10_000);
 		} finally {
 			db.close();
 		}
@@ -678,20 +738,28 @@ describe("Error paths — MemoryDB", () => {
 	it("FTS search with special chars doesn't crash", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
-			db.write({ title: "Normal record", category: "fact", tags: [] });
+			db.write({
+				summary: "Normal record",
+				details: "",
+				category: null,
+				topics: [],
+				source: "agent",
+			});
 
 			// FTS5 special chars that could break queries
-			expect(() => db.search("*")).not.toThrow();
-			expect(() => db.search("NOT")).not.toThrow();
-			expect(() => db.search("OR")).not.toThrow();
-			expect(() => db.search("AND")).not.toThrow();
-			expect(() => db.search("NEAR")).not.toThrow();
-			expect(() => db.search("(")).not.toThrow();
-			expect(() => db.search(")")).not.toThrow();
-			expect(() => db.search("{}[]")).not.toThrow();
-			expect(() => db.search("col:value")).not.toThrow();
-			expect(() => db.search('"unclosed')).not.toThrow();
-			expect(() => db.search("^")).not.toThrow();
+			expect(() => db.searchUnicode("*")).not.toThrow();
+			expect(() => db.searchUnicode("NOT")).not.toThrow();
+			expect(() => db.searchUnicode("OR")).not.toThrow();
+			expect(() => db.searchUnicode("AND")).not.toThrow();
+			expect(() => db.searchUnicode("NEAR")).not.toThrow();
+			expect(() => db.searchUnicode("(")).not.toThrow();
+			expect(() => db.searchUnicode(")")).not.toThrow();
+			expect(() => db.searchUnicode("{}[]")).not.toThrow();
+			expect(() => db.searchUnicode("col:value")).not.toThrow();
+			expect(() => db.searchUnicode('"unclosed')).not.toThrow();
+			expect(() => db.searchUnicode("^")).not.toThrow();
+			expect(() => db.searchTrigram("*")).not.toThrow();
+			expect(() => db.searchTrigram("col:value")).not.toThrow();
 		} finally {
 			db.close();
 		}
@@ -700,12 +768,24 @@ describe("Error paths — MemoryDB", () => {
 	it("search with FTS operator words returns results (not errors)", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
-			db.write({ title: "Use NOT pattern for validation", category: "fact", tags: [] });
-			db.write({ title: "Use OR logic in queries", category: "fact", tags: [] });
+			db.write({
+				summary: "Use NOT pattern for validation",
+				details: "",
+				category: null,
+				topics: [],
+				source: "agent",
+			});
+			db.write({
+				summary: "Use OR logic in queries",
+				details: "",
+				category: null,
+				topics: [],
+				source: "agent",
+			});
 
 			// "NOT" and "OR" are FTS operators — search should handle gracefully
-			const notResults = db.search("NOT");
-			const orResults = db.search("OR");
+			const notResults = db.searchUnicode("NOT");
+			const orResults = db.searchUnicode("OR");
 
 			// Should either return results or empty — never throw
 			expect(Array.isArray(notResults)).toBe(true);
@@ -715,32 +795,66 @@ describe("Error paths — MemoryDB", () => {
 		}
 	});
 
-	it("tag with quotes doesn't break list filter", () => {
+	it("topic with quotes doesn't break list filter (json_each, no LIKE)", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
-			db.write({ title: "Quoted tag", category: "fact", tags: ['tag"with"quotes'] });
-			// The tag filter uses LIKE with the tag embedded — SQL injection potential
-			const results = db.list({ tag: 'tag"with"quotes' });
+			db.write({
+				summary: "Quoted topic",
+				details: "",
+				category: null,
+				topics: ['tag"with"quotes'],
+				source: "agent",
+			});
+			const results = db.list({ topic: 'tag"with"quotes' });
 			expect(results.length).toBe(1);
 		} finally {
 			db.close();
 		}
 	});
 
-	it("tag filter with SQL wildcard chars", () => {
+	it("topic filter is exact (no LIKE substring or wildcard collision)", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
-			db.write({ title: "Percent tag", category: "fact", tags: ["100%"] });
-			db.write({ title: "Underscore tag", category: "fact", tags: ["_internal"] });
-			db.write({ title: "Normal tag", category: "fact", tags: ["normal"] });
+			db.write({
+				summary: "Percent topic",
+				details: "",
+				category: null,
+				topics: ["100%"],
+				source: "agent",
+			});
+			db.write({
+				summary: "Underscore topic",
+				details: "",
+				category: null,
+				topics: ["_internal"],
+				source: "agent",
+			});
+			db.write({
+				summary: "Normal topic",
+				details: "",
+				category: null,
+				topics: ["normal"],
+				source: "agent",
+			});
 
-			// "%" is a LIKE wildcard — could match everything
-			const percentResults = db.list({ tag: "100%" });
-			expect(percentResults.length).toBe(1);
-
-			// "_" is a LIKE single-char wildcard — could match too broadly
-			const underscoreResults = db.list({ tag: "_internal" });
-			expect(underscoreResults.length).toBe(1);
+			expect(db.list({ topic: "100%" }).length).toBe(1);
+			expect(db.list({ topic: "_internal" }).length).toBe(1);
+			// Foo prefix collision check: topic 'foo' must not match 'foobar'
+			db.write({
+				summary: "Foo",
+				details: "",
+				category: null,
+				topics: ["foo"],
+				source: "agent",
+			});
+			db.write({
+				summary: "Foobar",
+				details: "",
+				category: null,
+				topics: ["foobar"],
+				source: "agent",
+			});
+			expect(db.list({ topic: "foo" }).length).toBe(1);
 		} finally {
 			db.close();
 		}
@@ -748,12 +862,26 @@ describe("Error paths — MemoryDB", () => {
 
 	it("operations after close throw (not silently corrupt)", () => {
 		const db = new MemoryDB(":memory:", "project");
-		db.write({ title: "Before close", category: "fact", tags: [] });
+		db.write({
+			summary: "Before close",
+			details: "",
+			category: null,
+			topics: [],
+			source: "agent",
+		});
 		db.close();
 
-		expect(() => db.write({ title: "After close", category: "fact", tags: [] })).toThrow();
+		expect(() =>
+			db.write({
+				summary: "After close",
+				details: "",
+				category: null,
+				topics: [],
+				source: "agent",
+			}),
+		).toThrow();
 		expect(() => db.list()).toThrow();
-		expect(() => db.search("anything")).toThrow();
+		expect(() => db.searchUnicode("anything")).toThrow();
 	});
 });
 
@@ -933,29 +1061,53 @@ describe("Error paths — read edge cases", () => {
 // 5. DATA INTEGRITY — Things that silently produce wrong results
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("Data integrity — MemoryDB tag filter LIKE injection", () => {
-	it("tag containing % doesn't match all records", () => {
+describe("Data integrity — MemoryDB topic filter (json_each, no LIKE)", () => {
+	it("raw % query doesn't match anything (json_each is exact)", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
-			db.write({ title: "Has percent", category: "fact", tags: ["50%"] });
-			db.write({ title: "No match", category: "fact", tags: ["other"] });
+			db.write({
+				summary: "Has percent",
+				details: "",
+				category: null,
+				topics: ["50%"],
+				source: "agent",
+			});
+			db.write({
+				summary: "No match",
+				details: "",
+				category: null,
+				topics: ["other"],
+				source: "agent",
+			});
 
-			const results = db.list({ tag: "%" });
+			const results = db.list({ topic: "%" });
 			expect(results.length).toBe(0);
 		} finally {
 			db.close();
 		}
 	});
 
-	it("tag containing _ doesn't match single-char wildcard", () => {
+	it("topic with literal _ matches exact, not single-char wildcard", () => {
 		const db = new MemoryDB(":memory:", "project");
 		try {
-			db.write({ title: "Has underscore", category: "fact", tags: ["a_b"] });
-			db.write({ title: "Similar", category: "fact", tags: ["axb"] });
+			db.write({
+				summary: "Has underscore",
+				details: "",
+				category: null,
+				topics: ["a_b"],
+				source: "agent",
+			});
+			db.write({
+				summary: "Similar",
+				details: "",
+				category: null,
+				topics: ["axb"],
+				source: "agent",
+			});
 
-			const results = db.list({ tag: "a_b" });
+			const results = db.list({ topic: "a_b" });
 			expect(results.length).toBe(1);
-			expect(results[0]!.title).toBe("Has underscore");
+			expect(results[0]!.summary).toBe("Has underscore");
 		} finally {
 			db.close();
 		}
