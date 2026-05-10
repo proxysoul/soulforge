@@ -217,3 +217,55 @@ export function memoryEmbedSource(summary: string, details: string, topics: stri
   if (!s && !d && !t) return "";
   return `${s} ${s} ${s}\n${d}\n${t}`.trim();
 }
+/**
+ * Provider-backed embedder interface. When set on MemoryManager, the
+ * memory subsystem awaits real provider embeddings instead of the hash-bag.
+ * Storage shape stays the same (Float32Array → BLOB); `model` tag changes so
+ * vectors from different providers never get cross-correlated.
+ *
+ * Implementations should return a vector with length matching `dimensions`,
+ * L2-normalized so cosine == dot product. Errors must throw — the caller
+ * catches and falls back to hash-bag.
+ */
+export interface ProviderEmbedder {
+  /** Model id tag, e.g. "openai/text-embedding-3-small". Stored on each row. */
+  readonly model: string;
+  /** Embed one text. Single-call path used by write + query. */
+  embed(text: string): Promise<Float32Array>;
+  /** Embed many texts in one provider round-trip. Used by backfill. */
+  embedMany(texts: string[]): Promise<Float32Array[]>;
+}
+/**
+ * Build a ProviderEmbedder from the Vercel AI SDK. Lazy-loaded — only imports
+ * `ai` when actually called, so the rest of the memory subsystem stays free
+ * of provider dependencies. Pass an AI SDK 6 model id string or model object.
+ */
+export async function createAiSdkEmbedder(
+  modelOrId: string | { model: string; provider?: unknown },
+): Promise<ProviderEmbedder> {
+  const { embed: sdkEmbed, embedMany: sdkEmbedMany } = await import("ai");
+  const modelId = typeof modelOrId === "string" ? modelOrId : modelOrId.model;
+  return {
+    model: modelId,
+    async embed(text) {
+      const r = await sdkEmbed({ model: modelId, value: text });
+      return normalizeFloat32(r.embedding);
+    },
+    async embedMany(texts) {
+      if (texts.length === 0) return [];
+      const r = await sdkEmbedMany({ model: modelId, values: texts });
+      return r.embeddings.map(normalizeFloat32);
+    },
+  };
+}
+
+function normalizeFloat32(v: readonly number[] | Float32Array): Float32Array {
+  const out = v instanceof Float32Array ? new Float32Array(v) : Float32Array.from(v);
+  let norm = 0;
+  for (let i = 0; i < out.length; i++) norm += (out[i] ?? 0) ** 2;
+  norm = Math.sqrt(norm);
+  if (norm > 0) {
+    for (let i = 0; i < out.length; i++) out[i] = (out[i] ?? 0) / norm;
+  }
+  return out;
+}

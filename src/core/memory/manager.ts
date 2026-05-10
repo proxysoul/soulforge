@@ -7,6 +7,8 @@ import {
   type MemoryWriteInput,
   type MemoryWriteResult,
 } from "./db.js";
+import type { ProviderEmbedder } from "./embedder.js";
+import { memoryEmbedSource as memoryEmbedSourceImport } from "./embedder.js";
 import type {
   MemoryCategory,
   MemoryFileRef,
@@ -150,6 +152,16 @@ export class MemoryManager {
   write(scope: MemoryScope, input: MemoryWriteInput): MemoryWriteResult {
     const result = this.getDb(scope).write(input);
     this._generation++;
+    // If a provider embedder is wired, re-embed the row asynchronously with
+    // real vectors — fire-and-forget so callers don't pay the latency.
+    // similar_hints from the sync hash-bag path stay (they're advisory).
+    if (this._providerEmbedder && !result.deduped) {
+      void this.getDb(scope)
+        .embedAndLinkAsync(result.record.id, this._providerEmbedder)
+        .catch(() => {
+          // Already fell back to hash-bag inside embedAndLinkAsync.
+        });
+    }
     return result;
   }
 
@@ -399,16 +411,50 @@ export class MemoryManager {
     return out;
   }
 
-  /** Backfill embeddings for memories written before Phase 4 landed. */
-  backfillEmbeddings(scope: MemoryScope | "both" | "all" = "all", maxPerScope = 200): number {
+  /**
+   * Backfill missing embeddings. When a provider embedder is set, uses
+   * batched provider calls. Otherwise falls back to the synchronous hash-bag.
+   * Both paths skip rows that already have an embedding tagged with the
+   * active model — flip the model and they'll re-embed on next pass.
+   */
+  async backfillEmbeddings(
+    scope: MemoryScope | "both" | "all" = "all",
+    maxPerScope = 200,
+  ): Promise<number> {
     let n = 0;
+    const provider = this._providerEmbedder;
     for (const db of this.getReadDbs(scope)) {
-      const missing = db.listMissingEmbeddings(undefined, maxPerScope);
-      for (const m of missing) {
+      const missing = db.listMissingEmbeddings(provider?.model, maxPerScope);
+      if (provider) {
+        const sources = missing.map((m) => memoryEmbedSourceImport(m.summary, m.details, m.topics));
         try {
-          db.embedAndLink(m.id);
-          n++;
-        } catch {}
+          const vecs = await provider.embedMany(sources);
+          for (let i = 0; i < missing.length; i++) {
+            const row = missing[i];
+            const vec = vecs[i];
+            if (!row || !vec) continue;
+            db.setEmbedding(row.id, vec, provider.model);
+            try {
+              await db.embedAndLinkAsync(row.id, provider);
+              n++;
+            } catch {}
+          }
+        } catch {
+          // Provider failed mid-batch — fall back to hash-bag for the rest.
+          for (const m of missing) {
+            try {
+              db.embedAndLink(m.id);
+              n++;
+            } catch {}
+          }
+        }
+      } else {
+        for (const m of missing) {
+          try {
+            db.embedAndLink(m.id);
+            n++;
+          } catch {}
+        }
       }
     }
     if (n > 0) this._generation++;
@@ -443,5 +489,20 @@ export class MemoryManager {
       return this.findById(m.scope, m.id);
     }
     return { ambiguous: matches };
+  }
+
+  private _providerEmbedder: ProviderEmbedder | null = null;
+
+  /**
+   * Wire a provider-backed embedder (Vercel AI SDK or compatible). When set,
+   * writes use real embeddings; recall queries embed via the provider too.
+   * Pass null to fall back to the deterministic hash-bag.
+   */
+  setProviderEmbedder(provider: ProviderEmbedder | null): void {
+    this._providerEmbedder = provider;
+  }
+
+  getProviderEmbedder(): ProviderEmbedder | null {
+    return this._providerEmbedder;
   }
 }

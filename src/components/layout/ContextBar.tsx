@@ -71,6 +71,7 @@ function buildContent(
   compacting?: { active: boolean; frame: number },
   workers?: WorkerIndicator,
   browsing?: boolean,
+  memoryHint?: { stale: number } | null,
 ): StyledText {
   const filled = Math.round((pct / 100) * BAR_WIDTH);
   const empty = BAR_WIDTH - filled;
@@ -120,6 +121,13 @@ function buildContent(
       chunks.push(fgStyle(wColor)(` ${wGlyph}`));
     }
   }
+  if (memoryHint && memoryHint.stale > 0) {
+    chunks.push(
+      fgStyle(t.warning)(
+        ` ${icon("cleanup")} ${String(memoryHint.stale)} stale memor${memoryHint.stale === 1 ? "y" : "ies"} — /memory cleanup`,
+      ),
+    );
+  }
   return new StyledText(chunks);
 }
 
@@ -149,6 +157,10 @@ export function ContextBar({ contextManager, suppressCompacting }: Props) {
   const browsingRef = useRef(false);
   const suppressCompactingRef = useRef(suppressCompacting);
   suppressCompactingRef.current = suppressCompacting;
+  // Cleanup-hint state — polled lazily inside the render tick (every 30s)
+  // so we don't recompute it on every frame. Cheap query: counts only.
+  const memoryHintRef = useRef<{ stale: number } | null>(null);
+  const memoryHintLastCheckRef = useRef(0);
   const renderedContentRef = useRef(buildContent(0, false, false, 0, 200_000));
 
   const computeTarget = useCallback(
@@ -164,8 +176,6 @@ export function ContextBar({ contextManager, suppressCompacting }: Props) {
       const breakdown = contextManager.getContextBreakdown();
       const systemChars = breakdown.reduce((sum, s) => sum + s.chars, 0);
       const charEstimate = (systemChars + state.chatChars + state.subagentChars) / CHARS_PER_TOKEN;
-      // In API mode, contextTokens already includes everything sent at that step.
-      // Add the delta of chatChars accumulated since that snapshot + subagent chars.
       const chatCharsDelta = Math.max(0, state.chatChars - state.chatCharsAtSnapshot);
       const totalTokens = isApi
         ? state.contextTokens + (chatCharsDelta + state.subagentChars) / CHARS_PER_TOKEN
@@ -236,6 +246,28 @@ export function ContextBar({ contextManager, suppressCompacting }: Props) {
       const browsing = store.browsingCheckpoint;
       const browsingChanged = browsing !== browsingRef.current;
       browsingRef.current = browsing;
+
+      // Poll cleanup hint every 30s — cheap (count + threshold check), but
+      // not zero. We don't need higher frequency: hint is a banner, not a
+      // live metric.
+      const now = Date.now();
+      let memoryHintChanged = false;
+      if (now - memoryHintLastCheckRef.current >= 30_000) {
+        memoryHintLastCheckRef.current = now;
+        try {
+          const next = contextManager.getMemoryManager().cleanupHint();
+          const nextSimple = next ? { stale: next.stale } : null;
+          const prev = memoryHintRef.current;
+          const same =
+            (prev === null && nextSimple === null) ||
+            (prev !== null && nextSimple !== null && prev.stale === nextSimple.stale);
+          if (!same) {
+            memoryHintRef.current = nextSimple;
+            memoryHintChanged = true;
+          }
+        } catch {}
+      }
+
       if (
         pct === currentPctRef.current &&
         !target.flash &&
@@ -243,7 +275,8 @@ export function ContextBar({ contextManager, suppressCompacting }: Props) {
         !compactChanged &&
         !wkChanged &&
         !windowChanged &&
-        !browsingChanged
+        !browsingChanged &&
+        !memoryHintChanged
       )
         return;
       currentPctRef.current = pct;
@@ -257,6 +290,7 @@ export function ContextBar({ contextManager, suppressCompacting }: Props) {
           isCompacting ? { active: true, frame: compactFrameRef.current } : undefined,
           wk,
           browsing,
+          memoryHintRef.current,
         );
         renderedContentRef.current = content;
         if (textRef.current) {
@@ -265,7 +299,7 @@ export function ContextBar({ contextManager, suppressCompacting }: Props) {
       } catch {}
     }, STEP_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [contextManager]);
 
   return <text ref={textRef} truncate content={renderedContentRef.current} />;
 }

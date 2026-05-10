@@ -7,6 +7,7 @@ import {
   EMBED_MODEL,
   embed,
   memoryEmbedSource,
+  type ProviderEmbedder,
   vectorToBuffer,
 } from "./embedder.js";
 import type {
@@ -1094,6 +1095,56 @@ export class MemoryDB {
     }
     out.sort((a, b) => b.weight - a.weight);
     return out;
+  }
+
+  /**
+   * Async variant of `embedAndLink` — uses a provider embedder when set,
+   * otherwise falls back to the synchronous hash-bag path. Same return shape.
+   *
+   * The model tag stored on each row comes from the embedder, so vectors
+   * produced by different providers can coexist; recall scopes by model tag.
+   */
+  async embedAndLinkAsync(
+    id: string,
+    provider: ProviderEmbedder | null,
+    threshold = 0.4,
+    maxEdges = 8,
+  ): Promise<Array<{ id: string; weight: number; summary: string }>> {
+    if (!provider) return this.embedAndLink(id, threshold, maxEdges);
+    const record = this.read(id);
+    if (!record) return [];
+    const source = memoryEmbedSource(record.summary, record.details, record.topics);
+    if (!source) return [];
+    let vec: Float32Array;
+    try {
+      vec = await provider.embed(source);
+    } catch {
+      // Provider failed — fall back to hash-bag so the row still gets an
+      // embedding rather than entering the index empty.
+      return this.embedAndLink(id, threshold, maxEdges);
+    }
+    this.setEmbedding(id, vec, provider.model);
+    if (record.hidden) return [];
+
+    const others = this.listEmbeddings(provider.model).filter((o) => o.id !== id);
+    const scored = others
+      .map((o) => ({ id: o.id, weight: cosine(vec, o.vector) }))
+      .filter((s) => s.weight >= threshold)
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, maxEdges);
+
+    for (const s of scored) {
+      this.addEdge(id, s.id, "similar", s.weight);
+      this.addEdge(s.id, id, "similar", s.weight);
+    }
+    if (scored.length === 0) return [];
+    const fullRecords = this.readMany(scored.map((s) => s.id));
+    const summaryById = new Map(fullRecords.map((r) => [r.id, r.summary]));
+    return scored.map((s) => ({
+      id: s.id,
+      weight: s.weight,
+      summary: summaryById.get(s.id) ?? "",
+    }));
   }
 }
 

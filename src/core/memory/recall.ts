@@ -27,6 +27,11 @@ interface DbLike {
   getEmbedding?: MemoryDB["getEmbedding"];
 }
 
+interface ProviderEmbedderLike {
+  readonly model: string;
+  embed(text: string): Promise<Float32Array>;
+}
+
 export interface DbScopeAdapter {
   scope: import("./types.js").MemoryScope;
   db: DbLike;
@@ -50,6 +55,7 @@ export class MemoryRecall {
   private readonly defaultThreshold: number;
   private readonly defaultMaxChars: number;
   private readonly scopes: readonly DbScopeAdapter[];
+  private providerEmbedder: ProviderEmbedderLike | null = null;
 
   constructor(
     db: DbLike | readonly DbScopeAdapter[],
@@ -62,6 +68,10 @@ export class MemoryRecall {
     this.defaultMaxChars = opts.defaultMaxChars ?? DEFAULT_MAX_CHARS;
   }
 
+  setProviderEmbedder(provider: ProviderEmbedderLike | null): void {
+    this.providerEmbedder = provider;
+  }
+
   async recall(opts: MemoryRecallOptions = {}): Promise<MemoryRecallResult[]> {
     const limit = opts.limit ?? this.defaultLimit;
     const threshold = opts.threshold ?? this.defaultThreshold;
@@ -72,15 +82,16 @@ export class MemoryRecall {
     const filtered = filterScopes(this.scopes, opts.readScope);
     if (filtered.length === 0) return [];
 
-    // ── File affinity: resolve edited paths → ids ONCE, in parallel.
+    // Resolve the query → vector ONCE per call. Provider path is async +
+    // shared across scopes. Hash-bag fallback is sync.
+    const queryVec = await this.resolveQueryVector(query);
+
     const editedFileIds = await this.resolveEditedFileIds(editedFiles);
 
-    // Run per-scope candidate gathering in parallel.
     const perScope = await Promise.all(
-      filtered.map((s) => this.gatherScope(s, query, editedFiles, editedFileIds)),
+      filtered.map((s) => this.gatherScope(s, query, queryVec, editedFiles, editedFileIds)),
     );
 
-    // Flatten + score with shared blast cache.
     const blastCache = new Map<number, number>();
     const intel = this.intel;
     const blastFor = async (fileIds: number[]): Promise<number> => {
@@ -155,6 +166,21 @@ export class MemoryRecall {
     return out;
   }
 
+  private async resolveQueryVector(
+    query: string,
+  ): Promise<{ vec: Float32Array; model: string } | null> {
+    if (!query) return null;
+    if (this.providerEmbedder) {
+      try {
+        const vec = await this.providerEmbedder.embed(query);
+        return { vec, model: this.providerEmbedder.model };
+      } catch {
+        // fall through to hash-bag
+      }
+    }
+    return { vec: embed(memoryEmbedSource(query, "", [])), model: EMBED_MODEL };
+  }
+
   private async resolveEditedFileIds(editedFiles: string[]): Promise<number[]> {
     const intel = this.intel;
     if (editedFiles.length === 0 || !intel) return [];
@@ -171,6 +197,7 @@ export class MemoryRecall {
   private async gatherScope(
     s: DbScopeAdapter,
     query: string,
+    queryVec: { vec: Float32Array; model: string } | null,
     editedFiles: string[],
     editedFileIds: number[],
   ): Promise<{
@@ -192,7 +219,7 @@ export class MemoryRecall {
 
     const fileAffinityIds = collectFileAffinity(db, editedFiles, editedFileIds);
 
-    const semanticHits = collectSemanticHits(db, query);
+    const semanticHits = collectSemanticHits(db, queryVec);
     const semanticScore = new Map<string, number>();
     for (const h of semanticHits) semanticScore.set(h.id, h.weight);
     const semanticRank = rankMap(semanticHits.map((h) => h.id));
@@ -326,17 +353,16 @@ function collectFileAffinity(db: DbLike, editedFiles: string[], editedFileIds: n
 }
 function collectSemanticHits(
   db: DbLike,
-  query: string,
+  queryVec: { vec: Float32Array; model: string } | null,
   limit = 20,
   threshold = 0.18,
 ): Array<{ id: string; weight: number }> {
-  if (!query || !db.listEmbeddings) return [];
-  const qVec = embed(memoryEmbedSource(query, "", []));
-  const all = db.listEmbeddings(EMBED_MODEL);
+  if (!queryVec || !db.listEmbeddings) return [];
+  const all = db.listEmbeddings(queryVec.model);
   if (all.length === 0) return [];
   const scored: Array<{ id: string; weight: number }> = [];
   for (const e of all) {
-    const w = cosine(qVec, e.vector);
+    const w = cosine(queryVec.vec, e.vector);
     if (w >= threshold) scored.push({ id: e.id, weight: w });
   }
   scored.sort((a, b) => b.weight - a.weight);
