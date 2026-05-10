@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.14.11] — 2026-05-10
+
+### Bug Fixes
+
+- **soulforge**: use find -exec + to avoid heredoc backslash stripping
 ## [2.14.10] — 2026-05-10
 
 ### Bug Fixes
