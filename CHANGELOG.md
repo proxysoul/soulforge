@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.14.10] — 2026-05-10
+
+### Bug Fixes
+
+- **ci**: use Hardware::CPU.flags for AVX check in generated formula
 ## [2.14.9] — 2026-05-09
 
 ### Bug Fixes
