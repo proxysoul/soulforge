@@ -30,6 +30,7 @@ components.json
 
 skills-lock.json 
 scripts/test-local.sh
+scripts/test-release.sh
 
 
 # caches

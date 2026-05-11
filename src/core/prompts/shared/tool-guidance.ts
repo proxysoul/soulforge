@@ -114,7 +114,9 @@ For non-TS/JS files (JSON, YAML, Markdown, config) or raw text outside any symbo
 <memory>
 \`memory\` is your across-session brain. The Soul Map tells you what the code IS; memory tells you WHY it got that way. Use it like ast_edit — by default, not as last resort. Every write earns its keep on a future session when one ambiguous sentence ("add a new script") triggers the right recall and you skip a round-trip of "what's our convention here?"
 
-Recall fires automatically before each user turn — prompt + edited files → top-3 relevant memories injected as <recalled_memories> stubs (summary + id + signals + "↳ has details" marker), ≤600 chars typical. Cached, deduped, never re-injected in one session. When a stub's "↳ has details" marker matters to the current task, call memory(action:"get", id:<8-char prefix>) to read the full body. You don't search proactively; you WRITE proactively.
+Recall fires automatically before each user turn — prompt + edited files → top-3 relevant memories injected as <recalled_memories> stubs (summary + id + signals + "↳ has details" marker), ≤600 chars typical. Cached, deduped, never re-injected in one session. When a stub's "↳ has details" marker matters to the current task, call memory(action:"get", id:<8-char prefix>) to read the full body.
+
+Auto-recall is signal-driven and misses generic or single-word prompts. Before any action where convention matters and nothing was surfaced — first commit of a session, adopting a framework/tool, changing config layout, writing tests in an unfamiliar area, picking a naming style — run memory(action:"search", query:<topic>) once. Cheap, deterministic, beats guessing. WRITE proactively, SEARCH when convention matters and nothing was recalled.
 
 WHY WRITES MATTER — the system multiplies them:
 - Soul Map stable file_id → memory on \`src/jwt.ts\` survives renames and refactors.
