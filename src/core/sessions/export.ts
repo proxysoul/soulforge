@@ -160,6 +160,7 @@ interface ExportResult {
 interface ClipboardResult {
   messageCount: number;
   format: "markdown";
+  ok: boolean;
 }
 
 export function exportToClipboard(messages: ChatMessage[], title?: string): ClipboardResult {
@@ -167,16 +168,19 @@ export function exportToClipboard(messages: ChatMessage[], title?: string): Clip
   const content = exportToMarkdown(messages, label);
 
   const platform = process.platform;
+  let ok = false;
   if (platform === "darwin") {
-    Bun.spawnSync(["pbcopy"], { stdin: new TextEncoder().encode(content) });
+    const proc = Bun.spawnSync(["pbcopy"], { stdin: new TextEncoder().encode(content) });
+    ok = proc.exitCode === 0;
   } else if (platform === "win32") {
-    Bun.spawnSync(["clip"], { stdin: new TextEncoder().encode(content) });
+    const proc = Bun.spawnSync(["clip"], { stdin: new TextEncoder().encode(content) });
+    ok = proc.exitCode === 0;
   } else {
-    writeLinuxClipboard(content);
+    ok = writeLinuxClipboard(content);
   }
 
   const visible = messages.filter((m) => m.role !== "system" || m.showInChat).length;
-  return { messageCount: visible, format: "markdown" };
+  return { messageCount: visible, format: "markdown", ok };
 }
 
 export function exportChat(

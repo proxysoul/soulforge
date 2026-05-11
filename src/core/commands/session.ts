@@ -112,6 +112,14 @@ async function handleExport(input: string, ctx: CommandContext): Promise<void> {
     const { exportToClipboard } = await import("../sessions/export.js");
     const tabLabel = ctx.tabMgr.activeTab?.label ?? "chat";
     const result = exportToClipboard(ctx.chat.messages, tabLabel);
+    if (!result.ok) {
+      const hint =
+        process.platform === "linux"
+          ? " — install `wl-clipboard` (Wayland) or `xclip`/`xsel` (X11)"
+          : "";
+      sysMsg(ctx, `Clipboard backend unavailable${hint}`);
+      return;
+    }
     sysMsg(ctx, `Copied ${String(result.messageCount)} messages to clipboard (${result.format})`);
     return;
   }
