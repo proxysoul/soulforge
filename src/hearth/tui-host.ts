@@ -39,6 +39,11 @@ import {
 } from "./config.js";
 import { generatePairingCode, PairingRegistry } from "./pairing.js";
 import { socketRequest } from "./protocol.js";
+import {
+  handleSettingsCommand,
+  SETTINGS_COMMAND_NAMES,
+  settingsHelpLines,
+} from "./provider-commands.js";
 import { redact } from "./redact.js";
 import { SurfaceHost } from "./surface-host.js";
 import {
@@ -235,6 +240,15 @@ export class TuiHost {
     if (!cmd || !this.host) return;
     const surface = this.host.getSurface(surfaceId);
     if (!surface) return;
+
+    // Provider-settings commands — handled uniformly out of the switch so
+    // tui-host and daemon share the same logic. Returns true when consumed.
+    if (SETTINGS_COMMAND_NAMES.includes(cmd.name)) {
+      const handled = await handleSettingsCommand(cmd.name, cmd.args, (text) =>
+        surface.notify(msg.externalId, text),
+      );
+      if (handled) return;
+    }
 
     switch (cmd.name) {
       case "/tabs":
@@ -856,6 +870,9 @@ export class TuiHost {
             "\u2501\u2501 Pairing \u2501\u2501",
             "/pair [CODE]           pair this chat \u00b7 redeem a code",
             "/unpair                revoke pairing",
+            "",
+            ...settingsHelpLines(),
+            "",
             "/help                  this list",
           ].join("\n"),
         );

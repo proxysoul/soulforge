@@ -33,6 +33,11 @@ import { PairingRegistry } from "./pairing.js";
 import { checkPeer } from "./peer-auth.js";
 import { describeTool, evaluatePolicy } from "./policy.js";
 import { attachFrameReader, writeFrame } from "./protocol.js";
+import {
+  handleSettingsCommand,
+  SETTINGS_COMMAND_NAMES,
+  settingsHelpLines,
+} from "./provider-commands.js";
 import { installGlobalRedaction, redact } from "./redact.js";
 import { ChatWorkspaceRegistry } from "./registry.js";
 import { SurfaceHost } from "./surface-host.js";
@@ -751,6 +756,15 @@ export class HearthDaemon {
     const ws = this.workspaces.get(surfaceId, msg.externalId);
     const hasBridge = hearthBridge.getBinding(surfaceId, msg.externalId) !== null;
 
+    // Provider-settings commands — shared with TuiHost via provider-commands.ts.
+    // These write the global config, so they work regardless of bridge binding.
+    if (SETTINGS_COMMAND_NAMES.includes(cmd.name)) {
+      const handled = await handleSettingsCommand(cmd.name, cmd.args, (text) =>
+        surface.notify(msg.externalId, text),
+      );
+      if (handled) return;
+    }
+
     // Bridge mode: a TUI tab is bound to this chat. /tab, /tabs, /stop,
     // /mute and /unmute route through the bridge. /pair, /new, /close still
     // manage daemon-side state if someone wants it.
@@ -1208,6 +1222,9 @@ export class HearthDaemon {
               "\u2501\u2501 Pairing \u2501\u2501",
               "/pair [CODE]           pair this chat",
               "/unpair                revoke",
+              "",
+              ...settingsHelpLines(),
+              "",
               "/help                  this list",
             ].join("\n"),
           );
