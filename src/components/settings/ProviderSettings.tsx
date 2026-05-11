@@ -10,137 +10,153 @@ import type {
 } from "../../types/index.js";
 import type { ConfigScope } from "../layout/shared.js";
 import { CONFIG_SCOPES } from "../layout/shared.js";
-import { Divider, Hint, PremiumPopup, SegmentedControl, Toggle, VirtualList } from "../ui/index.js";
+import { Divider, Hint, PremiumPopup, SegmentedControl, VirtualList } from "../ui/index.js";
 
 const MAX_POPUP_WIDTH = 110;
 const CHROME_ROWS = 10;
 
 type ItemType = "cycle" | "toggle" | "budget";
 
-interface SettingItem {
+interface SettingRow {
+  type: ItemType;
   key: string;
   label: string;
   desc: string;
-  type: ItemType;
   options?: string[];
+}
+interface SettingSection {
+  type: "section";
+  label: string;
+}
+type SettingItem = SettingRow | SettingSection;
+function isSection(item: SettingItem): item is SettingSection {
+  return item.type === "section";
 }
 
 type ProviderTab = "claude" | "openai" | "general";
 const TABS: ProviderTab[] = ["claude", "openai", "general"];
 
 const CLAUDE_ITEMS: SettingItem[] = [
+  { type: "section", label: "Reasoning" },
   {
     key: "thinkingMode",
     label: "Thinking",
-    desc: "off | auto (adaptive) | enabled (fixed budget)",
+    desc: "Extended thinking mode. auto = adaptive · enabled = fixed budget",
     type: "cycle",
-    options: ["off", "disabled", "auto", "adaptive", "enabled"],
+    options: ["off", "auto", "adaptive", "enabled"],
   },
   {
     key: "budgetTokens",
-    label: "Budget Tokens",
-    desc: "Token budget for enabled thinking mode",
+    label: "Budget",
+    desc: "Token budget when thinking = enabled",
     type: "budget",
     options: ["1024", "2048", "5000", "10000", "20000"],
   },
   {
-    key: "clearThinking",
-    label: "Preserve Thinking",
-    desc: "Keep all thinking blocks across turns for better cache hits. Off = Anthropic default (only last turn kept). Requires thinking enabled.",
-    type: "toggle",
-  },
-  {
     key: "effort",
     label: "Effort",
-    desc: "Reasoning depth — affects thinking, text, and tool calls",
+    desc: "Reasoning depth across thinking, text, and tool calls",
     type: "cycle",
     options: ["off", "low", "medium", "high", "xhigh", "max"],
   },
   {
+    key: "clearThinking",
+    label: "Preserve thinking",
+    desc: "Keep thinking blocks across turns for cache hits (requires thinking on)",
+    type: "toggle",
+  },
+  { type: "section", label: "Performance" },
+  {
     key: "speed",
     label: "Speed",
-    desc: "Opus 4.6 — 2.5x faster output (standard | fast)",
+    desc: "Opus 4.6 only — 2.5× faster output",
     type: "cycle",
     options: ["off", "standard", "fast"],
   },
   {
-    key: "codeExecution",
-    label: "Code Execution",
-    desc: "Programmatic tool calling — batches reads in Python, saves tokens",
-    type: "toggle",
-  },
-  {
-    key: "computerUse",
-    label: "Computer Use",
-    desc: "Keyboard/mouse/screenshot control",
-    type: "toggle",
-  },
-  {
-    key: "anthropicTextEditor",
-    label: "Anthropic Text Editor",
-    desc: "Anthropic's str_replace editor tool",
-    type: "toggle",
-  },
-  {
     key: "toolStreaming",
-    label: "Tool Streaming",
-    desc: "Stream tool call args incrementally (disable to debug)",
+    label: "Tool streaming",
+    desc: "Stream tool call args incrementally",
     type: "toggle",
   },
   {
     key: "sendReasoning",
-    label: "Send Reasoning",
+    label: "Send reasoning",
     desc: "Include reasoning content in multi-turn requests",
     type: "toggle",
   },
+  { type: "section", label: "Beta tools" },
+  {
+    key: "codeExecution",
+    label: "Code execution",
+    desc: "Programmatic tool calling — batches reads in Python",
+    type: "toggle",
+  },
+  {
+    key: "computerUse",
+    label: "Computer use",
+    desc: "Keyboard / mouse / screenshot control",
+    type: "toggle",
+  },
+  {
+    key: "anthropicTextEditor",
+    label: "Text editor",
+    desc: "Anthropic str_replace editor tool",
+    type: "toggle",
+  },
+  { type: "section", label: "Server context" },
   {
     key: "compact",
-    label: "Server Compaction",
-    desc: "Anthropic server-side context compaction (200K+ models)",
+    label: "Server compaction",
+    desc: "Anthropic server-side compaction (200K+ models)",
     type: "toggle",
   },
   {
     key: "clearToolUses",
-    label: "Clear Tool Uses",
-    desc: "Server-side — clear old tool results at 65% context. ⚠️ Busts prompt cache when triggered",
+    label: "Clear old tool uses",
+    desc: "Drop old tool results at 65% ctx. Busts prompt cache when it fires",
     type: "toggle",
   },
 ];
 
 const OPENAI_ITEMS: SettingItem[] = [
+  { type: "section", label: "Reasoning" },
   {
     key: "openaiReasoningEffort",
-    label: "Reasoning Effort",
-    desc: "For o3, o4, gpt-5 — controls reasoning depth",
+    label: "Effort",
+    desc: "o3 · o4 · gpt-5 — reasoning depth",
     type: "cycle",
     options: ["off", "none", "minimal", "low", "medium", "high", "xhigh"],
   },
+  { type: "section", label: "Service" },
   {
     key: "serviceTier",
-    label: "Service Tier",
-    desc: "flex = 50% cheaper | priority = fastest (Enterprise)",
+    label: "Service tier",
+    desc: "flex = 50% cheaper · priority = fastest (Enterprise)",
     type: "cycle",
     options: ["off", "auto", "default", "flex", "priority"],
   },
 ];
 
 const GENERAL_ITEMS: SettingItem[] = [
+  { type: "section", label: "Tools" },
   {
     key: "disableParallelToolUse",
-    label: "Sequential Tools",
-    desc: "One tool at a time instead of parallel (all providers)",
+    label: "Sequential tools",
+    desc: "Run tools one at a time instead of parallel (all providers)",
     type: "toggle",
   },
   {
     key: "webSearch",
-    label: "Web Search",
-    desc: "Allow web search tool",
+    label: "Web search",
+    desc: "Allow the web search tool",
     type: "toggle",
   },
+  { type: "section", label: "Context" },
   {
     key: "pruning",
-    label: "Tool Result Pruning",
-    desc: "Client-side — compact old tool results: main | subagents | both | none",
+    label: "Tool result pruning",
+    desc: "Client-side — compact old tool results",
     type: "cycle",
     options: ["none", "main", "subagents", "both"],
   },
@@ -303,7 +319,7 @@ export function ProviderSettings({
   const { width: termCols, height: termRows } = useTerminalDimensions();
   const containerRows = termRows - 2;
   const popupWidth = Math.min(MAX_POPUP_WIDTH, Math.floor(termCols * 0.85));
-  const maxVisible = Math.max(4, Math.floor(containerRows * 0.85) - CHROME_ROWS);
+  const maxVisible = Math.max(6, Math.floor(containerRows * 0.85) - CHROME_ROWS);
 
   const t = useTheme();
   const [tab, setTab] = useState<ProviderTab>("claude");
@@ -314,13 +330,15 @@ export function ProviderSettings({
   const items = TAB_ITEMS[tab];
   const tabIdx = TABS.indexOf(tab);
 
+  const firstRowIdx = items.findIndex((i) => !isSection(i));
+
   useEffect(() => {
     if (visible) setScope(detectInitialScope(projectConfig));
   }, [visible, projectConfig]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: tab triggers scroll reset on tab change
   useEffect(() => {
-    setCursor(0);
+    setCursor(Math.max(0, firstRowIdx));
   }, [tab]);
 
   const isBudgetDisabled = vals.thinkingMode !== "enabled";
@@ -332,7 +350,20 @@ export function ProviderSettings({
     return false;
   };
 
-  const cycleValue = (item: SettingItem) => {
+  const stepCursor = (dir: 1 | -1) => {
+    if (items.length === 0) return;
+    let next = cursor;
+    for (let i = 0; i < items.length; i++) {
+      next = (next + dir + items.length) % items.length;
+      const it = items[next];
+      if (it && !isSection(it)) {
+        setCursor(next);
+        return;
+      }
+    }
+  };
+
+  const cycleValue = (item: SettingRow) => {
     if (item.type === "toggle") {
       if (isItemDisabled(item.key)) return;
       const current = vals[item.key as keyof CurrentValues] as boolean;
@@ -369,16 +400,16 @@ export function ProviderSettings({
       return;
     }
     if (evt.name === "up") {
-      setCursor((c) => (c > 0 ? c - 1 : items.length - 1));
+      stepCursor(-1);
       return;
     }
     if (evt.name === "down") {
-      setCursor((c) => (c < items.length - 1 ? c + 1 : 0));
+      stepCursor(1);
       return;
     }
     if (evt.name === "return" || evt.name === " ") {
       const item = items[cursor];
-      if (item) cycleValue(item);
+      if (item && !isSection(item)) cycleValue(item);
       return;
     }
     if (evt.name === "left" || evt.name === "right") {
@@ -411,6 +442,10 @@ export function ProviderSettings({
   const contentW = popupWidth - sidebarW - 3;
   const labelW = 22;
 
+  const focusedItem = items[cursor];
+  const focusedRow = focusedItem && !isSection(focusedItem) ? focusedItem : null;
+  const focusedDisabled = focusedRow ? isItemDisabled(focusedRow.key) : false;
+
   return (
     <PremiumPopup
       visible={visible}
@@ -420,14 +455,15 @@ export function ProviderSettings({
       titleIcon="system"
       tabs={[
         { id: "claude", label: "Claude", icon: "ai", blurb: "thinking · reasoning · beta" },
-        { id: "openai", label: "OpenAI", icon: "ai", blurb: "reasoning effort · summary" },
-        { id: "general", label: "General", icon: "cloud", blurb: "shared provider options" },
+        { id: "openai", label: "OpenAI", icon: "ai", blurb: "reasoning · service tier" },
+        { id: "general", label: "General", icon: "cloud", blurb: "shared options" },
       ]}
       activeTab={tab}
       footerHints={[
-        { key: "Tab", label: "switch tab" },
+        { key: "Tab", label: "tab" },
         { key: "↑↓", label: "nav" },
-        { key: "Enter/←→", label: "cycle" },
+        { key: "Enter", label: "cycle" },
+        { key: "←→", label: "scope" },
         { key: "Esc", label: "close" },
       ]}
     >
@@ -447,107 +483,105 @@ export function ProviderSettings({
             items={items}
             selectedIndex={cursor}
             width={contentW}
-            maxRows={Math.max(1, Math.floor(maxVisible / 3))}
-            rowHeight={3}
-            keyExtractor={(item) => item.key}
+            maxRows={maxVisible}
+            rowHeight={1}
+            keyExtractor={(item, idx) => (isSection(item) ? `sec-${idx}-${item.label}` : item.key)}
             renderItem={(item, { selected }) => {
+              if (isSection(item)) {
+                return (
+                  <box flexDirection="row" backgroundColor={t.bgPopup} paddingX={1}>
+                    <text bg={t.bgPopup} fg={t.textMuted} attributes={1}>
+                      {item.label.toUpperCase()}
+                    </text>
+                    <text bg={t.bgPopup} fg={t.textFaint}>
+                      {"  "}
+                      {"─".repeat(Math.max(0, contentW - item.label.length - 6))}
+                    </text>
+                  </box>
+                );
+              }
               const disabled = isItemDisabled(item.key);
               const bg = selected ? t.bgPopupHighlight : t.bgPopup;
               const raw = vals[item.key as keyof CurrentValues];
               const srcScope = detectValueScope(item.key, projectConfig);
-              const srcTag = srcScope === "project" ? "proj" : "glob";
-              const srcColor = srcScope === "project" ? t.info : t.textMuted;
-
-              const caption = (
-                <text bg={bg} fg={t.textFaint}>
-                  {"      "}
-                  {item.desc}
-                </text>
-              );
+              const showScope = srcScope === "project";
 
               let body: React.ReactNode;
               if (item.type === "toggle") {
+                const on = !!raw;
                 body = (
                   <box flexDirection="row" backgroundColor={bg}>
-                    <Toggle label={item.label} on={!!raw} focused={selected && !disabled} bg={bg} />
-                    <box flexGrow={1} backgroundColor={bg} />
-                    <text bg={bg} fg={srcColor}>
-                      {srcTag}
-                      {"  "}
+                    <text bg={bg} fg={selected ? t.brand : t.textFaint}>
+                      {selected ? "▸ " : "  "}
                     </text>
+                    <text
+                      bg={bg}
+                      fg={disabled ? t.textDim : selected ? t.brand : t.textPrimary}
+                      attributes={selected ? 1 : undefined}
+                    >
+                      {item.label.padEnd(labelW)}
+                    </text>
+                    <text bg={bg} fg={disabled ? t.textDim : on ? t.success : t.textDim}>
+                      {on ? "● on " : "○ off"}
+                    </text>
+                    <box flexGrow={1} backgroundColor={bg} />
+                    {showScope ? (
+                      <text bg={bg} fg={t.info}>
+                        proj
+                      </text>
+                    ) : null}
                   </box>
                 );
               } else {
                 const opts = item.options ?? [];
                 const currentValue =
                   item.type === "budget" ? String(vals.budgetTokens) : String(raw);
-                const optsFit =
-                  opts.length > 0 && opts.join("  ").length + labelW + 4 <= contentW - 10;
-
-                if (optsFit) {
-                  body = (
-                    <box flexDirection="row" backgroundColor={bg}>
-                      <SegmentedControl
-                        label={item.label}
-                        labelWidth={labelW}
-                        options={opts.map((o) => ({ value: o, label: o }))}
-                        value={currentValue}
-                        focused={selected && !disabled}
-                        bg={bg}
-                      />
-                      <box flexGrow={1} backgroundColor={bg} />
-                      <text bg={bg} fg={srcColor}>
-                        {srcTag}
-                        {"  "}
+                const valColor = disabled
+                  ? t.textDim
+                  : currentValue === "off"
+                    ? t.textMuted
+                    : t.brandAlt;
+                body = (
+                  <box flexDirection="row" backgroundColor={bg}>
+                    <text bg={bg} fg={selected ? t.brand : t.textFaint}>
+                      {selected ? "▸ " : "  "}
+                    </text>
+                    <text
+                      bg={bg}
+                      fg={disabled ? t.textDim : selected ? t.brand : t.textPrimary}
+                      attributes={selected ? 1 : undefined}
+                    >
+                      {item.label.padEnd(labelW)}
+                    </text>
+                    <text bg={bg} fg={valColor} attributes={1}>
+                      [{currentValue}]
+                    </text>
+                    <text bg={bg} fg={t.textFaint}>
+                      {"  "}
+                      {opts
+                        .filter((o) => o !== currentValue)
+                        .slice(0, 4)
+                        .join(" · ")}
+                    </text>
+                    <box flexGrow={1} backgroundColor={bg} />
+                    {showScope ? (
+                      <text bg={bg} fg={t.info}>
+                        proj
                       </text>
-                    </box>
-                  );
-                } else {
-                  const valColor = disabled
-                    ? t.textFaint
-                    : raw === "off"
-                      ? t.textMuted
-                      : t.brandAlt;
-                  body = (
-                    <box flexDirection="row" backgroundColor={bg}>
-                      <text bg={bg} fg={selected ? t.brand : t.textFaint}>
-                        {selected ? "▸ " : "  "}
-                      </text>
-                      <text
-                        bg={bg}
-                        fg={disabled ? t.textFaint : selected ? t.brand : t.textPrimary}
-                        attributes={selected ? 1 : undefined}
-                      >
-                        {item.label.padEnd(labelW)}
-                      </text>
-                      <text bg={bg} fg={valColor} attributes={1}>
-                        [{currentValue}]
-                      </text>
-                      {selected && !disabled ? (
-                        <text bg={bg} fg={t.textDim}>
-                          {"  ← →"}
-                        </text>
-                      ) : null}
-                      <box flexGrow={1} backgroundColor={bg} />
-                      <text bg={bg} fg={srcColor}>
-                        {srcTag}
-                        {"  "}
-                      </text>
-                    </box>
-                  );
-                }
+                    ) : null}
+                  </box>
+                );
               }
 
               return (
                 <box
-                  flexDirection="column"
+                  flexDirection="row"
                   flexShrink={0}
                   backgroundColor={bg}
                   paddingX={1}
-                  height={3}
+                  height={1}
                 >
                   {body}
-                  {caption}
                 </box>
               );
             }}
@@ -556,13 +590,28 @@ export function ProviderSettings({
       </box>
 
       <Divider width={contentW} />
-      <box paddingX={2} paddingY={1} backgroundColor={t.bgPopup}>
-        <SegmentedControl
-          label="Save to"
-          labelWidth={8}
-          options={CONFIG_SCOPES.map((s) => ({ value: s, label: s }))}
-          value={scope}
-        />
+      <box flexDirection="column" paddingX={2} paddingY={1} backgroundColor={t.bgPopup}>
+        {focusedRow ? (
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={focusedDisabled ? t.textDim : t.textMuted}>
+              {focusedRow.desc}
+            </text>
+          </box>
+        ) : (
+          <box flexDirection="row" backgroundColor={t.bgPopup}>
+            <text bg={t.bgPopup} fg={t.textFaint}>
+              {" "}
+            </text>
+          </box>
+        )}
+        <box flexDirection="row" backgroundColor={t.bgPopup}>
+          <SegmentedControl
+            label="Save to"
+            labelWidth={8}
+            options={CONFIG_SCOPES.map((s) => ({ value: s, label: s }))}
+            value={scope}
+          />
+        </box>
       </box>
     </PremiumPopup>
   );
