@@ -833,18 +833,11 @@ const COMMAND_DEFS: CommandDef[] = [
     tags: ["onboarding", "setup", "welcome"],
   },
   {
-    cmd: "/watchdog",
-    ic: "dog",
-    desc: "Toggle stream stall watchdog (auto-retry on hangs)",
-    category: "System",
-    tags: ["stall", "retry", "timeout"],
-  },
-  {
     cmd: "/timeouts",
     ic: "clock",
-    desc: "Set tool call timeout (shell, project, agents)",
+    desc: "Configure tool and watchdog timeouts",
     category: "System",
-    tags: ["timeout", "shell", "agent"],
+    tags: ["timeout", "shell", "agent", "watchdog", "stall"],
   },
 
   // ── Session (Checkpoints) ──

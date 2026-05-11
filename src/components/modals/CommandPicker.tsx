@@ -36,6 +36,7 @@ export interface CommandPickerOption {
   icon?: string;
   color?: string;
   disabled?: boolean;
+  kind?: "separator";
 }
 
 interface PickerToggle {
@@ -58,7 +59,7 @@ export interface CommandPickerConfig {
   title: string;
   icon?: string;
   options: CommandPickerOption[];
-  currentValue?: string;
+  currentValue?: string | string[];
   scopeEnabled?: boolean;
   initialScope?: ConfigScope;
   maxWidth?: number;
@@ -135,6 +136,16 @@ function OptionRow({
   textFaint,
   successColor,
 }: OptionRowProps) {
+  if (option.kind === "separator") {
+    return (
+      <box flexDirection="row" backgroundColor={popupBg} paddingX={1}>
+        <text fg={textFaint} bg={popupBg}>
+          {"─".repeat(innerW - 4)}
+        </text>
+      </box>
+    );
+  }
+
   const isDisabled = option.disabled === true;
   const bg = isActive && !isDisabled ? popupHl : popupBg;
   const activeColor = option.color ?? brandSecondary;
@@ -258,8 +269,15 @@ export function CommandPicker({ visible, config, onClose }: Props) {
         for (const sel of config.selectors) initial[sel.key] = sel.value;
         setSelectorState(initial);
       }
-      let idx = filteredOptions.findIndex((o) => o.value === config.currentValue);
-      if (idx < 0) idx = filteredOptions.findIndex((o) => !o.disabled);
+      const curVal = config.currentValue;
+      let idx = curVal
+        ? Array.isArray(curVal)
+          ? filteredOptions.findIndex((o) => curVal.includes(o.value))
+          : filteredOptions.findIndex((o) => o.value === curVal)
+        : -1;
+      if (idx < 0) {
+        idx = filteredOptions.findIndex((o) => !o.disabled && o.kind !== "separator");
+      }
       const startIdx = idx >= 0 ? idx : 0;
       setCursor(startIdx);
       setScrollOffset(Math.max(0, startIdx - Math.floor(maxVisible / 2)));
@@ -375,7 +393,7 @@ export function CommandPicker({ visible, config, onClose }: Props) {
           if (prev > 0) {
             let next = prev - 1;
             const start = next;
-            while (filteredOptions[next]?.disabled) {
+            while (filteredOptions[next]?.kind === "separator" || filteredOptions[next]?.disabled) {
               next = next > 0 ? next - 1 : filteredOptions.length - 1;
               if (next === start) break;
             }
@@ -399,7 +417,7 @@ export function CommandPicker({ visible, config, onClose }: Props) {
           if (prev < filteredOptions.length - 1) {
             let next = prev + 1;
             const start = next;
-            while (filteredOptions[next]?.disabled) {
+            while (filteredOptions[next]?.kind === "separator" || filteredOptions[next]?.disabled) {
               next = next < filteredOptions.length - 1 ? next + 1 : 0;
               if (next === start) break;
             }
@@ -483,7 +501,7 @@ export function CommandPicker({ visible, config, onClose }: Props) {
     // Enter in list zone selects the option
     if (evt.name === "return" && focusZone === ZONE_LIST) {
       const option = filteredOptions[cursor];
-      if (option && !option.disabled) {
+      if (option && !option.disabled && option.kind !== "separator") {
         const cb = config.onSelect;
         const val = option.value;
         const s = config.scopeEnabled ? scope : undefined;
@@ -588,7 +606,13 @@ export function CommandPicker({ visible, config, onClose }: Props) {
                 key={option.value}
                 option={option}
                 isActive={vi + clampedOffset === cursor}
-                isCurrent={option.value === config.currentValue}
+                isCurrent={
+                  config.currentValue
+                    ? Array.isArray(config.currentValue)
+                      ? config.currentValue.includes(option.value)
+                      : option.value === config.currentValue
+                    : false
+                }
                 innerW={innerW}
                 popupBg={POPUP_BG}
                 popupHl={POPUP_HL}

@@ -1,6 +1,9 @@
 # dependencies (bun install)
 node_modules
 
+# SoulForge binary
+soulforge
+
 # output
 out
 dist

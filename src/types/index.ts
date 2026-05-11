@@ -388,6 +388,8 @@ export interface AppConfig {
   mcpServers?: MCPServerConfig[];
   /** Auto-retry on stream stalls. Default: false (disabled). Toggle via /watchdog. */
   watchdog?: boolean;
+  /** Watchdog timeouts for detecting stalled streams. */
+  watchdogTimeouts?: WatchdogTimeouts;
   /** Tool call timeout in minutes. Applies to shell, project, and agent tools. Default: 2 */
   toolTimeout?: number;
   /** Retry behavior for transient provider errors (429, 529, 503, timeouts, overloaded). */
@@ -401,6 +403,33 @@ export interface RetryConfig {
   maxAttempts?: number;
   /** Base delay in ms before the first retry. Doubles each attempt + jitter. Default: 2000 (agents), 1000 (chat). Range: 250–60000. */
   baseDelayMs?: number;
+}
+
+export interface WatchdogTimeouts {
+  /** Timeout in ms before first content chunk. Default: 180000 (180s). Range: 30000-600000. */
+  firstChunkMs?: number;
+  /** Timeout in ms between subsequent chunks. Default: 120000 (120s). Range: 30000-600000. */
+  chunkMs?: number;
+  /** Max timeout in ms while tools are executing. Default: 900000 (15min). Range: 120000-1800000. */
+  toolMaxMs?: number;
+  /** Grace period in ms after abort before force-resolving. Default: 5000 (5s). Range: 1000-30000. */
+  forceResolveMs?: number;
+}
+
+/** Clamp watchdog timeout values to their documented safe ranges. */
+export function clampWatchdogTimeouts(
+  raw: Partial<WatchdogTimeouts> | undefined,
+): Required<WatchdogTimeouts> {
+  const clamp = (value: number | undefined, min: number, max: number, fallback: number) => {
+    if (value === undefined) return fallback;
+    return Math.max(min, Math.min(max, value));
+  };
+  return {
+    firstChunkMs: clamp(raw?.firstChunkMs, 30_000, 600_000, 180_000),
+    chunkMs: clamp(raw?.chunkMs, 30_000, 600_000, 120_000),
+    toolMaxMs: clamp(raw?.toolMaxMs, 120_000, 1_800_000, 900_000),
+    forceResolveMs: clamp(raw?.forceResolveMs, 1_000, 30_000, 5_000),
+  };
 }
 
 export interface MCPServerConfig {

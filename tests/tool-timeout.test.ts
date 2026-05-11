@@ -308,7 +308,7 @@ describe("/timeouts command registration", () => {
 			"/compact settings", "/compaction", "/agent-features", "/instructions",
 			"/diff-style", "/editor split", "/split", "/vim-hints", "/model-scope",
 			"/font nerd", "/font set", "/settings", "/lock-in", "/theme",
-			"/watchdog", "/timeouts",
+			"/timeouts", "/watchdog",
 		];
 		for (const cmd of expected) {
 			expect(map.has(cmd)).toBe(true);
@@ -325,14 +325,27 @@ describe("handleTimeouts (real handler)", () => {
 		return map.get("/timeouts")!;
 	}
 
-	/** Mock ctx that satisfies sysMsg (ctx.chat.setMessages) */
-	function mockCtx(overrides: Record<string, any> = {}) {
+	/**
+	 * Create a mock ctx whose openCommandPicker collects the config
+	 * AND chains into the real handler logic (sub-handlers re-call
+	 * openCommandPicker on the same ctx).
+	 */
+	function mockCtxChain(overrides: Record<string, any> = {}) {
 		const messages: string[] = [];
-		return {
-			messages,
-			ctx: {
-				openCommandPicker: () => {},
-				saveToScope: () => {},
+		const pickerCfgs: any[] = [];
+		const saved: Array<{ patch: any; scope: string }> = [];
+
+		function makeCtx(): any {
+			return {
+				messages,
+				openCommandPicker: (cfg: any) => {
+					pickerCfgs.push(cfg);
+					// Auto-advance: if onSelect is called later, it
+					// will call openCommandPicker again on this same ctx
+				},
+				saveToScope: (patch: any, scope: string) => {
+					saved.push({ patch, scope });
+				},
 				detectScope: () => "global",
 				chat: {
 					setMessages: (fn: (prev: any[]) => any[]) => {
@@ -342,78 +355,94 @@ describe("handleTimeouts (real handler)", () => {
 					},
 				},
 				...overrides,
-			},
-		};
+			};
+		}
+		return { makeCtx, get messages() { return messages; }, get pickerCfgs() { return pickerCfgs; }, get saved() { return saved; } };
 	}
 
 	test("calls openCommandPicker with correct shape", () => {
 		const handler = getHandler();
-		let pickerConfig: any = null;
-		const ctx = {
-			openCommandPicker: (cfg: any) => { pickerConfig = cfg; },
-			saveToScope: () => {},
-			detectScope: () => "global",
-		};
-		handler("", ctx);
-		expect(pickerConfig).not.toBeNull();
-		expect(pickerConfig.title).toBe("Tool Timeout");
-		expect(pickerConfig.scopeEnabled).toBe(false);
-		expect(pickerConfig.options.length).toBe(6);
+		const { makeCtx, pickerCfgs } = mockCtxChain();
+		handler("", makeCtx());
+
+		const top = pickerCfgs[0];
+		expect(top.title).toBe("Timeouts & Watchdog");
+		expect(top.scopeEnabled).toBe(false);
+		// 6 category options
+		const values = top.options.map((o: any) => o.value);
+		expect(values).toEqual(["tool-timeout", "watchdog-toggle", "wd-first", "wd-chunk", "wd-tool", "wd-force"]);
 	});
 
-	test("picker options have correct values", () => {
+	test("top-level option descriptions reflect current settings", () => {
 		const handler = getHandler();
-		let options: any[] = [];
-		const ctx = {
-			openCommandPicker: (cfg: any) => { options = cfg.options; },
-			saveToScope: () => {},
-			detectScope: () => "global",
-		};
-		handler("", ctx);
-		const values = options.map((o: any) => o.value);
-		expect(values).toEqual(["1", "2", "5", "10", "20", "0"]);
+		const { makeCtx, pickerCfgs } = mockCtxChain();
+		handler("", makeCtx());
+
+		const byValue: Record<string, string> = {};
+		for (const o of pickerCfgs[0].options) byValue[o.value] = o.description;
+		// Default toolTimeout is 2 → "2m", or "none" if config returns 0
+		expect(byValue["tool-timeout"]).toBeDefined();
+		expect(byValue["watchdog-toggle"]).toBeDefined();
 	});
 
-	test("default option (2) is marked", () => {
+	test("selecting tool-timeout opens sub-picker with tool options", () => {
 		const handler = getHandler();
-		let options: any[] = [];
-		const ctx = {
-			openCommandPicker: (cfg: any) => { options = cfg.options; },
-			saveToScope: () => {},
-			detectScope: () => "global",
-		};
+		const { makeCtx, pickerCfgs } = mockCtxChain();
+		const ctx = makeCtx();
+
 		handler("", ctx);
-		const defaultOpt = options.find((o: any) => o.value === "2");
+		// First cfg is top-level
+		const topSelect = pickerCfgs[0].onSelect;
+		topSelect("tool-timeout");
+
+		// Second cfg is the sub-picker
+		const sub = pickerCfgs[1];
+		expect(sub.title).toBe("Tool Timeout");
+		const values = sub.options.map((o: any) => o.value);
+		expect(values).toEqual(["tool:1", "tool:2", "tool:5", "tool:10", "tool:20", "tool:0"]);
+		const defaultOpt = sub.options.find((o: any) => o.value === "tool:2");
 		expect(defaultOpt.description).toBe("default");
 	});
 
-	test("onSelect saves to global scope with numeric value", () => {
+	test("sub-picker onSelect saves tool timeout to global scope", () => {
 		const handler = getHandler();
-		let onSelect: any = null;
-		const saved: Array<{ patch: any; scope: string }> = [];
-		const { ctx } = mockCtx({
-			openCommandPicker: (cfg: any) => { onSelect = cfg.onSelect; },
-			saveToScope: (patch: any, scope: string) => { saved.push({ patch, scope }); },
-		});
-		handler("", ctx);
+		const { makeCtx, saved } = mockCtxChain();
+		const ctx = makeCtx();
 
-		onSelect("5");
+		handler("", ctx);
+		const topSelect = saved.length; // 0 at this point
+
+		// Chain: top onSelect → opens sub-picker → sub onSelect saves
+		const pickers: any[] = [];
+		const ctx2 = makeCtx();
+		ctx2.openCommandPicker = (cfg: any) => {
+			pickers.push(cfg);
+		};
+		handler("", ctx2);
+
+		const topSel = pickers[0].onSelect;
+		topSel("tool-timeout");
+		const subSel = pickers[1].onSelect;
+		subSel("tool:5");
+
 		expect(saved).toHaveLength(1);
 		expect(saved[0].scope).toBe("global");
 		expect(saved[0].patch).toEqual({ toolTimeout: 5 });
 	});
 
-	test("onSelect with '0' saves toolTimeout: 0 (not NaN, not undefined)", () => {
+	test("onSelect with 'tool:0' saves toolTimeout: 0 (not NaN, not undefined)", () => {
 		const handler = getHandler();
-		let onSelect: any = null;
-		const saved: Array<{ patch: any; scope: string }> = [];
-		const { ctx } = mockCtx({
-			openCommandPicker: (cfg: any) => { onSelect = cfg.onSelect; },
-			saveToScope: (patch: any, scope: string) => { saved.push({ patch, scope }); },
-		});
+		const { makeCtx, saved } = mockCtxChain();
+		const pickers: any[] = [];
+		const ctx = makeCtx();
+		ctx.openCommandPicker = (cfg: any) => {
+			pickers.push(cfg);
+		};
 		handler("", ctx);
 
-		onSelect("0");
+		pickers[0].onSelect("tool-timeout");
+		pickers[1].onSelect("tool:0");
+
 		expect(saved[0].patch.toolTimeout).toBe(0);
 		expect(saved[0].patch.toolTimeout).not.toBeNaN();
 		expect(saved[0].patch.toolTimeout).not.toBeUndefined();
@@ -421,30 +450,35 @@ describe("handleTimeouts (real handler)", () => {
 
 	test("onSelect never saves to project scope", () => {
 		const handler = getHandler();
-		let onSelect: any = null;
-		const scopes: string[] = [];
-		const { ctx } = mockCtx({
-			openCommandPicker: (cfg: any) => { onSelect = cfg.onSelect; },
-			saveToScope: (_p: any, scope: string) => { scopes.push(scope); },
-		});
+		const { makeCtx, saved } = mockCtxChain();
+		const pickers: any[] = [];
+		const ctx = makeCtx();
+		ctx.openCommandPicker = (cfg: any) => {
+			pickers.push(cfg);
+		};
 		handler("", ctx);
 
-		for (const v of ["1", "2", "5", "10", "20", "0"]) {
-			onSelect(v);
+		pickers[0].onSelect("tool-timeout");
+		for (const v of ["tool:1", "tool:2", "tool:5", "tool:10", "tool:20", "tool:0"]) {
+			pickers[1].onSelect(v);
 		}
-		expect(scopes.every((s) => s === "global")).toBe(true);
+		expect(saved.every((s: any) => s.scope === "global")).toBe(true);
 	});
 
 	test("sysMsg emitted with correct format", () => {
 		const handler = getHandler();
-		let onSelect: any = null;
-		const { ctx, messages } = mockCtx({
-			openCommandPicker: (cfg: any) => { onSelect = cfg.onSelect; },
-		});
+		const { makeCtx, messages } = mockCtxChain();
+		const pickers: any[] = [];
+		const ctx = makeCtx();
+		ctx.openCommandPicker = (cfg: any) => {
+			pickers.push(cfg);
+		};
 		handler("", ctx);
 
-		onSelect("5");
-		onSelect("0");
+		pickers[0].onSelect("tool-timeout");
+		pickers[1].onSelect("tool:5");
+		pickers[1].onSelect("tool:0");
+
 		expect(messages.some((m: string) => m.includes("5m"))).toBe(true);
 		expect(messages.some((m: string) => m.includes("none"))).toBe(true);
 	});
