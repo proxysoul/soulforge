@@ -68,6 +68,11 @@ export async function notifyProviderSwitch(newModelId: string): Promise<void> {
     if (provider?.onActivate) {
       await provider.onActivate();
     }
+    for (const listener of providerSwitchListeners) {
+      try {
+        await listener(newModelId);
+      } catch {}
+    }
     return;
   }
 
@@ -81,6 +86,12 @@ export async function notifyProviderSwitch(newModelId: string): Promise<void> {
   const newProvider = getProvider(newProviderId);
   if (newProvider?.onActivate) {
     await newProvider.onActivate();
+  }
+
+  for (const listener of providerSwitchListeners) {
+    try {
+      await listener(newModelId);
+    } catch {}
   }
 }
 
@@ -119,4 +130,18 @@ export function resolveModel(modelId: string): LanguageModel {
     throw new Error(`Unknown provider "${providerId}"`);
   }
   return provider.createModel(model);
+}
+type ProviderSwitchListener = (newModelId: string) => void | Promise<void>;
+const providerSwitchListeners = new Set<ProviderSwitchListener>();
+/**
+ * Subscribe to provider/model switches. Listeners fire AFTER the new
+ * provider's onActivate completes. Used by ContextManager to refresh
+ * the memory embedder when the user changes models. Listeners must not
+ * throw — errors are swallowed.
+ */
+export function onProviderSwitch(listener: ProviderSwitchListener): () => void {
+  providerSwitchListeners.add(listener);
+  return () => {
+    providerSwitchListeners.delete(listener);
+  };
 }

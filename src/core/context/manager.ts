@@ -129,6 +129,7 @@ export class ContextManager {
       }
     }
     this.maybeWireMemoryEmbedder();
+    this.subscribeToProviderSwitches();
     // Eagerly populate project info cache so sync callers get data immediately
     this.refreshProjectInfo();
   }
@@ -1044,6 +1045,8 @@ export class ContextManager {
     this.unsubRead?.();
     this.unsubEdit = null;
     this.unsubRead = null;
+    this._unsubProviderSwitch?.();
+    this._unsubProviderSwitch = null;
     if (!this.isChild) {
       this.repoMap.close().catch(() => {});
       this.memoryManager.close();
@@ -1490,21 +1493,94 @@ export class ContextManager {
   }
 
   /**
-   * Read AppConfig.memory.embeddingModel and wire the provider embedder
-   * onto both MemoryManager (for writes/backfill) and MemoryRecall (for
-   * query-time vectors). Best-effort — failures fall back to hashbag-v2
-   * silently. Re-runs are safe; idempotent on the same model id.
+   * Resolve and wire the memory embedder. Pipeline:
+   *   1. config.memory.embeddingModel (explicit)
+   *   2. config.taskRouter.semantic
+   *   3. heuristic from active chat model's provider
+   *   4. null → hashbag-v2 fallback
+   *
+   * Best-effort — every failure path falls back to hashbag-v2 and logs
+   * once to background errors. NEVER throws. Idempotent: re-calling with
+   * the same resolved model is a no-op via MemoryManager.configureEmbedder.
    */
-  private async maybeWireMemoryEmbedder(): Promise<void> {
+  private async maybeWireMemoryEmbedder(activeModelId?: string): Promise<void> {
     try {
-      const { loadConfig } = await import("../../config/index.js");
+      const [{ loadConfig }, { resolveEmbeddingModel }] = await Promise.all([
+        import("../../config/index.js"),
+        import("../memory/embedder-resolver.js"),
+      ]);
       const cfg = loadConfig();
-      const modelId = cfg.memory?.embeddingModel ?? null;
-      if (!modelId) return;
-      const provider = await this.memoryManager.configureEmbedder(modelId);
-      if (provider) this.memoryRecall.setProviderEmbedder(provider);
-    } catch {}
+      const active = activeModelId ?? this.lastActiveModel ?? cfg.defaultModel ?? "";
+      const resolution = resolveEmbeddingModel(cfg, active);
+      this._lastEmbedderResolution = resolution;
+      if (!resolution.modelId) {
+        // Explicitly nothing to wire — stay on hashbag, no error.
+        this.memoryManager.setProviderEmbedder(null);
+        this.memoryRecall.setProviderEmbedder(null);
+        return;
+      }
+      const provider = await this.memoryManager.configureEmbedder(resolution.modelId);
+      if (provider) {
+        this.memoryRecall.setProviderEmbedder(provider);
+      } else {
+        // configureEmbedder smoke-tested and rejected — log once, fall back.
+        try {
+          const { logBackgroundError } = await import("../../stores/errors.js");
+          logBackgroundError(
+            "memory.embedder",
+            `Failed to wire ${resolution.modelId} (${resolution.reason}) — using hashbag-v2`,
+          );
+        } catch {}
+        this.memoryRecall.setProviderEmbedder(null);
+      }
+    } catch {
+      // Unrecoverable resolver error — stay on hashbag, no crash.
+      try {
+        this.memoryManager.setProviderEmbedder(null);
+        this.memoryRecall.setProviderEmbedder(null);
+      } catch {}
+    }
   }
+
+  /** Last embedder resolution result — used by audit/debug surfaces. */
+  private _lastEmbedderResolution:
+    | import("../memory/embedder-resolver.js").EmbedderResolution
+    | null = null;
+
+  getEmbedderResolution(): import("../memory/embedder-resolver.js").EmbedderResolution | null {
+    return this._lastEmbedderResolution;
+  }
+
+  /**
+   * Re-resolve the embedder when the active model changes. Called from
+   * notifyProviderSwitch. Safe to call repeatedly; idempotent when resolved
+   * model id is unchanged.
+   */
+  async refreshMemoryEmbedder(activeModelId: string): Promise<void> {
+    await this.maybeWireMemoryEmbedder(activeModelId);
+  }
+
+  /**
+   * Subscribe to provider switches so the memory embedder refreshes when
+   * the user changes the active chat model. Child CMs (shared resources)
+   * skip this — the parent CM owns the subscription and the shared
+   * memoryManager/memoryRecall pair gets updated in-place.
+   */
+  private subscribeToProviderSwitches(): void {
+    if (this.isChild) return;
+    void import("../llm/provider.js")
+      .then(({ onProviderSwitch }) => {
+        const unsub = onProviderSwitch(async (newModelId) => {
+          try {
+            await this.refreshMemoryEmbedder(newModelId);
+          } catch {}
+        });
+        this._unsubProviderSwitch = unsub;
+      })
+      .catch(() => {});
+  }
+
+  private _unsubProviderSwitch: (() => void) | null = null;
 }
 
 export { extractConversationTerms } from "./conversation-terms.js";

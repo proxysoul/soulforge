@@ -509,19 +509,38 @@ export class MemoryManager {
   /**
    * Configure a provider-backed embedder by AI SDK model id (e.g.
    * "openai/text-embedding-3-small"). Pass null/empty to fall back to hashbag.
-   * Backfills in the background — does not block. Returns the provider
-   * once wired so callers can pass it to MemoryRecall.setProviderEmbedder.
+   * Backfills in the background — does not block. Idempotent: re-calling
+   * with the same model id is a no-op.
+   *
+   * NEVER throws. All failures (missing API key, provider unavailable,
+   * model not supported, network error) silently return null and the
+   * embedder stays on hashbag-v2.
    */
   async configureEmbedder(modelId: string | null | undefined): Promise<ProviderEmbedder | null> {
-    if (!modelId) {
+    if (!modelId || typeof modelId !== "string" || modelId.trim().length === 0) {
       this._providerEmbedder = null;
       return null;
     }
+    const target = modelId.trim();
+    // Idempotent — avoid redundant backfills on tab churn / model re-select.
+    if (this._providerEmbedder && this._providerEmbedder.model === target) {
+      return this._providerEmbedder;
+    }
     try {
       const { createAiSdkEmbedder } = await import("./embedder.js");
-      const provider = await createAiSdkEmbedder(modelId);
+      const provider = await createAiSdkEmbedder(target);
+      // Smoke-test the embedder before committing — catches missing API
+      // keys, unsupported models, and provider-down conditions BEFORE we
+      // start using it for recall queries.
+      try {
+        const probe = await provider.embed("ok");
+        if (!probe || probe.length === 0) throw new Error("empty embedding");
+      } catch (_err) {
+        this._providerEmbedder = null;
+        return null;
+      }
       this._providerEmbedder = provider;
-      // Kick off a background backfill so legacy rows pick up the new model.
+      // Kick off background backfill — fire-and-forget, never blocks.
       void this.backfillEmbeddings("all", 200).catch(() => {});
       return provider;
     } catch {
