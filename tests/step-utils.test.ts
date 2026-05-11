@@ -108,7 +108,7 @@ const TOOLS = {
 // Steps with enough context (last step inputTokens) to trigger pruning (70%=140k) but below nudge (80%=160k)
 
 
-function callPrepareStep(
+async function callPrepareStep(
 	opts: PrepareStepOptions,
 	stepArgs: {
 		stepNumber: number;
@@ -117,7 +117,7 @@ function callPrepareStep(
 	},
 ) {
 	const { prepareStep: fn } = buildPrepareStep(opts);
-	const result = fn({
+	const result = await fn({
 		stepNumber: stepArgs.stepNumber,
 		messages: stepArgs.messages,
 		steps: (stepArgs.steps ?? []) as never,
@@ -657,16 +657,16 @@ describe("symbol enrichment", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildPrepareStep — step gating", () => {
-	it("does not force toolChoice on step 0 — model decides if a tool is needed", () => {
-		const result = callPrepareStep(
+	it("does not force toolChoice on step 0 — model decides if a tool is needed", async () => {
+		const result = await callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 0, messages: [] },
 		);
 		expect(result?.toolChoice).toBeUndefined();
 	});
 
-	it("returns undefined on step 1 with empty messages (no pruning at step < 2)", () => {
-		const result = callPrepareStep(
+	it("returns undefined on step 1 with empty messages (no pruning at step < 2)", async () => {
+		const result = await callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: [] },
 		);
@@ -675,7 +675,7 @@ describe("buildPrepareStep — step gating", () => {
 });
 
 describe("buildPrepareStep — disablePruning", () => {
-	it("skips pruning when disablePruning: true", () => {
+	it("skips pruning when disablePruning: true", async () => {
 		const bigContent = "x".repeat(200_000);
 		const msgs: ModelMessage[] = [
 			{ role: "user", content: [{ type: "text", text: "do stuff" }] },
@@ -684,7 +684,7 @@ describe("buildPrepareStep — disablePruning", () => {
 			assistantToolCall([{ id: "r2", name: "read", input: { path: "/b.ts" } }]),
 			toolResult([{ id: "r2", name: "read", output: "small" }]),
 		];
-		const result = callPrepareStep(
+		const result = await callPrepareStep(
 			{ role: "code", allTools: TOOLS, disablePruning: true },
 			{ stepNumber: 3, messages: msgs },
 		);
@@ -698,7 +698,7 @@ describe("buildPrepareStep — disablePruning", () => {
 		expect(text).not.toContain("cleared");
 	});
 
-	it("prunes old results when pruning enabled and step >= 2", () => {
+	it("prunes old results when pruning enabled and step >= 2", async () => {
 		const bigContent = "x".repeat(400_000);
 		const msgs: ModelMessage[] = [
 			{ role: "user", content: [{ type: "text", text: "do stuff" }] },
@@ -711,7 +711,7 @@ describe("buildPrepareStep — disablePruning", () => {
 			assistantToolCall([{ id: "r4", name: "read", input: { path: "/c.ts" } }]),
 			toolResult([{ id: "r4", name: "read", output: "recent" }]),
 		];
-		const result = callPrepareStep(
+		const result = await callPrepareStep(
 			{ role: "code", allTools: TOOLS, disablePruning: false },
 			{ stepNumber: 3, messages: msgs },
 		);
@@ -725,7 +725,7 @@ describe("buildPrepareStep — disablePruning", () => {
 });
 
 describe("buildPrepareStep — cache control", () => {
-	it("does not set cache markers on messages (auto-caching handles it)", () => {
+	it("does not set cache markers on messages (auto-caching handles it)", async () => {
 		const msgs: ModelMessage[] = [
 			{ role: "user", content: [{ type: "text", text: "hello" }] },
 			assistantToolCall([
@@ -733,7 +733,7 @@ describe("buildPrepareStep — cache control", () => {
 			]),
 			toolResult([{ id: "1", name: "read", output: "short" }]),
 		];
-		callPrepareStep(
+		await callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: msgs },
 		);
@@ -748,8 +748,8 @@ describe("buildPrepareStep — cache control", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildPrepareStep — token budgets", () => {
-	it("nudges text summary at 80% of context (160k for 200k)", () => {
-		const result = callPrepareStep(
+	it("nudges text summary at 80% of context (160k for 200k)", async () => {
+		const result = await callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: [], steps: makeSteps(161_000) },
 		);
@@ -759,16 +759,16 @@ describe("buildPrepareStep — token budgets", () => {
 		expect(text).toContain("text summary");
 	});
 
-	it("no nudge below 80% of context", () => {
-		const result = callPrepareStep(
+	it("no nudge below 80% of context", async () => {
+		const result = await callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 5, messages: [], steps: makeSteps(150_000) },
 		);
 		expect(result?.activeTools).not.toEqual([]);
 	});
 
-	it("no system message below nudge threshold", () => {
-		const result = callPrepareStep(
+	it("no system message below nudge threshold", async () => {
+		const result = await callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: [], steps: makeSteps(10_000) },
 		);
@@ -781,7 +781,7 @@ describe("buildPrepareStep — token budgets", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildPrepareStep — input sanitization", () => {
-	it("replaces non-dict tool-call inputs with {}", () => {
+	it("replaces non-dict tool-call inputs with {}", async () => {
 		const msgs: ModelMessage[] = [
 			{
 				role: "assistant",
@@ -796,7 +796,7 @@ describe("buildPrepareStep — input sanitization", () => {
 			},
 			toolResult([{ id: "bad", name: "read", output: "result" }]),
 		];
-		const result = callPrepareStep(
+		const result = await callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: msgs },
 		);
@@ -806,13 +806,13 @@ describe("buildPrepareStep — input sanitization", () => {
 		expect(origPart?.input).toBe("not-a-dict");
 	});
 
-	it("preserves valid dict inputs", () => {
+	it("preserves valid dict inputs", async () => {
 		const input = { path: "/a.ts" };
 		const msgs: ModelMessage[] = [
 			assistantToolCall([{ id: "ok", name: "read", input }]),
 			toolResult([{ id: "ok", name: "read", output: "result" }]),
 		];
-		callPrepareStep(
+		await callPrepareStep(
 			{ role: "explore", allTools: TOOLS },
 			{ stepNumber: 1, messages: msgs },
 		);
