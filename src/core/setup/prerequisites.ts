@@ -41,8 +41,8 @@ function lspExists(...cmds: string[]): boolean {
 const PREREQUISITES: Prerequisite[] = [
   {
     name: "Neovim",
-    description: "Embedded editor (required, v0.11+)",
-    required: true,
+    description: "Embedded editor (optional, v0.11+)",
+    required: false,
     check: () => getVendoredPath("nvim") !== null || commandExists("nvim"),
     install: {
       darwin: ["brew install neovim"],
