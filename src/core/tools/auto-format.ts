@@ -35,6 +35,7 @@ export async function autoFormatAfterEdit(filePath: string, cwd?: string): Promi
   try {
     const proc = Bun.spawn(["sh", "-c", command], {
       cwd: effectiveCwd,
+      stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
       env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },

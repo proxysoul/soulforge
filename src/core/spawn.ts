@@ -50,5 +50,17 @@ export function buildSafeEnv(): Record<string, string | undefined> {
   return env;
 }
 
-/** Spawn options that prevent subprocesses from stealing TUI input. */
 export const SAFE_STDIO: SpawnOptions["stdio"] = ["ignore", "pipe", "pipe"];
+
+/**
+ * Spawn options that fully isolate a child from the TUI:
+ * - stdin ignored (no inherited fd)
+ * - detached: true → child becomes its own process group / session leader on POSIX,
+ *   so it has no controlling terminal and cannot read /dev/tty.
+ *   Prevents tools like `security`, `ssh`, `sudo`, `gpg`, `pass`, etc.
+ *   from prompting the user (and hanging) when stdin is closed.
+ */
+export const SAFE_SPAWN_OPTS: Pick<SpawnOptions, "stdio" | "detached"> = {
+  stdio: SAFE_STDIO,
+  detached: true,
+};

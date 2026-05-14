@@ -4,7 +4,7 @@ import type { ToolResult } from "../../types";
 import { isForbidden } from "../security/forbidden.js";
 // TODO(beta): inline image rendering — disabled until suspend/resume bridge is stable
 // import { canRenderImages, renderImages } from "../terminal/image.js";
-import { buildSafeEnv, SAFE_STDIO } from "../spawn.js";
+import { buildSafeEnv, SAFE_SPAWN_OPTS } from "../spawn.js";
 import { getIOClient } from "../workers/io-client.js";
 import { checkShellBinaryRead } from "./binary-detect.js";
 import { compressShellOutputFull as compressLocal } from "./shell-compress.js";
@@ -52,7 +52,7 @@ async function runPreCommitChecks(cwd: string): Promise<string | null> {
         cwd,
         timeout: 15_000,
         env: buildSafeEnv(),
-        stdio: SAFE_STDIO,
+        ...SAFE_SPAWN_OPTS,
       });
       proc.stdout?.on("data", (d: Buffer) => {
         lintBytes += d.length;
@@ -325,7 +325,7 @@ export const shellTool = {
         cwd,
         timeout,
         env: buildSafeEnv(),
-        stdio: SAFE_STDIO,
+        ...SAFE_SPAWN_OPTS,
       });
 
       let cleanupAbortListener: (() => void) | undefined;

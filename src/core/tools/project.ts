@@ -863,6 +863,7 @@ export const projectTool = {
     const runCommand = async (cmd: string) => {
       const proc = Bun.spawn(["sh", "-c", cmd], {
         cwd,
+        stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
         env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", ...args.env },
@@ -1033,6 +1034,7 @@ export async function formatFile(filePath: string, cwd?: string): Promise<boolea
   try {
     const proc = Bun.spawn(["sh", "-c", command], {
       cwd: effectiveCwd,
+      stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
       env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },

@@ -46,6 +46,8 @@ export const grepTool = {
       const proc = spawn(rgBin, rgArgs, {
         cwd: process.cwd(),
         timeout: 10_000,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
       });
 
       const chunks: string[] = [];
@@ -74,6 +76,8 @@ export const grepTool = {
           const grepProc = spawn("grep", fallbackArgs, {
             cwd: process.cwd(),
             timeout: 10_000,
+            stdio: ["ignore", "pipe", "pipe"],
+            detached: true,
           });
 
           const grepChunks: string[] = [];
