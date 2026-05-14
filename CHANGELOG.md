@@ -2,6 +2,31 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.15.7] — 2026-05-14
+
+### Bug Fixes
+
+- **cache**: default pruningTarget to none, force-off for sparks
+- **keys**: pass secret via -w argv to avoid TTY prompt leak
+- **keys**: stop keychain prompt leak and UI freeze in /keys
+- **router**: fallback row layout + docs page
+- **telemetry**: live toggle, key routing, table widths + docs
+- **tools**: isolate subprocess stdin/tty to prevent UI hangs
+### Documentation
+
+- fix model-events icon to valid FA name
+### Features
+
+- **retry**: per-model fallback chains + split transient/stall budgets (#58)
+- **telemetry**: opt-in per-call model events sidecar
+- **tools**: actionable truncation hints + sharper edit guidelines
+- **ui**: subdued grouped-list rows + indent remove key action
+### Performance
+
+- **prompts**: trim system prompt 5.2k→2k tokens, relocate refs to tools
+### Testing
+
+- **prompts**: update assertions for system prompt trim
 ## [2.15.6] — 2026-05-14
 
 ### Bug Fixes
