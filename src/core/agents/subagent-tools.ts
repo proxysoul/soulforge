@@ -294,7 +294,11 @@ export async function createAgent(
     onApproveFetchPage: models.onApproveFetchPage,
     repoMap: models.repoMap,
     contextWindow,
-    disablePruning: models.disablePruning,
+    // Sparks share the parent's [tools + system + messages] cache prefix.
+    // Pruning their tool results mutates that shared prefix and destroys the cache hit
+    // on every step ≥ 2. Force pruning off for sparks regardless of config.
+    // Embers run on a different model (separate cache namespace) — honor user's setting.
+    disablePruning: useSpark ? true : models.disablePruning,
     tabId: models.tabId,
     forgeInstructions,
     forgeTools: forgeToolsGuarded,

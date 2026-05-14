@@ -263,7 +263,7 @@ export interface ContextManagementConfig {
   clearThinking?: boolean;
   /** @deprecated Use pruningTarget instead */
   disablePruning?: boolean;
-  /** Which agents get tool result pruning: none | main | subagents | both. Default: subagents */
+  /** Which agents get tool result pruning: none | main | subagents | both. Default: none (pruning breaks prompt cache — only enable if context savings outweigh cache loss) */
   pruningTarget?: PruningTarget;
 }
 

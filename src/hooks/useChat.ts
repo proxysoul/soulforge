@@ -2189,7 +2189,7 @@ export function useChat({
             planExecution: planExecutionRef.current,
             drainSteering,
             disablePruning: !["subagents", "both"].includes(
-              effectiveConfig.contextManagement?.pruningTarget ?? "subagents",
+              effectiveConfig.contextManagement?.pruningTarget ?? "none",
             ),
             disabledTools: useToolsStore.getState().disabledTools,
             tabId,
@@ -2234,7 +2234,7 @@ export function useChat({
                         planExecution: planExecutionRef.current,
                         drainSteering,
                         disablePruning: !["subagents", "both"].includes(
-                          effectiveConfig.contextManagement?.pruningTarget ?? "subagents",
+                          effectiveConfig.contextManagement?.pruningTarget ?? "none",
                         ),
                         disabledTools: useToolsStore.getState().disabledTools,
                         tabId,
@@ -3113,7 +3113,7 @@ export function useChat({
             );
           setCoreMessages((prev) => {
             const updated = [...prev, ...filteredResponseMessages];
-            const target = effectiveConfig.contextManagement?.pruningTarget ?? "subagents";
+            const target = effectiveConfig.contextManagement?.pruningTarget ?? "none";
             return ["main", "both"].includes(target) ? pruneOldToolResults(updated) : updated;
           });
           streamSegmentsBuffer.current = [];

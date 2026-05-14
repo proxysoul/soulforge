@@ -143,7 +143,7 @@ async function setupAgent(
     headers: providerOpts.headers,
     cwd,
     disablePruning: !["subagents", "both"].includes(
-      merged.contextManagement?.pruningTarget ?? "subagents",
+      merged.contextManagement?.pruningTarget ?? "none",
     ),
   });
 
