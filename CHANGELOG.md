@@ -2,6 +2,18 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.15.6] — 2026-05-14
+
+### Bug Fixes
+
+- **agents**: propagate max_tokens cap to dispatched subagents
+- **agents**: surface abnormal finish + auto-continue on length truncation
+### Features
+
+- **providers**: refresh model lists & opencode-go fetchModels
+### Miscellaneous
+
+- **theme**: default to proxysoul-main
 ## [2.15.5] — 2026-05-14
 
 ### Bug Fixes
