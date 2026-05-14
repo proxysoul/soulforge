@@ -149,6 +149,8 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
           unknown
         >) ?? {}),
         cacheControl: { type: "ephemeral" },
+        // See forge.ts: gateways strip SDK-level maxOutputTokens; mirror to wire.
+        max_tokens: MAX_OUTPUT_TOKENS,
       },
     } as ProviderOptions,
     ...(options?.headers ? { headers: options.headers } : {}),
