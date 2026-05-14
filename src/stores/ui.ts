@@ -35,6 +35,7 @@ export type ModalName =
   | "hearthSettings"
   | "tabNamePopup"
   | "memoryBrowser"
+  | "modelEvents"
   | "uiDemo";
 
 type Modals = Record<ModalName, boolean>;
@@ -70,6 +71,7 @@ const INITIAL_MODALS: Modals = {
   hearthSettings: false,
   tabNamePopup: false,
   memoryBrowser: false,
+  modelEvents: false,
   uiDemo: false,
 };
 

@@ -2,6 +2,7 @@ import type { JSONObject } from "@ai-sdk/provider";
 import type { ModelMessage } from "ai";
 import { generateText } from "ai";
 import { logBackgroundError } from "../../stores/errors.js";
+import { recordModelCall, useModelEventsStore } from "../../stores/model-events.js";
 import { getModelId, supportsTemperature } from "../llm/provider-options.js";
 import type { IOClient } from "../workers/io-client.js";
 import type { WorkingStateManager } from "./working-state.js";
@@ -67,6 +68,8 @@ export async function buildV2Summary(opts: {
         cacheWriteTokens?: number;
       }
     | undefined;
+  const v2StartedAt = Date.now();
+  const v2ModelId = getModelId(model);
   try {
     const genResult = await generateText({
       model,
@@ -115,8 +118,31 @@ export async function buildV2Summary(opts: {
         cacheWriteTokens: details?.cacheWriteTokens ?? 0,
       };
     }
+    if (useModelEventsStore.getState().enabled) {
+      recordModelCall({
+        modelId: v2ModelId,
+        source: "compaction",
+        startedAt: v2StartedAt,
+        durationMs: Math.max(0, Date.now() - v2StartedAt),
+        state: "ok",
+        input: llmUsage?.inputTokens ?? 0,
+        output: llmUsage?.outputTokens ?? 0,
+        cacheRead: llmUsage?.cacheReadTokens ?? 0,
+        cacheWrite: llmUsage?.cacheWriteTokens ?? 0,
+      });
+    }
   } catch (err: unknown) {
     logBackgroundError("compaction-summarize", err instanceof Error ? err.message : String(err));
+    if (useModelEventsStore.getState().enabled) {
+      recordModelCall({
+        modelId: v2ModelId,
+        source: "compaction",
+        startedAt: v2StartedAt,
+        durationMs: Math.max(0, Date.now() - v2StartedAt),
+        state: "error",
+        errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+      });
+    }
     return { summary: structuredState };
   }
 

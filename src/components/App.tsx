@@ -83,6 +83,7 @@ import { EditorSettings } from "./settings/EditorSettings.js";
 import { HearthSettings } from "./settings/HearthSettings.js";
 import { LspInstallSearch } from "./settings/LspInstallSearch.js";
 import { MCPSettings } from "./settings/MCPSettings.js";
+import { ModelEventsPopup } from "./settings/ModelEventsPopup.js";
 import { ProviderSettings } from "./settings/ProviderSettings.js";
 import { RepoMapStatusPopup } from "./settings/RepoMapStatusPopup.js";
 import { RouterSettings } from "./settings/RouterSettings.js";
@@ -525,6 +526,7 @@ export function App({
   const modalInfoPopup = useUIStore((s) => s.modals.infoPopup);
   const modalDiagnose = useUIStore((s) => s.modals.diagnosePopup);
   const modalStatusDashboard = useUIStore((s) => s.modals.statusDashboard);
+  const modalModelEvents = useUIStore((s) => s.modals.modelEvents);
   const modalToolsPopup = useUIStore((s) => s.modals.toolsPopup);
   const modalMCPSettings = useUIStore((s) => s.modals.mcpSettings);
   const modalHearthSettings = useUIStore((s) => s.modals.hearthSettings);
@@ -1788,6 +1790,8 @@ export function App({
         onClose={getCloser("diagnosePopup")}
         runHealthCheck={runIntelligenceHealthCheck}
       />
+
+      <ModelEventsPopup visible={modalModelEvents} onClose={getCloser("modelEvents")} />
 
       <RepoMapStatusPopup
         visible={modalRepoMapStatus}

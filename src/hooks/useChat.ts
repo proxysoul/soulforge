@@ -62,6 +62,7 @@ import { onToolProgress } from "../core/tools/tool-progress.js";
 import { getIOClient } from "../core/workers/io-client.js";
 import { logCompaction } from "../stores/compaction-logs.js";
 import { logBackgroundError } from "../stores/errors.js";
+import { recordModelCall, useModelEventsStore } from "../stores/model-events.js";
 import { useRepoMapStore } from "../stores/repomap.js";
 import { accumulateModelUsage, useStatusBarStore, ZERO_USAGE } from "../stores/statusbar.js";
 import { useToolsStore } from "../stores/tools.js";
@@ -997,6 +998,7 @@ export function useChat({
 
           const convoText = olderMessages.map((m) => formatMessage(m, 6000)).join("\n\n");
 
+          const compactStartedAt = Date.now();
           const v1Result = await generateText({
             model,
             ...(supportsTemperature(activeModelRef.current) ? { temperature: 0 } : {}),
@@ -1056,6 +1058,20 @@ export function useChat({
               cacheReadTokens: v1Details?.cacheReadTokens ?? 0,
               cacheWriteTokens: v1Details?.cacheWriteTokens ?? 0,
             };
+          }
+          if (useModelEventsStore.getState().enabled) {
+            recordModelCall({
+              modelId: compactModelId,
+              source: "compaction",
+              startedAt: compactStartedAt,
+              durationMs: Math.max(0, Date.now() - compactStartedAt),
+              state: "ok",
+              tabId,
+              input: compactUsage?.inputTokens ?? 0,
+              output: compactUsage?.outputTokens ?? 0,
+              cacheRead: compactUsage?.cacheReadTokens ?? 0,
+              cacheWrite: compactUsage?.cacheWriteTokens ?? 0,
+            });
           }
         }
 
@@ -1244,7 +1260,7 @@ export function useChat({
         }
       }
     },
-    [setTokenUsage, effectiveConfig, contextManager, cwd],
+    [setTokenUsage, effectiveConfig, contextManager, cwd, tabId],
   );
   summarizeConversationRef.current = summarizeConversation;
 
@@ -2358,6 +2374,8 @@ export function useChat({
           let toolsInFlight = 0;
           let gotFirstContent = false;
           let betweenSteps = false; // true after finish-step until next start-step
+          let stepStartedAt = 0;
+          const meEnabled = useModelEventsStore.getState().enabled;
           const markActivity = () => {
             lastActivityTs = Date.now();
           };
@@ -2508,6 +2526,7 @@ export function useChat({
             switch (part.type) {
               case "start-step": {
                 betweenSteps = false;
+                stepStartedAt = Date.now();
                 const warnings = (part as { warnings?: Array<{ type: string; message?: string }> })
                   .warnings;
                 if (warnings && warnings.length > 0) {
@@ -2882,6 +2901,20 @@ export function useChat({
                   output: turnTokensRef.current.output + stepOut,
                   cacheRead: turnTokensRef.current.cacheRead + stepCache,
                 };
+                if (meEnabled) {
+                  recordModelCall({
+                    modelId,
+                    source: "main",
+                    startedAt: stepStartedAt || Date.now(),
+                    durationMs: stepStartedAt ? Math.max(0, Date.now() - stepStartedAt) : 0,
+                    state: "ok",
+                    tabId,
+                    input: stepIn,
+                    output: stepOut,
+                    cacheRead: stepCache,
+                    cacheWrite: stepCacheWrite,
+                  });
+                }
                 queueMicrotaskFlush();
 
                 if (completedCalls.length > 0 && Date.now() - lastIncrementalSave > 10_000) {
@@ -3453,6 +3486,17 @@ export function useChat({
             ? `Provider returned a transient error (${rawMsg.slice(0, 120)}). Please retry.`
             : enrichedMsg;
           const errorStack = !isTransientStream && err instanceof Error ? err.stack : undefined;
+          if (!isAbort && useModelEventsStore.getState().enabled) {
+            recordModelCall({
+              modelId: activeModelRef.current,
+              source: "main",
+              startedAt: Date.now(),
+              durationMs: 0,
+              state: "error",
+              tabId,
+              errorMessage: errorMsg.slice(0, 500),
+            });
+          }
           // Mark in-flight tool calls as interrupted so they don't show stuck spinners
           if (isAbort) {
             const completedIds = new Set(completedCalls.map((c) => c.id));

@@ -812,6 +812,13 @@ const COMMAND_DEFS: CommandDef[] = [
     tags: ["info", "health", "context", "tokens"],
   },
   {
+    cmd: "/model-events",
+    ic: "info",
+    desc: "Model events — per-call latency, tokens, errors (opt-in)",
+    category: "System",
+    tags: ["debug", "metrics", "latency", "errors", "performance", "models", "telemetry"],
+  },
+  {
     cmd: "/storage",
     ic: "system",
     desc: "View & manage storage usage",

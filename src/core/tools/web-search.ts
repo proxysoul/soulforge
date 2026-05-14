@@ -2,6 +2,7 @@ import type { LanguageModel } from "ai";
 import { tool } from "ai";
 import LinkifyIt from "linkify-it";
 import { z } from "zod";
+import { recordModelCall, useModelEventsStore } from "../../stores/model-events.js";
 import { emitSubagentStep } from "../agents/subagent-events.js";
 import { createWebSearchAgent } from "../agents/web-search.js";
 import { getShortModelLabel } from "../llm/models.js";
@@ -119,6 +120,7 @@ export function buildWebSearchTool(opts?: {
           runningSteps.clear();
         };
 
+        const webSearchStartedAt = Date.now();
         try {
           const agent = createWebSearchAgent(webSearchModel, {
             onApproveFetchPage: opts?.onApproveFetchPage,
@@ -172,10 +174,29 @@ export function buildWebSearchTool(opts?: {
             },
           } as Parameters<typeof agent.generate>[0]);
           agentSearchCache.set(cacheKey, { output: result.text, ts: Date.now() });
+          if (useModelEventsStore.getState().enabled) {
+            recordModelCall({
+              modelId: mid,
+              source: "other",
+              startedAt: webSearchStartedAt,
+              durationMs: Math.max(0, Date.now() - webSearchStartedAt),
+              state: "ok",
+            });
+          }
           return { success: true, output: result.text, backend: backendLabel };
         } catch (err: unknown) {
           markRunningStepsError();
           const msg = err instanceof Error ? err.message : String(err);
+          if (useModelEventsStore.getState().enabled) {
+            recordModelCall({
+              modelId: mid,
+              source: "other",
+              startedAt: webSearchStartedAt,
+              durationMs: Math.max(0, Date.now() - webSearchStartedAt),
+              state: "error",
+              errorMessage: msg.slice(0, 500),
+            });
+          }
           const urlHint = extractUrlHint(args.query);
           const fallback = urlHint
             ? ` Try fetch_page("${urlHint}") to access the resource directly.`

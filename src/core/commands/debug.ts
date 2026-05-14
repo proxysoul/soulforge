@@ -8,6 +8,10 @@ function handleStatus(_input: string, _ctx: CommandContext): void {
   useUIStore.getState().openModal("statusDashboard");
 }
 
+function handleModelEvents(_input: string, _ctx: CommandContext): void {
+  useUIStore.getState().openModal("modelEvents");
+}
+
 function handleDiagnose(_input: string, _ctx: CommandContext): void {
   useUIStore.getState().openModal("diagnosePopup");
 }
@@ -49,6 +53,8 @@ async function handleLspRestart(input: string, ctx: CommandContext): Promise<voi
 
 export function register(map: Map<string, CommandHandler>): void {
   map.set("/status", handleStatus);
+  map.set("/model-events", handleModelEvents);
+  map.set("/model events", handleModelEvents);
   map.set("/diagnose", handleDiagnose);
   map.set("/setup", handleSetup);
   map.set("/lsp", handleLsp);

@@ -38,7 +38,9 @@ export function getMaxConcurrentAgents(): number {
   return Math.min(8, Math.max(2, Math.round(v)));
 }
 
+import { recordModelCall } from "../../stores/model-events.js";
 import { getToolTimeoutMs } from "../tools/tool-timeout.js";
+
 /** 0 = no timeout (for generate calls). For waitForAgent, use getAgentWaitMs(). */
 export function getAgentTimeoutMs(): number {
   const toolMs = getToolTimeoutMs();
@@ -369,6 +371,7 @@ export async function runAgentTask(
   let lastError: unknown;
   let attemptsMade = 0;
   let proxyBounced = false;
+  let lastAttemptStartedAt = Date.now();
   const { maxRetries: MAX_RETRIES, baseDelayMs: BASE_DELAY_MS } = resolveRetrySettings(
     loadConfig().retry,
     { agent: true },
@@ -386,6 +389,8 @@ export async function runAgentTask(
       attemptsMade = attempt + 1;
       const { agent } = await createAgent(task, models, bus, parentToolCallId);
       const callbacks = buildStepCallbacks(parentToolCallId, task.agentId, selectedModelId);
+      const attemptStartedAt = Date.now();
+      lastAttemptStartedAt = attemptStartedAt;
 
       // biome-ignore lint/suspicious/noExplicitAny: agent.generate result type varies with Output generic
       let result: any;
@@ -689,6 +694,19 @@ export async function runAgentTask(
         });
       }
 
+      recordModelCall({
+        modelId: selectedModelId,
+        source: "subagent",
+        startedAt: attemptStartedAt,
+        durationMs: Math.max(0, Date.now() - attemptStartedAt),
+        state: "ok",
+        tabId: task.tabId,
+        agentId: task.agentId,
+        input,
+        output,
+        cacheRead,
+      });
+
       return { doneResult, resultText, callbacks, result: agentResult };
     } catch (error) {
       lastError = error;
@@ -763,6 +781,17 @@ export async function runAgentTask(
   }
 
   const doneResult: DoneToolResult | null = salvaged ? { summary: errorResultText } : null;
+
+  recordModelCall({
+    modelId: selectedModelId,
+    source: "subagent",
+    startedAt: lastAttemptStartedAt,
+    durationMs: Math.max(0, Date.now() - lastAttemptStartedAt),
+    state: "error",
+    tabId: task.tabId,
+    agentId: task.agentId,
+    errorMessage: errMsg.slice(0, 500),
+  });
 
   return {
     doneResult,
