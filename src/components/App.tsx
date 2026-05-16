@@ -32,7 +32,7 @@ import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import { getMissingRequired } from "../core/setup/prerequisites.js";
 import { suspendAndRun } from "../core/terminal/suspend.js";
-import { useTheme, useThemeStore } from "../core/theme/index.js";
+import { useTheme } from "../core/theme/index.js";
 import { restoreSessionImages } from "../core/tools/show-image.js";
 import { pickWordmark } from "../core/utils/splash.js";
 import { isDismissed } from "../core/version.js";
@@ -269,6 +269,7 @@ import type { PrerequisiteStatus } from "../core/setup/prerequisites.js";
 import { getEditedFilesForTab } from "../core/tools/edit-stack.js";
 import { useMCPStore } from "../stores/mcp.js";
 import { MemoryBrowser } from "./modals/MemoryBrowser.js";
+import { DialogHost } from "./ui/DialogHost.js";
 
 interface Props {
   config: AppConfig;
@@ -322,8 +323,9 @@ export function App({
 }: Props) {
   const renderer = useRenderer();
   const { height: termHeight, width: termWidth } = useTerminalDimensions();
-  // Subscribe to theme changes so the entire tree re-renders with new colors
-  useThemeStore((s) => s.name);
+  // `useTheme()` reads `state.tokens` — when `setTheme()` replaces the tokens
+  // object zustand fires a subscriber update, so the App rerenders on theme
+  // change without a second subscription to `state.name`.
   const t = useTheme();
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>(() => {
     return getCachedProviderStatuses() ?? bootProviders;
@@ -476,6 +478,18 @@ export function App({
   useEffect(() => {
     if (editorOpen) setEditorVisible(true);
   }, [editorOpen]);
+
+  // Mirror the active tab + activity into the terminal window title.
+  // Truncates long labels so OS title bars stay readable.
+  useEffect(() => {
+    const activity = tabMgr.getTabActivity(tabMgr.activeTabId);
+    const label = tabMgr.activeTab.label;
+    const truncated = label.length > 40 ? `${label.slice(0, 37)}…` : label;
+    const marker = activity.isLoading || activity.isCompacting ? "● " : "";
+    try {
+      renderer.setTerminalTitle(`${marker}SoulForge · ${truncated}`);
+    } catch {}
+  }, [renderer, tabMgr.activeTabId, tabMgr.activeTab.label, tabMgr]);
 
   // Kick the renderer after layout-affecting transitions to prevent stale paints.
   // requestRender() is a no-op if nothing is dirty — safe to call.
@@ -1925,6 +1939,8 @@ export function App({
         messages={activeChatRef.current?.messages ?? []}
         onSystemMessage={addSystemMessage}
       />
+
+      <DialogHost />
     </box>
   );
 }

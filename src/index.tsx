@@ -360,8 +360,18 @@ export async function start(opts: StartOptions): Promise<void> {
     exitOnCtrlC: false,
     useKittyKeyboard: { disambiguate: true },
     openConsoleOnError: false,
+    // Pipes child-process output (nvim, shell tools, lazygit) directly to the
+    // host terminal instead of buffering in the renderer.
+    externalOutputMode: "passthrough",
+    // Cap render rate to a steady 60fps so streaming chat + animations don't
+    // burn CPU on fast terminals (default is uncapped).
+    targetFps: 60,
   });
   renderer = r;
+  // Set initial terminal title; per-tab/session updates wire in App.tsx.
+  try {
+    r.setTerminalTitle("SoulForge");
+  } catch {}
 
   // 20+ components use useKeyboard/useOnResize concurrently — raise the
   // default EventEmitter limit (10) to suppress spurious leak warnings.
