@@ -12,6 +12,7 @@
 
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { frecencyScore, getFrecencyDB } from "../../core/history/index.js";
 import { providerIcon } from "../../core/icons.js";
 import { PROVIDER_CONFIGS, type ProviderModelInfo } from "../../core/llm/models.js";
 import { getProvider } from "../../core/llm/providers/index.js";
@@ -83,7 +84,25 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
   const popupH = Math.min(32, Math.max(18, th - 4));
   const contentW = popupW - 4; // outer border(2) + Section paddingX(2)
 
-  // Build groups from provider data.
+  // Build groups from provider data. Within each provider, models you've
+  // picked recently float to the top — frecency score = freq * 1/(1+days).
+  const frecencyByModel = useMemo(() => {
+    if (!visible) return new Map<string, number>();
+    const allIds: string[] = [];
+    for (const cfg of PROVIDER_CONFIGS) {
+      const items = providerData[cfg.id]?.items ?? [];
+      for (const m of items) allIds.push(`${cfg.id}/${m.id}`);
+    }
+    if (allIds.length === 0) return new Map<string, number>();
+    const rows = getFrecencyDB().byKeys("model", allIds);
+    const now = Date.now();
+    const out = new Map<string, number>();
+    for (const [k, r] of rows) {
+      out.set(k, frecencyScore(r.frequency, r.lastUsedAt, now));
+    }
+    return out;
+  }, [visible, providerData]);
+
   const groups = useMemo<GroupedListGroup<ModelRow>[]>(() => {
     return PROVIDER_CONFIGS.map((cfg) => {
       const pd = providerData[cfg.id];
@@ -95,16 +114,22 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
 
       const rows: ModelRow[] = noKey
         ? []
-        : items.map((m) => {
-            const fullId = `${cfg.id}/${m.id}`;
-            return {
-              id: m.id,
-              fullId,
-              label: m.name || m.id,
-              meta: buildMeta(m, isModelFree(fullId)),
-              active: fullId === activeModel,
-            };
-          });
+        : items
+            .map((m) => {
+              const fullId = `${cfg.id}/${m.id}`;
+              return {
+                id: m.id,
+                fullId,
+                label: m.name || m.id,
+                meta: buildMeta(m, isModelFree(fullId)),
+                active: fullId === activeModel,
+                _score: frecencyByModel.get(fullId) ?? 0,
+              };
+            })
+            .sort((a, b) => {
+              if (b._score !== a._score) return b._score - a._score;
+              return 0;
+            });
 
       const meta = noKey
         ? (cfg.noAuthLabel ?? "no key — press [Enter] to add")
@@ -130,7 +155,7 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
         status,
       };
     });
-  }, [providerData, availability, activeModel]);
+  }, [providerData, availability, activeModel, frecencyByModel.get]);
 
   const filteredGroups = useMemo(() => fuzzyFilterGroups(groups, query), [groups, query]);
 
@@ -257,6 +282,9 @@ export function LlmSelector({ visible, activeModel, onSelect, onClose }: Props) 
         });
       } else if (cur.kind === "item" && cur.item) {
         const r = cur.item as ModelRow;
+        try {
+          getFrecencyDB().bump("model", r.fullId);
+        } catch {}
         onSelect(r.fullId);
         onClose();
       }
