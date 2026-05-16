@@ -220,8 +220,12 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
       if (a.disabled) continue;
       if (evt.name === a.key) {
         const target = filtered[cursor] as DialogSelectOption<unknown> | undefined;
-        if (a.enabledFor && target && !a.enabledFor(target)) return;
+        if (a.enabledFor && target && !a.enabledFor(target)) {
+          evt.preventDefault();
+          return;
+        }
         a.onTrigger(target ?? null);
+        evt.preventDefault();
         return;
       }
     }
@@ -260,6 +264,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         }
       }
     }
+    // Swallow the event so host pickers (SessionPicker, GitMenu, etc.) never
+    // see Enter/letters that DialogSelect already routed.
+    evt.preventDefault();
   });
 
   const hints = useMemo(() => {

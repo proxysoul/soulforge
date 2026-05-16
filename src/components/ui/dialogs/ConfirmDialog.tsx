@@ -26,16 +26,30 @@ export function ConfirmDialog({ width, title, message, danger, onClose }: Props)
   useKeyboard((evt) => {
     if (evt.name === "left" || evt.name === "right" || evt.name === "tab") {
       setSelection((s) => (s === "yes" ? "no" : "yes"));
-    } else if (evt.name === "y") {
+      evt.preventDefault();
+      return;
+    }
+    if (evt.name === "y") {
       _answer(true);
       onClose();
-    } else if (evt.name === "n") {
+      evt.preventDefault();
+      return;
+    }
+    if (evt.name === "n" || evt.name === "escape") {
       _answer(false);
       onClose();
-    } else if (evt.name === "return") {
+      evt.preventDefault();
+      return;
+    }
+    if (evt.name === "return") {
       _answer(selection === "yes");
       onClose();
+      evt.preventDefault();
+      return;
     }
+    // Swallow every other key while the confirm owns the screen so the
+    // host (SessionPicker, GitMenu, /stash, ...) never sees Enter/letters.
+    evt.preventDefault();
   });
 
   return (

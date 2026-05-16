@@ -28,7 +28,13 @@ export function AlertDialog({ width, title, message, variant = "info", onClose }
   const t = useTheme();
 
   useKeyboard((evt) => {
-    if (evt.name === "return" || evt.name === "escape") onClose();
+    if (evt.name === "return" || evt.name === "escape") {
+      onClose();
+      evt.preventDefault();
+      return;
+    }
+    // Swallow other keys while the alert is up.
+    evt.preventDefault();
   });
 
   return (
