@@ -11,7 +11,12 @@
 
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CATEGORIES, type CommandDef, getCommandDefs } from "../../core/commands/registry.js";
+import {
+  CATEGORIES,
+  type CommandDef,
+  getCommandDefs,
+  getSuggestedCommandDefs,
+} from "../../core/commands/registry.js";
 import { fuzzyMatch } from "../../core/history/fuzzy.js";
 import { useTheme } from "../../core/theme/index.js";
 import {
@@ -82,11 +87,34 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
     setCursor(0);
   }, [visible]);
 
+  // Suggested commands surface at the top of the empty-query view. The
+  // registry tags a handful of high-value commands; we de-dupe them from
+  // their category groups below so they don't render twice.
+  const suggestedDefs = useMemo(() => {
+    return getSuggestedCommandDefs().filter((d) => !d.hidden);
+  }, []);
+  const suggestedSet = useMemo(() => new Set(suggestedDefs.map((d) => d.cmd)), [suggestedDefs]);
+
   // Build groups — two shapes depending on whether filter is active
   const groups = useMemo<GroupedListGroup<CommandRow>[]>(() => {
     if (query.trim().length === 0) {
-      return CATEGORIES.flatMap((cat) => {
-        const cmds = allDefs.filter((d) => d.category === cat);
+      const suggestedGroup: GroupedListGroup<CommandRow> | null =
+        suggestedDefs.length > 0
+          ? {
+              id: "__suggested",
+              label: "Suggested",
+              icon: "sparkle",
+              accent: t.brand,
+              items: suggestedDefs.map<CommandRow>((def) => ({
+                id: `sug-${def.cmd}`,
+                label: def.cmd,
+                meta: def.desc,
+                def,
+              })),
+            }
+          : null;
+      const categoryGroups = CATEGORIES.flatMap((cat) => {
+        const cmds = allDefs.filter((d) => d.category === cat && !suggestedSet.has(d.cmd));
         if (cmds.length === 0) return [];
         return [
           {
@@ -103,6 +131,7 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
           },
         ];
       });
+      return suggestedGroup ? [suggestedGroup, ...categoryGroups] : categoryGroups;
     }
 
     // Search: collect matches with scores, sort desc, render as one flat group
@@ -133,7 +162,15 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
         }),
       },
     ];
-  }, [query, allDefs, categoryColors, t]);
+  }, [
+    query,
+    allDefs,
+    categoryColors,
+    t,
+    suggestedSet.has,
+    suggestedDefs.map,
+    suggestedDefs.length,
+  ]);
 
   const rows = useMemo(() => {
     // All groups are expanded (either natural-expanded for categories, or hideHeader)
