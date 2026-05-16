@@ -1333,6 +1333,46 @@ const AssistantMessage = memo(function AssistantMessage({
   );
 });
 
+/**
+ * Custom equality so historical messages short-circuit completely.
+ *
+ * Finalized messages have a stable object reference (zustand replaces the
+ * array but not individual settled entries). Comparing primitives + the msg
+ * pointer skips the entire subtree on parent rerenders. The tool-call count
+ * is checked as a defensive fallback for streaming messages whose ref stays
+ * stable while toolCalls mutate.
+ */
+function staticMessagePropsEqual(prev: StaticMessageProps, next: StaticMessageProps): boolean {
+  if (prev.msg !== next.msg) return false;
+  if (prev.chatStyle !== next.chatStyle) return false;
+  if (prev.diffStyle !== next.diffStyle) return false;
+  if (prev.collapseDiffs !== next.collapseDiffs) return false;
+  if (prev.showReasoning !== next.showReasoning) return false;
+  if (prev.reasoningExpanded !== next.reasoningExpanded) return false;
+  if (prev.animate !== next.animate) return false;
+  if (prev.lockIn !== next.lockIn) return false;
+  if (prev.dimmed !== next.dimmed) return false;
+  if (prev.verbose !== next.verbose) return false;
+  // Defensive: same ref but tool list mutated
+  const prevTc = prev.msg.toolCalls?.length ?? 0;
+  const nextTc = next.msg.toolCalls?.length ?? 0;
+  if (prevTc !== nextTc) return false;
+  return true;
+}
+
+interface StaticMessageProps {
+  msg: ChatMessage;
+  chatStyle: ChatStyle;
+  diffStyle?: "default" | "sidebyside" | "compact";
+  collapseDiffs?: boolean;
+  showReasoning?: boolean;
+  reasoningExpanded?: boolean;
+  animate?: boolean;
+  lockIn?: boolean;
+  dimmed?: boolean;
+  verbose?: boolean;
+}
+
 export const StaticMessage = memo(function StaticMessage({
   msg,
   chatStyle,
@@ -1344,18 +1384,7 @@ export const StaticMessage = memo(function StaticMessage({
   lockIn = false,
   dimmed = false,
   verbose = false,
-}: {
-  msg: ChatMessage;
-  chatStyle: ChatStyle;
-  diffStyle?: "default" | "sidebyside" | "compact";
-  collapseDiffs?: boolean;
-  showReasoning?: boolean;
-  reasoningExpanded?: boolean;
-  animate?: boolean;
-  lockIn?: boolean;
-  dimmed?: boolean;
-  verbose?: boolean;
-}) {
+}: StaticMessageProps) {
   if (msg.role === "system") {
     return (
       <box flexDirection="column" paddingX={1} width="100%" style={{ opacity: dimmed ? 0.4 : 1 }}>
@@ -1383,7 +1412,7 @@ export const StaticMessage = memo(function StaticMessage({
       />
     </box>
   );
-});
+}, staticMessagePropsEqual);
 
 export const MessageList = memo(function MessageList({
   messages,
