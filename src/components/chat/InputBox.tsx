@@ -9,6 +9,7 @@ import {
   getFrecencyDB,
   getHistoryDB,
   getStashDB,
+  onDraftRestore,
 } from "../../core/history/index.js";
 import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
@@ -195,7 +196,7 @@ export const InputBox = memo(function InputBox({
 
   // Restore the latest stash entry when this InputBox mounts with an empty
   // value. Tab switches and session restores recreate the component, so this
-  // hook gives the user their draft back without an explicit Ctrl+Shift+P.
+  // hook gives the user their draft back without an explicit Alt+P.
   const stashRestoredRef = useRef(false);
   useEffect(() => {
     if (stashRestoredRef.current) return;
@@ -209,8 +210,8 @@ export const InputBox = memo(function InputBox({
       textareaRef.current?.setText(top.content);
       textareaRef.current?.gotoBufferEnd();
       lineCountRef.current = (top.content.match(/\n/g)?.length ?? 0) + 1;
-      // Consume the draft — the user explicitly popping (Ctrl+Shift+P) deletes
-      // older entries; auto-restore on mount should not pile up.
+      // Consume the draft — the user explicitly popping (Alt+P) deletes older
+      // entries; auto-restore on mount should not pile up.
       getStashDB().remove(top.id);
     } catch {}
   }, [cwd]);
@@ -241,6 +242,19 @@ export const InputBox = memo(function InputBox({
   const floatingTermOpen = useUIStore((s) => s.modals.floatingTerminal);
   const lockIn = useUIStore((s) => s.lockIn);
   const focused = floatingTermOpen ? false : (isFocused ?? true);
+
+  // Subscribe to the draft-restore bus so /stash and other surfaces can push
+  // a draft into the focused input.
+  useEffect(() => {
+    return onDraftRestore((content) => {
+      if (!focused) return;
+      isNavigatingHistory.current = true;
+      setValue(content);
+      textareaRef.current?.setText(content);
+      textareaRef.current?.gotoBufferEnd();
+      lineCountRef.current = (content.match(/\n/g)?.length ?? 0) + 1;
+    });
+  }, [focused]);
 
   // Refresh history when input gains focus (covers tab switches, session restores)
   // biome-ignore lint/correctness/useExhaustiveDependencies: refresh on focus gain
@@ -634,9 +648,10 @@ export const InputBox = memo(function InputBox({
       return;
     }
 
-    // Ctrl+S — stash current draft and clear the input. Drafts survive
-    // session restart, are scoped per-cwd, and pop back via Ctrl+Shift+P.
-    if (focused && evt.ctrl && !evt.shift && evt.name === "s") {
+    // Alt+S — stash current draft and clear the input. Drafts survive
+    // session restart, are scoped per-cwd, and pop back via Alt+P. Ctrl+S
+    // is reserved for the skills browser and Ctrl+P for the session picker.
+    if (focused && evt.option && !evt.shift && evt.name === "s") {
       const draft = valueRef.current;
       if (draft.trim().length > 0) {
         try {
@@ -648,8 +663,8 @@ export const InputBox = memo(function InputBox({
       return;
     }
 
-    // Ctrl+Shift+P — pop the most recent stash entry into the input.
-    if (focused && evt.ctrl && evt.shift && evt.name === "p") {
+    // Alt+P — pop the most recent stash entry into the input.
+    if (focused && evt.option && !evt.shift && evt.name === "p") {
       if (valueRef.current.trim().length === 0) {
         try {
           const entry = getStashDB().pop(cwd);

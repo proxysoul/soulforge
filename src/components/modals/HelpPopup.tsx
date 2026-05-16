@@ -34,6 +34,8 @@ function buildHelpLines(t: ReturnType<typeof useTheme>): InfoLineData[] {
     { type: "entry", label: "Ctrl+L", desc: "switch LLM model" },
     { type: "entry", label: "Ctrl+S", desc: "browse skills" },
     { type: "entry", label: "Ctrl+P", desc: "browse sessions" },
+    { type: "entry", label: "Alt+S", desc: "stash current draft" },
+    { type: "entry", label: "Alt+P", desc: "pop last stashed draft" },
     { type: "entry", label: "Alt+R", desc: "error log" },
     { type: "entry", label: "Ctrl+G", desc: "git menu" },
     { type: "spacer" },
@@ -111,6 +113,7 @@ export function HelpPopup({ visible, onClose }: Props) {
     if (!visible) return;
     if (evt.name === "escape") {
       onClose();
+      evt.preventDefault();
       return;
     }
     const maxOffset = Math.max(0, lines.length - viewportRows);
@@ -118,13 +121,33 @@ export function HelpPopup({ visible, onClose }: Props) {
       const n = Math.max(0, cursor - 1);
       setCursor(n);
       scrollRef.current?.scrollTo(n);
+      evt.preventDefault();
       return;
     }
     if (evt.name === "down" || evt.name === "j") {
       const n = Math.min(maxOffset, cursor + 1);
       setCursor(n);
       scrollRef.current?.scrollTo(n);
+      evt.preventDefault();
+      return;
     }
+    if (evt.name === "pageup") {
+      const n = Math.max(0, cursor - viewportRows);
+      setCursor(n);
+      scrollRef.current?.scrollTo(n);
+      evt.preventDefault();
+      return;
+    }
+    if (evt.name === "pagedown") {
+      const n = Math.min(maxOffset, cursor + viewportRows);
+      setCursor(n);
+      scrollRef.current?.scrollTo(n);
+      evt.preventDefault();
+      return;
+    }
+    // Swallow any other key while the popup owns the screen so chat/input
+    // never see arrow/letter keys.
+    evt.preventDefault();
   });
 
   if (!visible) return null;
