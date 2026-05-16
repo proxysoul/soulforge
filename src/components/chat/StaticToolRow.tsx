@@ -1,5 +1,5 @@
 import { TextAttributes } from "@opentui/core";
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { icon as getIcon } from "../../core/icons.js";
 import { getThemeTokens, useTheme } from "../../core/theme/index.js";
 import {
@@ -61,7 +61,7 @@ interface StaticToolRowProps {
  * Pure render component for a single tool call row.
  * No hooks — shared between streaming (ToolCallDisplay) and final (MessageList) views.
  */
-export function StaticToolRow({
+function StaticToolRowImpl({
   statusContent,
   isDone,
   icon,
@@ -149,6 +149,49 @@ export function StaticToolRow({
     </box>
   );
 }
+
+function toolRowPropsEqual(prev: StaticToolRowProps, next: StaticToolRowProps): boolean {
+  if (prev.isDone !== next.isDone) return false;
+  if (prev.icon !== next.icon) return false;
+  if (prev.iconColor !== next.iconColor) return false;
+  if (prev.label !== next.label) return false;
+  if (prev.category !== next.category) return false;
+  if (prev.categoryColor !== next.categoryColor) return false;
+  if (prev.backendTag !== next.backendTag) return false;
+  if (prev.backendColor !== next.backendColor) return false;
+  if (prev.argStr !== next.argStr) return false;
+  if (prev.editResultText !== next.editResultText) return false;
+  if (prev.suffix !== next.suffix) return false;
+  if (prev.suffixColor !== next.suffixColor) return false;
+  if (prev.diffStyle !== next.diffStyle) return false;
+  if (prev.suppressExpanded !== next.suppressExpanded) return false;
+  if (prev.statusContent !== next.statusContent) return false;
+  // outsideBadge — shape stable, compare fields
+  const pob = prev.outsideBadge;
+  const nob = next.outsideBadge;
+  if (!!pob !== !!nob) return false;
+  if (pob && nob && (pob.label !== nob.label || pob.color !== nob.color)) return false;
+  // diff — same shape
+  const pd = prev.diff;
+  const nd = next.diff;
+  if (!!pd !== !!nd) return false;
+  if (pd && nd) {
+    if (
+      pd.path !== nd.path ||
+      pd.oldString !== nd.oldString ||
+      pd.newString !== nd.newString ||
+      pd.success !== nd.success ||
+      pd.errorMessage !== nd.errorMessage ||
+      pd.impact !== nd.impact
+    )
+      return false;
+  }
+  // imageArt — ref check is enough; builders return a stable array per call
+  if (prev.imageArt !== next.imageArt) return false;
+  return true;
+}
+
+export const StaticToolRow = memo(StaticToolRowImpl, toolRowPropsEqual);
 
 // ── Shared helpers (used by both streaming and static builders) ──
 
