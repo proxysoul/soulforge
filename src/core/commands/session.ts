@@ -1,3 +1,4 @@
+import { confirm } from "../../components/ui/dialogs/index.js";
 import { emitCacheReset } from "../tools/file-events.js";
 import { clearTasks } from "../tools/task-list.js";
 import type { CommandContext, CommandHandler } from "./types.js";
@@ -165,7 +166,15 @@ function handleContinue(_input: string, ctx: CommandContext): void {
   }
 }
 
-function handleClear(_input: string, ctx: CommandContext): void {
+async function handleClear(_input: string, ctx: CommandContext): Promise<void> {
+  const msgCount = ctx.chat.messages.length;
+  if (msgCount === 0) return;
+  const ok = await confirm({
+    title: "Clear conversation?",
+    message: `${String(msgCount)} messages will be removed from this tab. Saved sessions are not affected.`,
+    danger: true,
+  });
+  if (!ok) return;
   ctx.chat.setMessages([]);
   ctx.chat.setCoreMessages([]);
   ctx.chat.setTokenUsage({

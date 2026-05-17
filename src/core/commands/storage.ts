@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { confirm } from "../../components/ui/dialogs/index.js";
 import { icon } from "../icons.js";
 import { SessionManager } from "../sessions/manager.js";
 import { getThemeTokens } from "../theme/index.js";
@@ -101,61 +102,87 @@ function openStorageMenu(ctx: CommandContext): void {
         },
       ],
       onSelect: (value) => {
-        if (value === "clear-repomap") {
-          if (s.repoMap === 0) return;
-          ctx.contextManager.clearRepoMap();
-          sysMsg(ctx, `Cleared soul map (freed ~${formatBytes(s.repoMap)}).`);
-        } else if (value === "clear-sessions") {
-          if (sessionCount === 0) return;
-          const cleared = sm.clearAllSessions();
-          sysMsg(ctx, `Cleared ${String(cleared)} sessions (freed ~${formatBytes(s.sessions)}).`);
-        } else if (value === "clear-history") {
-          const historyPath = join(s.globalDir, "history.db");
-          if (existsSync(historyPath) && s.history > 0) {
-            try {
-              const db = new Database(historyPath);
-              db.run("DELETE FROM history");
-              db.run("VACUUM");
-              db.close();
-              sysMsg(ctx, `Cleared search history (freed ~${formatBytes(s.history)}).`);
-            } catch {
-              sysMsg(ctx, "Failed to clear history database.");
+        void (async () => {
+          if (value === "clear-repomap") {
+            if (s.repoMap === 0) return;
+            const ok = await confirm({
+              title: "Clear Soul Map?",
+              message: `${formatBytes(s.repoMap)} of cached repo-map data will be deleted. Next index pass will rebuild it.`,
+              danger: true,
+            });
+            if (!ok) return;
+            ctx.contextManager.clearRepoMap();
+            sysMsg(ctx, `Cleared soul map (freed ~${formatBytes(s.repoMap)}).`);
+          } else if (value === "clear-sessions") {
+            if (sessionCount === 0) return;
+            const ok = await confirm({
+              title: "Clear all sessions?",
+              message: `${String(sessionCount)} saved sessions (${formatBytes(s.sessions)}) will be deleted from this project. This cannot be undone.`,
+              danger: true,
+            });
+            if (!ok) return;
+            const cleared = sm.clearAllSessions();
+            sysMsg(ctx, `Cleared ${String(cleared)} sessions (freed ~${formatBytes(s.sessions)}).`);
+          } else if (value === "clear-history") {
+            const historyPath = join(s.globalDir, "history.db");
+            if (existsSync(historyPath) && s.history > 0) {
+              const ok = await confirm({
+                title: "Clear search history?",
+                message: `Prompt history and stash entries (${formatBytes(s.history)}) will be deleted globally. This cannot be undone.`,
+                danger: true,
+              });
+              if (!ok) return;
+              try {
+                const db = new Database(historyPath);
+                db.run("DELETE FROM history");
+                db.run("VACUUM");
+                db.close();
+                sysMsg(ctx, `Cleared search history (freed ~${formatBytes(s.history)}).`);
+              } catch {
+                sysMsg(ctx, "Failed to clear history database.");
+              }
             }
-          }
-        } else if (value === "clear-plans") {
-          const plansDir = join(s.projectDir, "plans");
-          if (existsSync(plansDir) && s.plans > 0) {
-            rmSync(plansDir, { recursive: true });
-            sysMsg(ctx, `Cleared plans (freed ~${formatBytes(s.plans)}).`);
-          }
-        } else if (value === "vacuum") {
-          let freed = 0;
-          const dbs = [
-            join(s.projectDir, "repomap.db"),
-            join(s.projectDir, "memory.db"),
-            join(s.globalDir, "history.db"),
-            join(s.globalDir, "memory.db"),
-          ];
-          for (const dbPath of dbs) {
-            if (!existsSync(dbPath)) continue;
-            try {
-              const before = fileSize(dbPath);
-              const db = new Database(dbPath);
-              db.run("VACUUM");
-              db.close();
-              freed += Math.max(0, before - fileSize(dbPath));
-            } catch {
-              // skip
+          } else if (value === "clear-plans") {
+            const plansDir = join(s.projectDir, "plans");
+            if (existsSync(plansDir) && s.plans > 0) {
+              const ok = await confirm({
+                title: "Clear plans?",
+                message: `All saved plans (${formatBytes(s.plans)}) for this project will be deleted. This cannot be undone.`,
+                danger: true,
+              });
+              if (!ok) return;
+              rmSync(plansDir, { recursive: true });
+              sysMsg(ctx, `Cleared plans (freed ~${formatBytes(s.plans)}).`);
             }
+          } else if (value === "vacuum") {
+            let freed = 0;
+            const dbs = [
+              join(s.projectDir, "repomap.db"),
+              join(s.projectDir, "memory.db"),
+              join(s.globalDir, "history.db"),
+              join(s.globalDir, "memory.db"),
+            ];
+            for (const dbPath of dbs) {
+              if (!existsSync(dbPath)) continue;
+              try {
+                const before = fileSize(dbPath);
+                const db = new Database(dbPath);
+                db.run("VACUUM");
+                db.close();
+                freed += Math.max(0, before - fileSize(dbPath));
+              } catch {
+                // skip
+              }
+            }
+            sysMsg(
+              ctx,
+              freed > 0
+                ? `Vacuumed databases (reclaimed ~${formatBytes(freed)}).`
+                : "Vacuumed databases (no space to reclaim).",
+            );
           }
-          sysMsg(
-            ctx,
-            freed > 0
-              ? `Vacuumed databases (reclaimed ~${formatBytes(freed)}).`
-              : "Vacuumed databases (no space to reclaim).",
-          );
-        }
-        setTimeout(show, 50);
+          setTimeout(show, 50);
+        })();
       },
     });
   };
