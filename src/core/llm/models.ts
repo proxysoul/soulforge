@@ -65,7 +65,7 @@ interface ContextWindowResult {
   source: ContextWindowSource;
 }
 
-function matchesContextOverride(model: string, pattern: string): boolean {
+export function matchesContextOverride(model: string, pattern: string): boolean {
   const lowerModel = model.toLowerCase();
   const lowerPattern = pattern.toLowerCase();
   const bareModel = lowerModel.split("/").pop() ?? lowerModel;
@@ -75,6 +75,29 @@ function matchesContextOverride(model: string, pattern: string): boolean {
     lowerModel === lowerPattern ||
     lowerModel.endsWith(`/${lowerPattern}`)
   );
+}
+
+export function applyProviderContextOverride(
+  providerId: string,
+  model: ProviderModelInfo,
+): ProviderModelInfo {
+  const provider = getProvider(providerId);
+  if (!provider?.contextWindowOverrides) return model;
+
+  for (const [pattern, tokens] of provider.contextWindowOverrides) {
+    if (matchesContextOverride(model.id, pattern)) {
+      return { ...model, contextWindow: tokens };
+    }
+  }
+
+  return model;
+}
+
+function applyProviderContextOverrides(
+  providerId: string,
+  models: ProviderModelInfo[],
+): ProviderModelInfo[] {
+  return models.map((m) => applyProviderContextOverride(providerId, m));
 }
 
 /**
@@ -419,10 +442,11 @@ export async function fetchProviderModels(
   try {
     const models = await provider.fetchModels();
     if (models) {
-      modelCache.set(providerId, { models, ts: Date.now() });
-      return { models };
+      const normalized = applyProviderContextOverrides(providerId, models);
+      modelCache.set(providerId, { models: normalized, ts: Date.now() });
+      return { models: normalized };
     }
-    return { models: provider.fallbackModels };
+    return { models: applyProviderContextOverrides(providerId, provider.fallbackModels) };
   } catch (err) {
     const msg = toErrorMessage(err);
     return { models: [], error: `API error: ${msg}` };
@@ -702,11 +726,13 @@ async function fetchProxyGrouped(): Promise<GroupedModelsResult> {
       const ctxWindow =
         m.context_length ?? anthropicCtx.get(m.id) ?? findOpenRouterModel(m.id)?.context_length;
 
-      grouped[group].push({
-        id: m.id,
-        name: m.id,
-        contextWindow: ctxWindow,
-      });
+      grouped[group].push(
+        applyProviderContextOverride("proxy", {
+          id: m.id,
+          name: m.id,
+          contextWindow: ctxWindow,
+        }),
+      );
     }
 
     const subProviders: SubProvider[] = Object.keys(grouped)
