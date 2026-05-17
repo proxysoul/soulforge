@@ -1,7 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "../../../core/theme/index.js";
-import { useDialogStore } from "../../../stores/dialog.js";
+import { selectTopDialog, useDialogStore } from "../../../stores/dialog.js";
 import { fuzzyFilterGroups, tokenMatches } from "../fuzzy.js";
 import { GroupedList, type GroupedListGroup } from "../GroupedList.js";
 import { PremiumPopup } from "../PremiumPopup.js";
@@ -143,6 +143,10 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 
   useTheme();
   const pop = useDialogStore((s) => s.pop);
+  const topId = useDialogStore((s) => selectTopDialog(s)?.id ?? null);
+  const myIdRef = useRef<string | null>(null);
+  if (myIdRef.current === null && topId) myIdRef.current = topId;
+  const isTop = myIdRef.current === topId;
 
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -215,6 +219,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   }, [onCancel, pop]);
 
   useKeyboard((evt) => {
+    // Another dialog (confirm/alert) is layered above — it owns the keyboard.
+    if (!isTop) return;
     // Action keys take priority over text input.
     for (const a of actions) {
       if (a.disabled) continue;
