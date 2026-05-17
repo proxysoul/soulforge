@@ -58,11 +58,23 @@ onProvidersChanged(() => {
 const DEFAULT_CONTEXT_TOKENS = 128_000;
 const METADATA_FETCH_TIMEOUT = 5_000;
 
-type ContextWindowSource = "api" | "openrouter" | "fallback";
+type ContextWindowSource = "api" | "openrouter" | "fallback" | "override";
 
 interface ContextWindowResult {
   tokens: number;
   source: ContextWindowSource;
+}
+
+function matchesContextOverride(model: string, pattern: string): boolean {
+  const lowerModel = model.toLowerCase();
+  const lowerPattern = pattern.toLowerCase();
+  const bareModel = lowerModel.split("/").pop() ?? lowerModel;
+  const barePattern = lowerPattern.split("/").pop() ?? lowerPattern;
+  return (
+    bareModel === barePattern ||
+    lowerModel === lowerPattern ||
+    lowerModel.endsWith(`/${lowerPattern}`)
+  );
 }
 
 /**
@@ -90,7 +102,7 @@ export function getModelContextInfoSync(modelId: string): ContextWindowResult {
   const ownProvider = providerId ? getProvider(providerId) : null;
   if (ownProvider?.contextWindowOverrides) {
     for (const [pattern, tokens] of ownProvider.contextWindowOverrides) {
-      if (model.includes(pattern)) return { tokens, source: "fallback" };
+      if (matchesContextOverride(model, pattern)) return { tokens, source: "override" };
     }
   }
 

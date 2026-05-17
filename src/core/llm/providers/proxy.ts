@@ -9,6 +9,7 @@ import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 const baseURL = process.env.PROXY_API_URL || "http://127.0.0.1:8317/v1";
+const GPT_55_INPUT_CONTEXT = 272_000;
 
 function isAnthropicModel(modelId: string): boolean {
   return modelId.toLowerCase().startsWith("claude");
@@ -74,7 +75,10 @@ export const proxy: ProviderDefinition = {
     { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
     { id: "claude-opus-4-20250514", name: "Claude Opus 4" },
     { id: "claude-haiku-3-5-20241022", name: "Claude Haiku 3.5" },
+    { id: "gpt-5.5", name: "GPT-5.5", contextWindow: GPT_55_INPUT_CONTEXT },
   ],
+
+  contextWindowOverrides: [["gpt-5.5", GPT_55_INPUT_CONTEXT]],
 
   // Specific overrides first → shared patterns → generic catch-alls last.
   contextWindows: [
@@ -99,6 +103,7 @@ export const proxy: ProviderDefinition = {
     ["claude-3.5-haiku", 200_000],
     ["claude-3-5-haiku", 200_000],
     // GPT
+    ["gpt-5.5", GPT_55_INPUT_CONTEXT],
     ["gpt-5-chat", 128_000],
     ["gpt-4.1", 1_048_576],
     // Grok

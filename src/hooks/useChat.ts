@@ -510,22 +510,23 @@ export function useChat({
   }, [coAuthorCommits]);
 
   // Sync context window size to contextManager + status bar store.
-  // Pin per model — never downgrade if API cache expires (prevents 1M→200k drop).
+  // Pin per model, but allow provider overrides/API metadata to replace stale values.
   const contextManagerRef = useRef(contextManager);
   contextManagerRef.current = contextManager;
   const pinnedContextWindow = useRef(new Map<string, number>());
 
   // Context window: show sync fallback immediately, then correct from async API data.
   // The sync fallback comes from hardcoded patterns (per-provider, never cross-provider).
-  // The async fetch gets the real value from the provider API or OpenRouter metadata.
+  // The async fetch gets the real value from provider overrides, provider API, or OpenRouter metadata.
   const prevSyncedModel = useRef("");
   if (activeModel !== prevSyncedModel.current && activeModel !== "none") {
     prevSyncedModel.current = activeModel;
+    const { tokens: sync, source } = getModelContextInfoSync(activeModel);
     const cached = pinnedContextWindow.current.get(activeModel);
-    const sync = cached || getModelContextInfoSync(activeModel).tokens;
-    pinnedContextWindow.current.set(activeModel, sync);
-    contextManagerRef.current.setContextWindow(sync);
-    if (visible) useStatusBarStore.getState().setContextWindow(sync);
+    const next = source === "fallback" ? (cached ?? sync) : sync;
+    pinnedContextWindow.current.set(activeModel, next);
+    contextManagerRef.current.setContextWindow(next);
+    if (visible) useStatusBarStore.getState().setContextWindow(next);
   }
 
   // Async fetch — resolves the authoritative context window from provider API.
@@ -537,7 +538,7 @@ export function useChat({
     getModelContextInfo(activeModelForEffect).then(({ tokens: accurate, source }) => {
       if (cancelled) return;
       const prev = pinnedContextWindow.current.get(activeModelForEffect) ?? 0;
-      // API/OpenRouter data is authoritative — replace even if lower than fallback estimate.
+      // Provider overrides/API/OpenRouter data are authoritative — replace even if lower than fallback estimate.
       // Fallback data only upgrades (never downgrades) since it's a guess.
       const best = source !== "fallback" ? accurate : Math.max(prev, accurate);
       if (best !== prev) {
@@ -1346,8 +1347,8 @@ export function useChat({
     if (effectiveConfig.compaction?.strategy === "disabled") return;
     if (activeModelRef.current === "none") return;
     if (contextTokens <= 0) return;
-    // Only use pinned value (set by async fetch). If async hasn't resolved yet,
-    // skip this check — better to delay compaction than trigger on a wrong fallback.
+    // Only use pinned value (set by sync override/fallback or async metadata).
+    // If no pinned value exists yet, delay compaction rather than guess.
     const ctxWindow = pinnedContextWindow.current.get(activeModelRef.current);
     if (!ctxWindow) return;
     const pct = contextTokens / ctxWindow;
