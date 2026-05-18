@@ -1,18 +1,29 @@
 import { logBackgroundError } from "../../stores/errors.js";
 import type { RetryConfig } from "../../types/index.js";
 
+/** Shared strategy shape: bounded retries with exponential backoff.
+ *  Extracted so transient, stall, and cycles/full-chain-overflow all
+ *  share the same `maxRetries + backoffMs` fields instead of repeating them. */
+export interface RetryStrategy {
+  /** Hard cap on retry attempts. 0 = no retries. */
+  maxRetries: number;
+  /** Base backoff delay in ms before the first retry. */
+  backoffMs: number;
+}
+
 export const DEFAULT_AGENT_BASE_DELAY_MS = 2000;
 export const DEFAULT_CHAT_BASE_DELAY_MS = 1000;
 export const DEFAULT_MAX_RETRIES = 3;
+export const MAX_FALLBACK_CYCLES_DEFAULT = 3;
 
 export const MIN_MAX_ATTEMPTS = 1;
 export const MIN_BASE_DELAY_MS = 250;
 export const MAX_BASE_DELAY_MS = 60_000;
 
 export interface ResolvedRetrySettings {
-  maxTransientRetries: number;
-  maxStallRetries: number;
-  baseDelayMs: number;
+  transient: RetryStrategy;
+  stall: RetryStrategy;
+  cycles: RetryStrategy;
 }
 
 /**
@@ -58,7 +69,18 @@ export function resolveRetrySettings(
     "retry.baseDelayMs",
   );
 
-  return { maxTransientRetries, maxStallRetries, baseDelayMs };
+  const maxFallbackCycles = clampIntMin(
+    obj?.maxFallbackCycles,
+    0,
+    MAX_FALLBACK_CYCLES_DEFAULT,
+    "retry.maxFallbackCycles",
+  );
+
+  return {
+    transient: { maxRetries: maxTransientRetries, backoffMs: baseDelayMs },
+    stall: { maxRetries: maxStallRetries, backoffMs: baseDelayMs },
+    cycles: { maxRetries: maxFallbackCycles, backoffMs: 0 },
+  };
 }
 
 const warnedKeys = new Set<string>();

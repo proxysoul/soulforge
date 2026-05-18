@@ -310,8 +310,9 @@ export interface AppConfig {
    * Per-model fallback chains. When a model fails with transient errors,
    * the fallbacks for THAT specific model are tried in order.
    * Key = model ID, Value = ordered fallback model IDs.
+   * A `"*"` key provides a global default chain used when no model-specific chain exists.
    */
-  modelFallback?: Record<string, string[]>;
+  modelFallback?: Record<string, string[]> | string[];
   routerRules: RouterRule[];
   taskRouter?: TaskRouter;
   editor: {
@@ -413,6 +414,8 @@ export interface RetryConfig {
   maxStallRetries?: number;
   /** Base delay in ms before the first retry. Doubles each attempt + jitter. Default: 2000 (agents), 1000 (chat). Range: 250–60000. */
   baseDelayMs?: number;
+  /** Max cycling through the full model-fallback chain before giving up. Set to 0 to disable cycling. Default: 3. Range: 0–10. */
+  maxFallbackCycles?: number;
 }
 
 export interface WatchdogTimeouts {

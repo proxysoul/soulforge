@@ -867,12 +867,12 @@ export function createForgeAgent({
     },
   } as ProviderOptions;
 
-  const { maxTransientRetries: retryMaxRetries } = resolveRetrySettings(loadConfig().retry);
+  const { transient } = resolveRetrySettings(loadConfig().retry);
 
   return new ToolLoopAgent({
     id: "forge",
     model,
-    maxRetries: retryMaxRetries,
+    maxRetries: transient.maxRetries,
     ...(supportsTemperature(fullModelId ?? getModelId(model)) ? { temperature: 0 } : {}),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     tools: allTools,

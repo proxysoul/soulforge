@@ -1915,9 +1915,9 @@ export function useChat({
       // Stream stall watchdog — hoisted so catch/finally can access.
       // Initialized after stream starts; no-ops if stream never starts.
       const {
-        maxTransientRetries: MAX_TRANSIENT_RETRIES,
-        maxStallRetries: STALL_MAX_RETRIES,
-        baseDelayMs: RETRY_BASE_DELAY_MS,
+        transient: { maxRetries: MAX_TRANSIENT_RETRIES, backoffMs: RETRY_BASE_DELAY_MS },
+        stall: { maxRetries: STALL_MAX_RETRIES, backoffMs: _STALL_BACKOFF_MS },
+        cycles: { maxRetries: maxFallbackCycles, backoffMs: _CYCLE_BACKOFF_MS },
       } = resolveRetrySettings(effectiveConfig.retry);
       let stallWatchdog: ReturnType<typeof setInterval> | null = null;
       let unsubStallWatch1: (() => void) | null = null;
@@ -1926,16 +1926,24 @@ export function useChat({
       let stallTriggered = false; // only true when the watchdog itself fires
       let stallAborted = false; // true when abort is from stall watchdog
       let streamRetryCount = 0; // local retry counter (not a ref)
-      // Model fallback: per-model fallback chains
+      // Model fallback: per-model chains, plus wildcard "*" chain as global default
       const rawFallback = effectiveConfig.modelFallback;
-      const fallbackModels: string[] =
-        rawFallback && typeof rawFallback === "object" && !Array.isArray(rawFallback)
-          ? (rawFallback[activeModelRef.current] ?? []).filter((m) => m && m.trim().length > 0)
-          : [];
+      let fallbackModels: string[] = [];
+      if (rawFallback) {
+        if (Array.isArray(rawFallback)) {
+          // Plain string[] is treated as the global ("*") chain
+          fallbackModels = rawFallback.filter((m) => m && m.trim().length > 0);
+        } else if (typeof rawFallback === "object") {
+          const map = rawFallback as Record<string, string[]>;
+          // Wildcard chain first, then model-specific — specific overrides * by insertion order
+          fallbackModels = [...(map["*"] ?? []), ...(map[activeModelRef.current] ?? [])].filter(
+            (m) => m && m.trim().length > 0,
+          );
+        }
+      }
       let fallbackIndex = -1; // -1 = primary, 0+ = index into fallbackModels
       const primaryModelId = activeModelRef.current;
       let cycleCount = 0;
-      const MAX_CYCLES = 3;
       let lengthRetryCount = 0; // bounded auto-continue on finishReason=length
       const MAX_LENGTH_RETRIES = 2;
       // Reset retry count on real user messages (not auto-retry "Continue.")
@@ -1947,7 +1955,8 @@ export function useChat({
       const responseStartedAt = Date.now();
 
       for (;;) {
-        // Reset state for retry
+        // Reset state for retry — clear transient retry state from previous attempt
+        useStatusBarStore.getState().setRetryStatus(null);
         let proxyBounced = false;
         userAbortedRef.current = false;
         abortController = new AbortController();
@@ -3169,6 +3178,8 @@ export function useChat({
           setStreamSegments([]);
           setLiveToolCalls([]);
           completeInProgressTasks(tabId);
+          // Clear any transient retry state on a clean success
+          useStatusBarStore.getState().setRetryStatus(null);
           break;
         } catch (err: unknown) {
           if (flushTimerRef.current) {
@@ -3281,20 +3292,26 @@ export function useChat({
             !userAbortedRef.current &&
             stallRetryCountRef.current <= STALL_MAX_RETRIES;
 
+          // Stall retries exhausted but fallback models available — attempt fallback
+          const isStallExhausted =
+            isAbort &&
+            stallTriggered &&
+            !userAbortedRef.current &&
+            stallRetryCountRef.current > STALL_MAX_RETRIES;
+
           // Retry on transient errors during streaming (e.g. "socket connection closed unexpectedly")
           if (isTransient && !isStallRetry) {
             streamRetryCount++;
             if (streamRetryCount <= MAX_TRANSIENT_RETRIES && !abortController.signal.aborted) {
-              const delay = RETRY_BASE_DELAY_MS * 2 ** (streamRetryCount - 1) + Math.random() * 500;
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: crypto.randomUUID(),
-                  role: "system",
-                  content: `Transient error: ${msg}. Retry ${String(streamRetryCount)}/${String(MAX_TRANSIENT_RETRIES)} [delay:${String(Math.round(delay / 1000))}s]`,
-                  timestamp: Date.now(),
-                },
-              ]);
+              // Transient retry on the same model stays in the retry backoff loop —
+              // the "retrying" state is surfaced in the context-bar rather than spamming chat.
+              useStatusBarStore.getState().setRetryStatus({
+                type: "transient",
+                label: `${String(streamRetryCount)}/${String(MAX_TRANSIENT_RETRIES)}`,
+                backoffMs: Math.round(
+                  RETRY_BASE_DELAY_MS * 2 ** (streamRetryCount - 1) + Math.random() * 500,
+                ),
+              });
 
               // If partial assistant/tool output exists, commit it and continue with "Continue."
               // This avoids re-running tools and safely resumes from where we left off.
@@ -3363,7 +3380,9 @@ export function useChat({
                 stallRetryPendingRef.current = true;
 
                 // Stay in-loop: await backoff then continue (avoids racing finally block)
-                await new Promise((resolve) => setTimeout(resolve, delay));
+                const backoffDelay =
+                  RETRY_BASE_DELAY_MS * 2 ** (streamRetryCount - 1) + Math.random() * 500;
+                await new Promise((resolve) => setTimeout(resolve, backoffDelay));
                 continue;
               } else {
                 // No partial output - retry the stream directly
@@ -3378,12 +3397,31 @@ export function useChat({
             // User abort (Ctrl-X) always wins.
             if (userAbortedRef.current) {
               // fall through to stall/error path
+            } else if (fallbackModels.length === 0) {
+              // No model-specific and no wildcard chain — add a guardrail message
+              // once per session and surface in the status bar so the user knows
+              // why no fallback is being tried.
+              if (!(globalThis as Record<string, unknown>).__noFallbackWarning) {
+                (globalThis as Record<string, unknown>).__noFallbackWarning = true;
+                useStatusBarStore.getState().setRetryStatus({
+                  type: "fallback",
+                  label: "no chain",
+                  backoffMs: 0,
+                });
+              }
+              // Fall through to normal error-reporting path
             } else if (fallbackIndex < fallbackModels.length - 1) {
               fallbackIndex++;
               const nextModel = fallbackModels[fallbackIndex] as string;
               activeModelRef.current = nextModel;
               streamRetryCount = 0;
               notifyProviderSwitch(nextModel).catch(() => {});
+              useStatusBarStore.getState().setRetryStatus({
+                type: "fallback",
+                label: `→ ${nextModel}`,
+                model: nextModel,
+                backoffMs: 0,
+              });
               setActiveModel(nextModel);
               onModelChange?.(nextModel);
               setMessages((prev) => [
@@ -3398,9 +3436,9 @@ export function useChat({
               continue;
             } else if (fallbackModels.length > 0) {
               cycleCount++;
-              if (cycleCount > MAX_CYCLES) {
+              if (cycleCount > maxFallbackCycles) {
                 throw new Error(
-                  `Exhausted ${String(MAX_CYCLES)} cycles of model fallbacks. Last error: ${msg}`,
+                  `Exhausted ${String(maxFallbackCycles)} cycles of model fallbacks. Last error: ${msg}`,
                   { cause: err },
                 );
               }
@@ -3415,7 +3453,7 @@ export function useChat({
                 {
                   id: crypto.randomUUID(),
                   role: "system",
-                  content: `All fallbacks exhausted, retrying primary model: ${primaryModelId} (cycle ${String(cycleCount)}/${String(MAX_CYCLES)})`,
+                  content: `All fallbacks exhausted, retrying primary model: ${primaryModelId} (cycle ${String(cycleCount)}/${String(maxFallbackCycles)})`,
                   timestamp: Date.now(),
                 },
               ]);
@@ -3506,6 +3544,63 @@ export function useChat({
             setTimeout(() => handleSubmitRef.current("Continue."), backoffMs);
             // Skip the rest of the catch — finally block will clean up
             return;
+          }
+
+          // Stall retries exhausted — attempt model fallback if available
+          if (isStallExhausted) {
+            if (userAbortedRef.current) {
+              // fall through to error path
+            } else if (fallbackModels.length === 0) {
+              // No fallback chain — fall through to error path
+            } else if (fallbackIndex < fallbackModels.length - 1) {
+              fallbackIndex++;
+              const nextModel = fallbackModels[fallbackIndex] as string;
+              activeModelRef.current = nextModel;
+              streamRetryCount = 0;
+              notifyProviderSwitch(nextModel).catch(() => {});
+              useStatusBarStore.getState().setRetryStatus({
+                type: "fallback",
+                label: `→ ${nextModel}`,
+                model: nextModel,
+                backoffMs: 0,
+              });
+              setActiveModel(nextModel);
+              onModelChange?.(nextModel);
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content: `Stream stalled — switching to fallback model: ${nextModel}`,
+                  timestamp: Date.now(),
+                },
+              ]);
+              continue;
+            } else if (fallbackModels.length > 0) {
+              cycleCount++;
+              if (cycleCount > maxFallbackCycles) {
+                throw new Error(
+                  `Exhausted ${String(maxFallbackCycles)} cycles of model fallbacks. Last error: ${msg}`,
+                  { cause: err },
+                );
+              }
+              fallbackIndex = -1;
+              activeModelRef.current = primaryModelId;
+              streamRetryCount = 0;
+              notifyProviderSwitch(primaryModelId).catch(() => {});
+              setActiveModel(primaryModelId);
+              onModelChange?.(primaryModelId);
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content: `Stream stalled — all fallbacks exhausted, retrying primary model: ${primaryModelId} (cycle ${String(cycleCount)}/${String(maxFallbackCycles)})`,
+                  timestamp: Date.now(),
+                },
+              ]);
+              continue;
+            }
           }
 
           const rawMsg = err instanceof Error ? err.message : String(err);

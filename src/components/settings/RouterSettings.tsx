@@ -14,6 +14,18 @@ import {
 
 const BOLD = 1;
 
+function getModelFallback(
+  modelFallback: Record<string, string[]> | string[] | undefined,
+  modelId: string,
+): string[] {
+  if (Array.isArray(modelFallback)) return modelFallback;
+  return (
+    (modelFallback?.[modelId] as string[] | undefined) ??
+    (modelFallback?.["*"] as string[] | undefined) ??
+    []
+  );
+}
+
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   if (max <= 1) return s.slice(0, max);
@@ -133,7 +145,7 @@ interface Props {
   visible: boolean;
   router: TaskRouter | undefined;
   defaultModel: string;
-  modelFallback: Record<string, string[]> | undefined;
+  modelFallback: Record<string, string[]> | string[] | undefined;
   activeModel: string;
   scope: ConfigScope;
   onScopeChange: (toScope: ConfigScope, fromScope: ConfigScope) => void;
@@ -350,7 +362,7 @@ export function RouterSettings({
             const isSelected = idx === cursor;
             if (row.kind === "fallback") {
               const rowBg = isSelected ? t.bgPopupHighlight : t.bgPopup;
-              const fbs = modelFallback?.[row.modelId] ?? [];
+              const fbs: string[] = getModelFallback(modelFallback, row.modelId);
               // Fallback rows reuse the slot layout: short model on left,
               // chain (or em-dash) on the right where the model col sits.
               const fallbackLabelCol = Math.min(28, Math.max(18, Math.floor(contentW * 0.32)));

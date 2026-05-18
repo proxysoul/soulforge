@@ -106,14 +106,14 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
     tabId: options?.tabId,
   });
 
-  const { maxTransientRetries: retryMaxRetries } = resolveRetrySettings(loadConfig().retry, {
+  const { transient } = resolveRetrySettings(loadConfig().retry, {
     agent: true,
   });
 
   return new ToolLoopAgent({
     id: options?.agentId ?? "explore",
     model,
-    maxRetries: retryMaxRetries,
+    maxRetries: transient.maxRetries,
     ...(supportsTemperature(getModelId(model)) ? { temperature: 0 } : {}),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     onStepFinish: (step) => {

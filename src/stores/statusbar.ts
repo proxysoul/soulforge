@@ -384,6 +384,17 @@ export interface LastDispatchSnapshot {
   agents: Record<string, LastDispatchAgent>;
 }
 
+export interface RetryStatus {
+  /** "transient" = mid-transient-error retry on current model, "fallback" = switching to next fallback */
+  type: "transient" | "fallback";
+  /** Current attempt / limit, e.g. "2/3" */
+  label: string;
+  /** Model being retried/fallen back to (nil for transient) */
+  model?: string;
+  /** >0 when backoff before next attempt is in progress */
+  backoffMs: number;
+}
+
 interface StatusBarState {
   tokenUsage: TokenUsage;
   activeModel: string;
@@ -402,6 +413,8 @@ interface StatusBarState {
   browsingCheckpoint: boolean;
   /** Most recent dispatch (cleared/replaced on each new dispatch-start). */
   lastDispatch: LastDispatchSnapshot | null;
+  /** Active retry state — shows in the context bar, not chat messages. Null when idle. */
+  retryStatus: RetryStatus | null;
   setTokenUsage: (usage: TokenUsage, modelId?: string) => void;
   resetTokenUsage: () => void;
   setContext: (contextTokens: number, chatChars: number) => void;
@@ -414,6 +427,7 @@ interface StatusBarState {
   setCompactElapsed: (s: number) => void;
   setCompactionStrategy: (s: CompactionStrategy) => void;
   setV2Slots: (n: number) => void;
+  setRetryStatus: (s: RetryStatus | null) => void;
   startDispatch: (parentToolCallId: string, totalAgents: number) => void;
   upsertDispatchAgent: (
     parentToolCallId: string,
@@ -442,6 +456,7 @@ export const useStatusBarStore = create<StatusBarState>()(
     v2Slots: 0,
     browsingCheckpoint: false,
     lastDispatch: null,
+    retryStatus: null,
 
     setTokenUsage: (usage, modelId) =>
       set({ tokenUsage: usage, ...(modelId ? { activeModel: modelId } : {}) }),
@@ -461,10 +476,11 @@ export const useStatusBarStore = create<StatusBarState>()(
         processRss: rss,
         rssMB: Math.round(rss.mainMB + rss.nvimMB + rss.proxyMB + rss.lspMB),
       }),
-    setCompacting: (v) => set({ compacting: v, compactElapsed: 0 }),
+    setCompacting: (v) => set({ compacting: v }),
     setCompactElapsed: (s) => set({ compactElapsed: s }),
     setCompactionStrategy: (s) => set({ compactionStrategy: s }),
     setV2Slots: (n) => set({ v2Slots: n }),
+    setRetryStatus: (s) => set({ retryStatus: s }),
     setBrowsingCheckpoint: (v) => set({ browsingCheckpoint: v }),
 
     startDispatch: (parentToolCallId, totalAgents) =>

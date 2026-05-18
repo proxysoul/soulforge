@@ -1595,7 +1595,10 @@ export function App({
           const slot = useUIStore.getState().routerSlotPicking;
           const fallbackForModel = useUIStore.getState().fallbackForModel;
           if (fallbackForModel) {
-            const current = { ...(effectiveConfig.modelFallback ?? {}) };
+            const raw = effectiveConfig.modelFallback ?? {};
+            const current = Array.isArray(raw)
+              ? ({ "*": raw } as Record<string, string[]>)
+              : ({ ...raw } as Record<string, string[]>);
             const fallbacks = [...(current[fallbackForModel] ?? [])];
             fallbacks.push(modelId);
             current[fallbackForModel] = fallbacks;
@@ -1783,7 +1786,10 @@ export function App({
           useUIStore.getState().openModal("llmSelector");
         }}
         onClearFallbacks={(modelId) => {
-          const current = { ...(effectiveConfig.modelFallback ?? {}) };
+          const raw = effectiveConfig.modelFallback ?? {};
+          const current = Array.isArray(raw)
+            ? ({ "*": raw } as Record<string, string[]>)
+            : ({ ...raw } as Record<string, string[]>);
           delete current[modelId];
           saveToScope({ modelFallback: current }, modelScope);
         }}

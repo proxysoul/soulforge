@@ -372,16 +372,17 @@ export async function runAgentTask(
   let attemptsMade = 0;
   let proxyBounced = false;
   let lastAttemptStartedAt = Date.now();
-  const { maxTransientRetries: MAX_RETRIES, baseDelayMs: BASE_DELAY_MS } = resolveRetrySettings(
-    loadConfig().retry,
-    { agent: true },
-  );
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  const {
+    transient,
+    stall: _stall,
+    cycles: _cycles,
+  } = resolveRetrySettings(loadConfig().retry, { agent: true });
+  for (let attempt = 0; attempt <= transient.maxRetries; attempt++) {
     if (abortSignal?.aborted) break;
 
     if (attempt > 0) {
       const jitter = Math.random() * RETRY_JITTER_MS;
-      await sleep(BASE_DELAY_MS * 2 ** (attempt - 1) + jitter, abortSignal);
+      await sleep(transient.backoffMs * 2 ** (attempt - 1) + jitter, abortSignal);
       if (abortSignal?.aborted) break;
     }
 
@@ -712,7 +713,7 @@ export async function runAgentTask(
       lastError = error;
       if (isRetryable(error, abortSignal)) {
         const tripped = bus.recordProviderFailure();
-        if (tripped || attempt === MAX_RETRIES) break;
+        if (tripped || attempt === transient.maxRetries) break;
         if (!proxyBounced && !abortSignal?.aborted) {
           proxyBounced = await selfHealProxyIfNeeded(error);
         }
