@@ -3,6 +3,15 @@ import { registerCustomProviders, getAllProviders, getProvider, buildCustomProvi
 import type { CustomProviderConfig, ProviderDefinition } from "../src/core/llm/providers/types.js";
 import { PROVIDER_CONFIGS } from "../src/core/llm/models.js";
 
+type FetchStub = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+function mockFetch(fn: FetchStub): typeof globalThis.fetch {
+  globalThis.fetch = fn as typeof globalThis.fetch;
+  return globalThis.fetch;
+}
+
+// Reset provider state between tests by re-registering empty
+
 // Reset provider state between tests by re-registering empty
 beforeEach(() => {
 	registerCustomProviders([]);
@@ -379,7 +388,7 @@ describe("buildCustomProvider.checkAvailability", () => {
 	test("without envVar, fetches baseURL and returns true on 200", async () => {
 		globalThis.fetch = mock(() =>
 			Promise.resolve(new Response("ok", { status: 200 })),
-		) as any;
+		) ;
 		const def = buildCustomProvider({
 			id: "local",
 			baseURL: "http://localhost:11434/v1",
@@ -391,7 +400,7 @@ describe("buildCustomProvider.checkAvailability", () => {
 	test("without envVar, returns true on 401 (server reachable, needs auth)", async () => {
 		globalThis.fetch = mock(() =>
 			Promise.resolve(new Response("unauthorized", { status: 401 })),
-		) as any;
+		) ;
 		const def = buildCustomProvider({
 			id: "auth",
 			baseURL: "http://localhost:11434/v1",
@@ -403,7 +412,7 @@ describe("buildCustomProvider.checkAvailability", () => {
 	test("without envVar, returns true on 403", async () => {
 		globalThis.fetch = mock(() =>
 			Promise.resolve(new Response("forbidden", { status: 403 })),
-		) as any;
+		) ;
 		const def = buildCustomProvider({
 			id: "forbidden",
 			baseURL: "http://localhost:11434/v1",
@@ -415,7 +424,7 @@ describe("buildCustomProvider.checkAvailability", () => {
 	test("without envVar, returns false on 500", async () => {
 		globalThis.fetch = mock(() =>
 			Promise.resolve(new Response("error", { status: 500 })),
-		) as any;
+		) ;
 		const def = buildCustomProvider({
 			id: "error",
 			baseURL: "http://localhost:11434/v1",
@@ -427,7 +436,7 @@ describe("buildCustomProvider.checkAvailability", () => {
 	test("without envVar, returns false on network error", async () => {
 		globalThis.fetch = mock(() =>
 			Promise.reject(new Error("ECONNREFUSED")),
-		) as any;
+		) ;
 		const def = buildCustomProvider({
 			id: "down",
 			baseURL: "http://localhost:99999/v1",
@@ -444,16 +453,7 @@ describe("buildCustomProvider.fetchModels", () => {
 		globalThis.fetch = originalFetch;
 	});
 
-	test("returns null when modelsAPI is not set", async () => {
-		const def = buildCustomProvider({
-			id: "noapi",
-			baseURL: "https://api.test.com/v1",
-		});
-		const result = await def.fetchModels();
-		expect(result).toBeNull();
-	});
-
-	test("returns model list from OpenAI-compatible /models response", async () => {
+	test("auto-discovers models from baseURL when modelsAPI is not set", async () => {
 		globalThis.fetch = mock(() =>
 			Promise.resolve(
 				new Response(
@@ -466,7 +466,222 @@ describe("buildCustomProvider.fetchModels", () => {
 					{ status: 200 },
 				),
 			),
-		) as any;
+		) ;
+
+		const def = buildCustomProvider({
+			id: "autodiscover",
+			baseURL: "https://api.test.com/v1",
+			// No modelsAPI — should auto-construct https://api.test.com/models
+		});
+		const models = await def.fetchModels();
+		expect(models).toEqual([
+			{ id: "gpt-4o", name: "gpt-4o" },
+			{ id: "gpt-4o-mini", name: "gpt-4o-mini" },
+		]);
+	});
+
+	test("auto-constructed URL strips trailing /v1 from baseURL", async () => {
+		let capturedUrl: string | undefined;
+		globalThis.fetch = mock((url: string) => {
+			capturedUrl = url;
+			return Promise.resolve(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+		}) ;
+
+		const def = buildCustomProvider({
+			id: "stripv1",
+			baseURL: "https://api.test.com/v1",
+		});
+		await def.fetchModels();
+		expect(capturedUrl).toBe("https://api.test.com/models");
+	});
+
+	test("auto-constructed URL leaves baseURL without /v1 prefix unchanged", async () => {
+		let capturedUrl: string | undefined;
+		globalThis.fetch = mock((url: string) => {
+			capturedUrl = url;
+			return Promise.resolve(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+		}) ;
+
+		const def = buildCustomProvider({
+			id: "nov1",
+			baseURL: "https://api.test.com",
+		});
+		await def.fetchModels();
+		expect(capturedUrl).toBe("https://api.test.com/models");
+	});
+
+	test("explicit modelsAPI takes priority over auto-discovery", async () => {
+		let capturedUrl: string | undefined;
+		globalThis.fetch = mock((url: string) => {
+			capturedUrl = url;
+			return Promise.resolve(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+		}) ;
+
+		const def = buildCustomProvider({
+			id: "explicitapi",
+			baseURL: "https://api.test.com/v1",
+			modelsAPI: "https://custom.example.com/custom-models",
+		});
+		await def.fetchModels();
+		expect(capturedUrl).toBe("https://custom.example.com/custom-models");
+	});
+
+	test("extracts context_window from API response into ProviderModelInfo", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				new Response(
+					JSON.stringify({
+						data: [
+							{ id: "gpt-4o", context_window: 128000 },
+							{ id: "gpt-4o-mini", context_window: 128000 },
+						],
+					}),
+					{ status: 200 },
+				),
+			),
+		) ;
+
+		const def = buildCustomProvider({
+			id: "ctxwin",
+			baseURL: "https://api.test.com/v1",
+		});
+		const models = await def.fetchModels();
+		expect(models).toEqual([
+			{ id: "gpt-4o", name: "gpt-4o", contextWindow: 128000 },
+			{ id: "gpt-4o-mini", name: "gpt-4o-mini", contextWindow: 128000 },
+		]);
+	});
+
+	test("omits contextWindow when response has no context_window field", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				new Response(
+					JSON.stringify({
+						data: [{ id: "gpt-4o" }],
+					}),
+					{ status: 200 },
+				),
+			),
+		) ;
+
+		const def = buildCustomProvider({
+			id: "noctx",
+			baseURL: "https://api.test.com/v1",
+		});
+		const models = await def.fetchModels();
+		expect(models![0].contextWindow).toBeUndefined();
+	});
+
+  test("returns null on HTTP error during auto-discovery", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(new Response("not found", { status: 404 })),
+		) ;
+
+		const def = buildCustomProvider({
+			id: "autodiscovererr",
+			baseURL: "https://api.test.com/v1",
+		});
+		const models = await def.fetchModels();
+		expect(models).toBeNull();
+	});
+
+	test("returns null when response body is not valid JSON (e.g. 204 No Content)", async () => {
+		// Create a Response with no body — res.json() would throw SyntaxError
+		globalThis.fetch = mock(() =>
+			Promise.resolve(new Response(null, { status: 204 })),
+		) ;
+
+		const def = buildCustomProvider({
+			id: "nojsonbody",
+			baseURL: "https://api.test.com/v1",
+		});
+		const models = await def.fetchModels();
+		expect(models).toBeNull();
+	});
+
+	test("returns null when network request throws before response", async () => {
+		globalThis.fetch = mock(() => Promise.reject(new Error("ENOTFOUND"))) ;
+
+		const def = buildCustomProvider({
+			id: "networkfail",
+			baseURL: "https://api.test.com/v1",
+		});
+		const models = await def.fetchModels();
+		expect(models).toBeNull();
+	});
+
+	test("returns null when response has no data array during auto-discovery", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				new Response(JSON.stringify({ models: ["a", "b"] }), { status: 200 }),
+			),
+		) ;
+
+		const def = buildCustomProvider({
+			id: "autodiscoverbadshape",
+			baseURL: "https://api.test.com/v1",
+		});
+		const models = await def.fetchModels();
+		expect(models).toBeNull();
+	});
+
+	test("sends Authorization header during auto-discovery when envVar is set", async () => {
+		const envKey = "TEST_FETCH_KEY_" + Date.now();
+		process.env[envKey] = "sk-my-secret";
+		let capturedHeaders: Headers | undefined;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedHeaders = new Headers(init.headers);
+			return Promise.resolve(
+				new Response(JSON.stringify({ data: [] }), { status: 200 }),
+			);
+		}) ;
+
+		try {
+			const def = buildCustomProvider({
+				id: "authautodiscover",
+				baseURL: "https://api.test.com/v1",
+				envVar: envKey,
+			});
+			await def.fetchModels();
+			expect(capturedHeaders).toBeDefined();
+			expect(capturedHeaders!.get("Authorization")).toBe("Bearer sk-my-secret");
+		} finally {
+			delete process.env[envKey];
+		}
+	});
+
+	test("sends no Authorization header during auto-discovery when no envVar", async () => {
+		let capturedHeaders: Headers | undefined;
+		globalThis.fetch = mock((url: string, init: RequestInit) => {
+			capturedHeaders = new Headers(init.headers);
+			return Promise.resolve(
+				new Response(JSON.stringify({ data: [] }), { status: 200 }),
+			);
+		}) ;
+
+		const def = buildCustomProvider({
+			id: "noauthautodiscover",
+			baseURL: "https://api.test.com/v1",
+		});
+		await def.fetchModels();
+		expect(capturedHeaders).toBeDefined();
+		expect(capturedHeaders!.get("Authorization")).toBeNull();
+	});
+
+	test("returns model list from explicit modelsAPI", async () => {
+		globalThis.fetch = mock(() =>
+			Promise.resolve(
+				new Response(
+					JSON.stringify({
+						data: [
+							{ id: "gpt-4o", owned_by: "openai" },
+							{ id: "gpt-4o-mini", owned_by: "openai" },
+						],
+					}),
+					{ status: 200 },
+				),
+			),
+		) ;
 
 		const def = buildCustomProvider({
 			id: "fetchtest",
@@ -480,10 +695,10 @@ describe("buildCustomProvider.fetchModels", () => {
 		]);
 	});
 
-	test("returns null on HTTP error", async () => {
+	test("returns null on HTTP error when explicit modelsAPI set", async () => {
 		globalThis.fetch = mock(() =>
 			Promise.resolve(new Response("not found", { status: 404 })),
-		) as any;
+		) ;
 
 		const def = buildCustomProvider({
 			id: "err",
@@ -494,12 +709,12 @@ describe("buildCustomProvider.fetchModels", () => {
 		expect(models).toBeNull();
 	});
 
-	test("returns null when response has no data array", async () => {
+	test("returns null when response has no data array with explicit modelsAPI", async () => {
 		globalThis.fetch = mock(() =>
 			Promise.resolve(
 				new Response(JSON.stringify({ models: ["a", "b"] }), { status: 200 }),
 			),
-		) as any;
+		) ;
 
 		const def = buildCustomProvider({
 			id: "badshape",
@@ -510,7 +725,7 @@ describe("buildCustomProvider.fetchModels", () => {
 		expect(models).toBeNull();
 	});
 
-	test("sends Authorization header when envVar is set", async () => {
+	test("sends Authorization header when envVar is set with explicit modelsAPI", async () => {
 		const envKey = "TEST_FETCH_KEY_" + Date.now();
 		process.env[envKey] = "sk-my-secret";
 		let capturedHeaders: Headers | undefined;
@@ -519,7 +734,7 @@ describe("buildCustomProvider.fetchModels", () => {
 			return Promise.resolve(
 				new Response(JSON.stringify({ data: [] }), { status: 200 }),
 			);
-		}) as any;
+		}) ;
 
 		try {
 			const def = buildCustomProvider({
@@ -536,14 +751,14 @@ describe("buildCustomProvider.fetchModels", () => {
 		}
 	});
 
-	test("sends no Authorization header when no envVar and no key", async () => {
+	test("sends no Authorization header when no envVar with explicit modelsAPI", async () => {
 		let capturedHeaders: Headers | undefined;
 		globalThis.fetch = mock((url: string, init: RequestInit) => {
 			capturedHeaders = new Headers(init.headers);
 			return Promise.resolve(
 				new Response(JSON.stringify({ data: [] }), { status: 200 }),
 			);
-		}) as any;
+		}) ;
 
 		const def = buildCustomProvider({
 			id: "noauth",
@@ -554,7 +769,58 @@ describe("buildCustomProvider.fetchModels", () => {
 		expect(capturedHeaders).toBeDefined();
 		expect(capturedHeaders!.get("Authorization")).toBeNull();
 	});
-});
+
+ 	test("auto-constructs URL from baseURL with deeper path", async () => {
+ 		let capturedUrl: string | undefined;
+ 		globalThis.fetch = mock((url: string) => {
+ 			capturedUrl = url;
+ 			return Promise.resolve(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+ 		}) ;
+
+ 		const def = buildCustomProvider({
+ 			id: "deeppath",
+ 			baseURL: "https://api.test.com/api/v2/v1",
+ 		});
+ 		await def.fetchModels();
+ 		// Only the final /v1 segment is stripped
+ 		expect(capturedUrl).toBe("https://api.test.com/api/v2/models");
+ 	});
+
+ 	test("strips trailing slash from baseURL to prevent double-slash in models URL", async () => {
+ 		let capturedUrl: string | undefined;
+ 		globalThis.fetch = mock((url: string) => {
+ 			capturedUrl = url;
+ 			return Promise.resolve(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+ 		}) ;
+
+ 		const def = buildCustomProvider({
+ 			id: "trailingslash",
+ 			baseURL: "https://api.test.com/",
+ 		});
+ 		await def.fetchModels();
+ 		expect(capturedUrl).toBe("https://api.test.com/models");
+ 	});
+
+ 	test("preserves context_window: 0 in response mapping", async () => {
+ 		globalThis.fetch = mock(() =>
+ 			Promise.resolve(
+ 				new Response(
+ 					JSON.stringify({
+ 						data: [{ id: "gpt-4o", context_window: 0 }],
+ 					}),
+ 					{ status: 200 },
+ 				),
+ 			),
+ 		) ;
+
+ 		const def = buildCustomProvider({
+ 			id: "ctxzero",
+ 			baseURL: "https://api.test.com/v1",
+ 		});
+ 		const models = await def.fetchModels();
+ 		expect(models![0].contextWindow).toBe(0);
+ 	});
+ });
 
 describe("buildCustomProvider reasoning config", () => {
 	const originalFetch = globalThis.fetch;
@@ -592,7 +858,7 @@ describe("buildCustomProvider reasoning config", () => {
 					{ status: 200 },
 				),
 			);
-		}) as any;
+		}) ;
 
 		const def = buildCustomProvider({
 			id: "effort-test",
@@ -628,7 +894,7 @@ describe("buildCustomProvider reasoning config", () => {
 					{ status: 200 },
 				),
 			);
-		}) as any;
+		}) ;
 
 		const def = buildCustomProvider({
 			id: "effort-none-test",
@@ -663,7 +929,7 @@ describe("buildCustomProvider reasoning config", () => {
 					{ status: 200 },
 				),
 			);
-		}) as any;
+		}) ;
 
 		const def = buildCustomProvider({
 			id: "dashscope-test",
@@ -699,7 +965,7 @@ describe("buildCustomProvider reasoning config", () => {
 					{ status: 200 },
 				),
 			);
-		}) as any;
+		}) ;
 
 		const def = buildCustomProvider({
 			id: "extra-params-test",
@@ -738,7 +1004,7 @@ describe("buildCustomProvider reasoning config", () => {
 					{ status: 200 },
 				),
 			);
-		}) as any;
+		}) ;
 
 		const def = buildCustomProvider({
 			id: "mutation-test",
@@ -774,7 +1040,7 @@ describe("buildCustomProvider reasoning config", () => {
 					{ status: 200 },
 				),
 			);
-		}) as any;
+		}) ;
 
 		const def = buildCustomProvider({
 			id: "non-string-body-test",

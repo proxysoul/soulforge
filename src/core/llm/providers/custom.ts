@@ -8,8 +8,40 @@ import type {
   ProviderModelInfo,
 } from "./types.js";
 
-interface OpenAIModelListResponse {
-  data: { id: string; owned_by?: string }[];
+interface OpenAIModelListEntry {
+  id: string;
+  owned_by?: string;
+  context_window?: number;
+}
+
+/**
+ * Normalize a baseURL path by stripping a trailing `/v1` segment so that
+ * appending `/models` does not produce `/v1/v1/models`.
+ *
+ * Examples:
+ *   "https://api.example.com/v1"         → "https://api.example.com"
+ *   "https://api.example.com/v1/"        → "https://api.example.com"
+ *   "https://api.example.com"            → "https://api.example.com"
+ *   "https://api.example.com/api/v1"     → "https://api.example.com/api"
+ *   "https://api.example.com/"           → "https://api.example.com/"
+ */
+function normalizeBaseURLPath(baseURL: string): string {
+  return baseURL.replace(/\/v1(?:\/)?$/i, "").replace(/\/+$/, "");
+}
+
+/**
+ * Build the models-api endpoint for an OpenAI-compatible custom provider.
+ *
+ * Resolution order:
+ *   1. Explicit `modelsAPI` from config — user-configured endpoint, used as-is.
+ *   2. Auto-constructed URL derived from `baseURL` — strip trailing `/v1`, append `/models`.
+ *      This enables zero-config model discovery for standard OpenAI-compatible servers.
+ *      Returns null only when `baseURL` itself is absent (should not happen in practice).
+ */
+function resolveModelsAPIUrl(config: CustomProviderConfig): string | null {
+  if (config.modelsAPI) return config.modelsAPI;
+  const normalized = normalizeBaseURLPath(config.baseURL);
+  return `${normalized}/models`;
 }
 
 function normalizeModels(models?: (string | ProviderModelInfo)[]): ProviderModelInfo[] {
@@ -52,21 +84,37 @@ export function buildCustomProvider(config: CustomProviderConfig): ProviderDefin
     },
 
     async fetchModels(): Promise<ProviderModelInfo[] | null> {
-      if (!config.modelsAPI) return null;
+      const modelsUrl = resolveModelsAPIUrl(config);
+      if (!modelsUrl) return null;
+
       const apiKey = envVar ? (getProviderApiKey(envVar) ?? "") : "";
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
-      const res = await fetch(config.modelsAPI, {
-        headers,
-        signal: AbortSignal.timeout(5000),
-      });
+      let res: Response;
+      try {
+        res = await fetch(modelsUrl, {
+          headers,
+          signal: AbortSignal.timeout(5000),
+        });
+      } catch {
+        return null;
+      }
       if (!res.ok) return null;
 
-      const data = (await res.json()) as OpenAIModelListResponse;
-      if (!Array.isArray(data.data)) return null;
+      let parsed: { data?: OpenAIModelListEntry[] };
+      try {
+        parsed = (await res.json()) as { data?: OpenAIModelListEntry[] };
+      } catch {
+        return null;
+      }
+      if (!Array.isArray(parsed.data)) return null;
 
-      return data.data.map((m) => ({ id: m.id, name: m.id }));
+      return parsed.data.map((m) => ({
+        id: m.id,
+        name: m.id,
+        ...(typeof m.context_window === "number" ? { contextWindow: m.context_window } : {}),
+      }));
     },
 
     fallbackModels: normalizeModels(config.models),
