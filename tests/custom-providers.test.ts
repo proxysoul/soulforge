@@ -3,15 +3,6 @@ import { registerCustomProviders, getAllProviders, getProvider, buildCustomProvi
 import type { CustomProviderConfig, ProviderDefinition } from "../src/core/llm/providers/types.js";
 import { PROVIDER_CONFIGS } from "../src/core/llm/models.js";
 
-type FetchStub = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-
-function mockFetch(fn: FetchStub): typeof globalThis.fetch {
-  globalThis.fetch = fn as typeof globalThis.fetch;
-  return globalThis.fetch;
-}
-
-// Reset provider state between tests by re-registering empty
-
 // Reset provider state between tests by re-registering empty
 beforeEach(() => {
 	registerCustomProviders([]);
