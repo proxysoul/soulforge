@@ -3098,6 +3098,16 @@ export function useChat({
             lockInCommittedAt,
           });
 
+          // Premature stop: agent used tools then ended without a closing message.
+          // Last visible segment is either a tools batch or whitespace-only text.
+          const lastSeg = finalSegments[finalSegments.length - 1];
+          const stoppedWithoutFinal =
+            completedCalls.length > 0 &&
+            !abortController.signal.aborted &&
+            (!lastSeg ||
+              lastSeg.type === "tools" ||
+              (lastSeg.type === "text" && !lastSeg.content.trim()));
+
           const errorMsgs: ChatMessage[] = streamErrors.map((errContent) => ({
             id: crypto.randomUUID(),
             role: "system" as const,
@@ -3105,8 +3115,23 @@ export function useChat({
             timestamp: Date.now(),
           }));
 
+          const prematureStopMsg: ChatMessage | null = stoppedWithoutFinal
+            ? {
+                id: crypto.randomUUID(),
+                role: "system" as const,
+                content: "Agent stopped without a final message — type to continue.",
+                timestamp: Date.now(),
+                showInChat: true,
+              }
+            : null;
+
           setMessages((prev) => {
-            const allMsgs = [...prev, ...(assistantMsg ? [assistantMsg] : []), ...errorMsgs];
+            const allMsgs = [
+              ...prev,
+              ...(assistantMsg ? [assistantMsg] : []),
+              ...errorMsgs,
+              ...(prematureStopMsg ? [prematureStopMsg] : []),
+            ];
             queueMicrotask(() => {
               const snapshot = getWorkspaceSnapshot?.();
               if (snapshot) {
