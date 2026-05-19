@@ -1947,14 +1947,17 @@ export function useChat({
       let lengthRetryCount = 0; // bounded auto-continue on finishReason=length
       const MAX_LENGTH_RETRIES = 2;
       // Reset retry count on real user messages (not auto-retry "Continue.")
-      if (input !== "Continue." || !stallRetryPendingRef.current) {
-        stallRetryCountRef.current = 0;
-      }
+      // Flag cleared at start of each loop iteration to preserve across retries
       stallRetryPendingRef.current = false;
 
       const responseStartedAt = Date.now();
 
       for (;;) {
+        // Reset retry count on fresh user messages (not stall retry continuation)
+        if (input !== "Continue." && !stallRetryPendingRef.current) {
+          stallRetryCountRef.current = 0;
+          stallRetryPendingRef.current = false;
+        }
         // Reset state for retry — clear transient retry state from previous attempt
         useStatusBarStore.getState().setRetryStatus(null);
         let proxyBounced = false;
@@ -1966,6 +1969,8 @@ export function useChat({
         finalSegments.length = 0;
         subagentCumulative.clear();
         completedResultChars.clear();
+        stallTriggered = false;
+        stallAborted = false;
 
         try {
           setIsLoading(true);

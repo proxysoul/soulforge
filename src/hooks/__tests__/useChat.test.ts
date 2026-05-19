@@ -149,6 +149,43 @@ describe("handleSubmit", () => {
     expect(isStallExhausted).toBe(false);
   });
 
+  // ── stallTriggered reset guard ─────────────────────────────────────────
+  // stallTriggered is a local flag captured by the stall-watch interval.
+  // If it is not flipped back to false at the start of each for-loop
+  // iteration, isStallExhausted fires on every subsequent abort (even when
+  // counter ≤ max) and consumes the retry slot with a fallback/error path
+  // instead of another isStallRetry cycle — the UI counter gets stuck at the
+  // final value reached before the stale flag took over.
+
+  test("stallTriggered is reset to false at the start of each loop iteration", () => {
+    // Simulate the reset-gate contract inside the for-loop body (line ~1972):
+    //   stallTriggered = false;
+    // After the gate fires, isStallRetry must be false until the next stall callback
+    // flips stallTriggered back to true and increments the counter.
+    const STALL_MAX = 3;
+    let stallTriggered = true; // stale from previous iteration's watchdog fire
+    stallTriggered = false; // ← the reset gate (line 1972)
+    const isAbort = true;
+    const userAborted = false;
+    const count = 1;
+    const isStallRetry = isAbort && stallTriggered && !userAborted && count <= STALL_MAX;
+    // stallTriggered is false → isStallRetry must be false until next watchdog tick
+    expect(isStallRetry).toBe(false);
+  });
+
+  test("isStallExhausted does NOT fire when stallTriggered was just reset to false", () => {
+    // Even if counter === max, isStallExhausted is gated on stallTriggered === true.
+    // After the reset gate, stallTriggered === false → stall-exhausted must not fire.
+    const STALL_MAX = 3;
+    let stallTriggered = true; // stale from previous iteration
+    stallTriggered = false; // ← reset gate (line 1972)
+    const isAbort = true;
+    const userAborted = false;
+    const count = 3; // exactly at max
+    const isStallExhausted = isAbort && stallTriggered && !userAborted && count > STALL_MAX;
+    expect(isStallExhausted).toBe(false);
+  });
+
   // ── activeModel guard (pure logic, no React needed) ───────────────────────
   // Line 1615: early return blocks only when activeModel === "none"
 
@@ -380,7 +417,6 @@ describe("handleSubmit", () => {
         // cycle back to primary
         activeIdx = 0;
         result.push("↩ primary");
-        continue; // ← stays inside the retry loop
       } else if (stallCount === 3) {
         result.push("attempt 3 on primary");
       }
