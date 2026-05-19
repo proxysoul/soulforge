@@ -3420,6 +3420,7 @@ export function useChat({
               const nextModel = fallbackModels[fallbackIndex] as string;
               activeModelRef.current = nextModel;
               streamRetryCount = 0;
+              stallRetryCountRef.current = 0;
               notifyProviderSwitch(nextModel).catch(() => {});
               useStatusBarStore.getState().setRetryStatus({
                 type: "fallback",
@@ -3450,6 +3451,7 @@ export function useChat({
               fallbackIndex = -1;
               activeModelRef.current = primaryModelId;
               streamRetryCount = 0;
+              stallRetryCountRef.current = 0;
               notifyProviderSwitch(primaryModelId).catch(() => {});
               setActiveModel(primaryModelId);
               onModelChange?.(primaryModelId);
@@ -3562,6 +3564,7 @@ export function useChat({
               const nextModel = fallbackModels[fallbackIndex] as string;
               activeModelRef.current = nextModel;
               streamRetryCount = 0;
+              stallRetryCountRef.current = 0;
               notifyProviderSwitch(nextModel).catch(() => {});
               useStatusBarStore.getState().setRetryStatus({
                 type: "fallback",
@@ -3592,6 +3595,7 @@ export function useChat({
               fallbackIndex = -1;
               activeModelRef.current = primaryModelId;
               streamRetryCount = 0;
+              stallRetryCountRef.current = 0;
               notifyProviderSwitch(primaryModelId).catch(() => {});
               setActiveModel(primaryModelId);
               onModelChange?.(primaryModelId);
