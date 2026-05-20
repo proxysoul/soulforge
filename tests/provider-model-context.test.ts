@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyProviderContextOverride,
+  getModelContextInfoSync,
   matchesContextOverride,
 } from "../src/core/llm/models.js";
 import { codex } from "../src/core/llm/providers/codex.js";
@@ -12,6 +13,13 @@ describe("provider model context normalization", () => {
     expect(matchesContextOverride("gpt-5.5", "gpt-5.5")).toBe(true);
     expect(matchesContextOverride("openai/gpt-5.5", "gpt-5.5")).toBe(true);
     expect(matchesContextOverride("gpt-5.5-pro", "gpt-5.5")).toBe(false);
+  });
+
+  test("resolves bare gpt-5.5 sync context as an override", () => {
+    expect(getModelContextInfoSync("gpt-5.5")).toEqual({
+      tokens: GPT_55_INPUT_CONTEXT,
+      source: "override",
+    });
   });
 
   test("normalizes proxy gpt-5.5 context from upstream metadata", () => {

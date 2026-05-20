@@ -77,27 +77,25 @@ export function matchesContextOverride(model: string, pattern: string): boolean 
   );
 }
 
+function findContextOverride(
+  provider: ReturnType<typeof getProvider>,
+  model: string,
+): number | undefined {
+  if (!provider?.contextWindowOverrides) return undefined;
+
+  for (const [pattern, tokens] of provider.contextWindowOverrides) {
+    if (matchesContextOverride(model, pattern)) return tokens;
+  }
+
+  return undefined;
+}
+
 export function applyProviderContextOverride(
   providerId: string,
   model: ProviderModelInfo,
 ): ProviderModelInfo {
-  const provider = getProvider(providerId);
-  if (!provider?.contextWindowOverrides) return model;
-
-  for (const [pattern, tokens] of provider.contextWindowOverrides) {
-    if (matchesContextOverride(model.id, pattern)) {
-      return { ...model, contextWindow: tokens };
-    }
-  }
-
-  return model;
-}
-
-function applyProviderContextOverrides(
-  providerId: string,
-  models: ProviderModelInfo[],
-): ProviderModelInfo[] {
-  return models.map((m) => applyProviderContextOverride(providerId, m));
+  const tokens = findContextOverride(getProvider(providerId), model.id);
+  return tokens ? { ...model, contextWindow: tokens } : model;
 }
 
 /**
@@ -123,11 +121,12 @@ export function getModelContextInfoSync(modelId: string): ContextWindowResult {
   // 0. Provider-specific overrides for known-incorrect upstream API values
   //    (e.g. OpenRouter lists GLM-5 as 80k, actual ~200k)
   const ownProvider = providerId ? getProvider(providerId) : null;
-  if (ownProvider?.contextWindowOverrides) {
-    for (const [pattern, tokens] of ownProvider.contextWindowOverrides) {
-      if (matchesContextOverride(model, pattern)) return { tokens, source: "override" };
-    }
-  }
+  const overrideTokens = providerId
+    ? findContextOverride(ownProvider ?? undefined, model)
+    : getAllProviders()
+        .map((provider) => findContextOverride(provider, model))
+        .find((tokens) => tokens !== undefined);
+  if (overrideTokens) return { tokens: overrideTokens, source: "override" };
 
   // 1. Provider's own API data (most accurate)
   if (providerId && !ownProvider?.grouped) {
@@ -442,11 +441,13 @@ export async function fetchProviderModels(
   try {
     const models = await provider.fetchModels();
     if (models) {
-      const normalized = applyProviderContextOverrides(providerId, models);
+      const normalized = models.map((m) => applyProviderContextOverride(providerId, m));
       modelCache.set(providerId, { models: normalized, ts: Date.now() });
       return { models: normalized };
     }
-    return { models: applyProviderContextOverrides(providerId, provider.fallbackModels) };
+    return {
+      models: provider.fallbackModels.map((m) => applyProviderContextOverride(providerId, m)),
+    };
   } catch (err) {
     const msg = toErrorMessage(err);
     return { models: [], error: `API error: ${msg}` };
