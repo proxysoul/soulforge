@@ -839,7 +839,11 @@ export function buildSubagentTools(models: SubagentModels) {
               abortSignal,
             );
             if (!doneResult && !bus.getResult(task.agentId)?.success) {
-              throw new Error(resultText);
+              return {
+                reads: bus.getFileReadRecords(task.agentId),
+                filesEdited: [...bus.getEditedFiles(task.agentId).keys()],
+                output: `[Dispatch failed] ${resultText}`,
+              } satisfies DispatchOutput;
             }
             const editedMap = bus.getEditedFiles(task.agentId);
 
