@@ -145,6 +145,7 @@ export const LockInWrapper = memo(function LockInWrapper({
   onToolClick,
   toolDetails,
   hideStatusHeader = false,
+  pendingNarration = false,
 }: {
   hasEdits: boolean;
   hasDispatch?: boolean;
@@ -157,6 +158,8 @@ export const LockInWrapper = memo(function LockInWrapper({
   onToolClick?: (toolId: string) => void;
   toolDetails?: (toolId: string) => ReactNode;
   hideStatusHeader?: boolean;
+  /** Show a "Thinking…" trailing row when the agent is mid-narration with no active tool. */
+  pendingNarration?: boolean;
 }) {
   const t = useTheme();
 
@@ -239,7 +242,7 @@ export const LockInWrapper = memo(function LockInWrapper({
             const { icon: toolIcon, iconColor, label } = resolveToolDisplay(tc.name, t.textMuted);
             const doneLabel = TOOL_LABELS_DONE[tc.name] ?? label;
             const displayLabel = tc.done ? doneLabel : label;
-            const isLast = i === visible.length - 1 && !children;
+            const isLast = i === visible.length - 1 && !children && !pendingNarration;
             const connector = isLast ? "└ " : i === 0 && hiddenCount === 0 ? "┌ " : "├ ";
             const statusClr = tc.done ? (tc.error ? t.error : t.success) : t.brand;
             const isExpanded = !!toolExpanded?.[tc.id];
@@ -268,6 +271,16 @@ export const LockInWrapper = memo(function LockInWrapper({
               </box>
             );
           })}
+          {pendingNarration ? (
+            <box height={1} flexShrink={0}>
+              <text truncate>
+                <span fg={t.textFaint}>{children ? "├ " : "└ "}</span>
+                <Spinner inline color={t.textMuted} />
+                <span fg={t.textDim}> Thinking</span>
+                <Spinner inline frames={DOTS_PADDED} color={t.textMuted} divisor={4} />
+              </text>
+            </box>
+          ) : null}
           {children}
         </box>
       ) : null}
@@ -385,6 +398,13 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
     [liveToolCalls],
   );
 
+  // "Thinking…" trailing row: rail is up, every tool is done, the model has
+  // not yet committed to the final answer, and no dispatch is mid-flight.
+  // That gap = narration tokens streaming with no visible surface.
+  const allToolsDone = tools.length > 0 && tools.every((t) => t.done);
+  const dispatchActive = dispatchCalls.some((tc) => tc.state === "running");
+  const pendingNarration = allToolsDone && !dispatchActive && committedAt === null;
+
   if (chatOnlyText) {
     return (
       <box flexDirection="column">
@@ -408,6 +428,7 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
           seed={messagesLength}
           loadingStartedAt={loadingStartedAt}
           tools={tools}
+          pendingNarration={pendingNarration}
         >
           {dispatchCalls.length > 0 ? (
             <ToolCallDisplay calls={dispatchCalls} diffStyle="compact" />
