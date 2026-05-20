@@ -14,10 +14,6 @@ export interface HighlightedSource {
   lang: string;
 }
 
-/**
- * Pull source text + language for one or more files out of a `read` tool result.
- * Returns null when the tool isn't `read`, failed, or has no parseable file args.
- */
 export function extractReadSources(tc: ToolCall): HighlightedSource[] | null {
   if (tc.name !== "read") return null;
   if (!tc.result?.success || !tc.result.output) return null;
@@ -36,7 +32,9 @@ export function extractReadSources(tc: ToolCall): HighlightedSource[] | null {
   }
 
   // Multi-file read — the formatter prefixes each file with `── path ──`.
-  // Split on those markers and pair with the args order.
+  // Split on those markers and pair with the args order. Unknown-lang files
+  // still render (plain) so the surrounding code-file siblings stay highlighted
+  // and the layout doesn't collapse to a single plain-text blob.
   const sources = splitMultiFileOutput(tc.result.output);
   if (!sources) return null;
 
@@ -47,7 +45,6 @@ export function extractReadSources(tc: ToolCall): HighlightedSource[] | null {
     );
     const path = typeof argPath?.path === "string" ? argPath.path : outPath;
     const lang = langFromPath(path);
-    if (!lang) continue;
     result.push({ path, content: stripReadLineNumbers(body), lang });
   }
   return result.length > 0 ? result : null;
