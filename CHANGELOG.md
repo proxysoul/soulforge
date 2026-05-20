@@ -2,6 +2,56 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.16.0] — 2026-05-20
+
+### Bug Fixes
+
+- **chat**: surface premature stop when agent ends without final message
+- **commands**: sync forgeMode when toggling plan via /plan
+- **dialogs**: gate DialogSelect when another dialog is layered above
+- **dialogs**: gate host pickers when a dialog is on the stack
+- **dialogs**: swallow keyboard events on dialog primitives
+- **input**: move stash bindings to alt+s/alt+p to avoid skills/sessions collision
+- **modals**: swallow keyboard events so popup scroll doesn't bleed to chat
+- **prompts**: tell agent shell runs in cwd
+- **settings**: stop keyboard propagation across settings + plan popups
+### Documentation
+
+- **installation**: add OpenRouter key tab
+- **providers**: drop literal anchor syntax from headings
+- **providers**: add LLM Gateway and OpenRouter anchors
+### Features
+
+- **chat**: click tool row to expand full result inline
+- **chat**: click reasoning fold and tool rows to expand/collapse
+- **chat**: tips catalog for input placeholder rotator
+- **commands**: gate /clear and /storage cleanups behind confirm()
+- **commands**: suggested + aliases metadata on CommandDef
+- **history**: prompt stash + frecency store
+- **input**: stash hotkeys, frecency-ranked autocomplete, rotating tips
+- **llm**: rank model picker by frecency within each provider
+- **lockin**: auto mode + model-controlled set_lockin tool
+- **palette**: surface suggested commands at the top of empty-query view
+- **rail**: show "Thinking…" trailing row while agent narrates
+- **rail**: hover, single-click expand, syntax-highlighted read results
+- **renderer**: enable mouse motion tracking for hover states
+- **renderer**: passthrough output, fps cap, terminal title sync
+- **safety**: central confirm() dialog for destructive git + session actions
+- **stash**: /stash browser command + draft-restore event bus
+- **ui**: hover state on user messages, tool rows, and reasoning fold
+- **ui**: border primitives + reasoning disclosure glyphs
+- **ui**: dialog stack store + confirm/alert/select primitives
+### Performance
+
+- **intelligence**: stream semantic summary generation to bound heap
+- **messages**: custom equality on StaticMessage so historical rows skip rerender
+- **tool-row**: memoize StaticToolRow with prop-shape equality
+- **ui**: scroll acceleration on every scrollbox
+- cache & dedup hot paths in forge prepareStep
+### Refactor
+
+- **chat**: consolidate RAIL_BORDER on the ui/borders primitive
+- **lockin**: per-tab verbose + commit-boundary rail render
 ## [2.15.7] — 2026-05-14
 
 ### Bug Fixes

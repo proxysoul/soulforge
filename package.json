@@ -1,6 +1,6 @@
 {
   "name": "@proxysoul/soulforge",
-  "version": "2.15.7",
+  "version": "2.16.0",
   "description": "Graph-powered code intelligence — multi-agent coding with codebase-aware AI",
   "repository": {
     "type": "git",
