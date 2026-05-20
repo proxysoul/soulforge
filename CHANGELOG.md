@@ -4,6 +4,14 @@ All notable changes to SoulForge are documented here.
 
 ## [2.16.2] — 2026-05-20
 
+### 💜 Sponsors
+
+A huge thank you to our first backer:
+
+- **[LLM Gateway](https://llmgateway.io/dashboard?ref=6tjJR2H3X4E9RmVQiQwK)** ([@theopenco](https://github.com/theopenco)) — one API for OpenAI, Anthropic, Google, and 30+ providers. Up to 30% off frontier models, real-time analytics, BYOK. Now wired into SoulForge as the `llmgateway` provider. Thanks for keeping the forge lit. 🔥
+
+Want to back SoulForge? → [github.com/sponsors/proxysoul](https://github.com/sponsors/proxysoul)
+
 ### Bug Fixes
 
 - **lockin**: invalidate commit when tools land after set_lockin
