@@ -15,6 +15,7 @@ export const DEFAULT_AGENT_BASE_DELAY_MS = 2000;
 export const DEFAULT_CHAT_BASE_DELAY_MS = 1000;
 export const DEFAULT_MAX_RETRIES = 3;
 export const MAX_FALLBACK_CYCLES_DEFAULT = 3;
+export const MAX_FALLBACK_CYCLES = 10;
 
 export const MIN_MAX_ATTEMPTS = 1;
 export const MIN_BASE_DELAY_MS = 250;
@@ -69,9 +70,10 @@ export function resolveRetrySettings(
     "retry.baseDelayMs",
   );
 
-  const maxFallbackCycles = clampIntMin(
+  const maxFallbackCycles = clampInt(
     obj?.maxFallbackCycles,
     0,
+    MAX_FALLBACK_CYCLES,
     MAX_FALLBACK_CYCLES_DEFAULT,
     "retry.maxFallbackCycles",
   );

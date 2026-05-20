@@ -551,6 +551,7 @@ export function resetStatusBarStore(): void {
     compactElapsed: 0,
     compactionStrategy: "v2",
     v2Slots: 0,
+    retryStatus: null,
   });
 }
 

@@ -1,15 +1,26 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import type { RetryConfig } from "../src/types/index.js";
 import {
   __resetRetryWarnings,
   DEFAULT_AGENT_BASE_DELAY_MS,
   DEFAULT_CHAT_BASE_DELAY_MS,
   DEFAULT_MAX_RETRIES,
   MAX_BASE_DELAY_MS,
+  MAX_FALLBACK_CYCLES,
+  MAX_FALLBACK_CYCLES_DEFAULT,
   MIN_BASE_DELAY_MS,
   MIN_MAX_ATTEMPTS,
   resolveRetrySettings,
 } from "../src/core/retry/settings.js";
 import { useErrorStore } from "../src/stores/errors.js";
+
+/**
+ * Construct a RetryConfig from loosely-typed values without using `as any` at the call site.
+ * This is safe for test data where property types intentionally do not match the interface.
+ */
+function badConfig(values: Record<string, unknown>): RetryConfig {
+  return values as unknown as RetryConfig;
+}
 
 beforeEach(() => {
   __resetRetryWarnings();
@@ -163,6 +174,51 @@ describe("resolveRetrySettings — clamps out-of-range numbers", () => {
   });
 });
 
+describe("resolveRetrySettings — cycles", () => {
+  test("undefined → default (3 cycles)", () => {
+    expect(resolveRetrySettings(undefined).cycles).toEqual({
+      maxRetries: MAX_FALLBACK_CYCLES_DEFAULT,
+      backoffMs: 0,
+    });
+  });
+
+  test("valid override: maxFallbackCycles: 2", () => {
+    expect(
+      resolveRetrySettings({ maxFallbackCycles: 2, baseDelayMs: 100 }).cycles,
+    ).toEqual({ maxRetries: 2, backoffMs: 0 });
+  });
+
+  test("explicit 0 cycles accepted", () => {
+    expect(resolveRetrySettings({ maxFallbackCycles: 0 }).cycles.maxRetries).toBe(0);
+  });
+
+  test("values below min (0) clamp to 0", () => {
+    expect(resolveRetrySettings({ maxFallbackCycles: -5 }).cycles.maxRetries).toBe(0);
+  });
+
+  test("values above max (10) clamp down", () => {
+    expect(resolveRetrySettings({ maxFallbackCycles: 99 }).cycles.maxRetries).toBe(MAX_FALLBACK_CYCLES);
+    expect(resolveRetrySettings({ maxFallbackCycles: 999 }).cycles.maxRetries).toBe(MAX_FALLBACK_CYCLES);
+  });
+
+  test("invalid value falls back to default", () => {
+    expect(resolveRetrySettings({ maxFallbackCycles: "bad" }).cycles.maxRetries).toBe(
+      MAX_FALLBACK_CYCLES_DEFAULT,
+    );
+  });
+
+  test("invalid value logs a config warning", () => {
+    __resetRetryWarnings();
+    useErrorStore.getState().clear();
+    resolveRetrySettings({ maxFallbackCycles: "bad" });
+    const errors = useErrorStore.getState().errors;
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.source).toBe("config");
+    expect(errors[0]?.message).toContain("retry.maxFallbackCycles");
+    expect(errors[0]?.message).toContain("string");
+  });
+});
+
 describe("resolveRetrySettings — garbage inputs never throw and fall back", () => {
   test("NaN → default", () => {
     const r = resolveRetrySettings({ maxAttempts: NaN, baseDelayMs: NaN });
@@ -190,42 +246,37 @@ describe("resolveRetrySettings — garbage inputs never throw and fall back", ()
   });
 
   test("string values → default (no coercion)", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: testing runtime garbage
-    const r = resolveRetrySettings({ maxAttempts: "5", baseDelayMs: "3000" } as any);
+    const r = resolveRetrySettings(badConfig({ maxAttempts: "5", baseDelayMs: "3000" }));
     expect(r.transient.maxRetries).toBe(DEFAULT_MAX_RETRIES);
     expect(r.transient.backoffMs).toBe(DEFAULT_CHAT_BASE_DELAY_MS);
   });
 
   test("boolean values → default", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: testing runtime garbage
-    const r = resolveRetrySettings({ maxAttempts: true, baseDelayMs: false } as any);
+    const r = resolveRetrySettings(badConfig({ maxAttempts: true, baseDelayMs: false }));
     expect(r.transient.maxRetries).toBe(DEFAULT_MAX_RETRIES);
     expect(r.transient.backoffMs).toBe(DEFAULT_CHAT_BASE_DELAY_MS);
   });
 
   test("null fields → default (not 0)", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: testing runtime garbage
-    const r = resolveRetrySettings({ maxAttempts: null, baseDelayMs: null } as any);
+    const r = resolveRetrySettings(badConfig({ maxAttempts: null, baseDelayMs: null }));
     expect(r.transient.maxRetries).toBe(DEFAULT_MAX_RETRIES);
     expect(r.transient.backoffMs).toBe(DEFAULT_CHAT_BASE_DELAY_MS);
   });
 
   test("nested object / array → default", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: testing runtime garbage
-    const r = resolveRetrySettings({ maxAttempts: { n: 5 }, baseDelayMs: [1000] } as any);
+    const r = resolveRetrySettings(badConfig({ maxAttempts: { n: 5 }, baseDelayMs: [1000] }));
     expect(r.transient.maxRetries).toBe(DEFAULT_MAX_RETRIES);
     expect(r.transient.backoffMs).toBe(DEFAULT_CHAT_BASE_DELAY_MS);
   });
 
   test("whole raw input as non-object → defaults", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: testing runtime garbage
-    expect(resolveRetrySettings("broken" as any)).toEqual({
+    // Non-object values are not RetryConfig; cast required for test coverage.
+    expect(resolveRetrySettings("broken" as unknown as RetryConfig)).toEqual({
       transient: { maxRetries: DEFAULT_MAX_RETRIES, backoffMs: DEFAULT_CHAT_BASE_DELAY_MS },
       stall: { maxRetries: DEFAULT_MAX_RETRIES, backoffMs: DEFAULT_CHAT_BASE_DELAY_MS },
       cycles: { maxRetries: 3, backoffMs: 0 },
     });
-    // biome-ignore lint/suspicious/noExplicitAny: testing runtime garbage
-    expect(resolveRetrySettings(42 as any)).toEqual({
+    expect(resolveRetrySettings(42 as unknown as RetryConfig)).toEqual({
       transient: { maxRetries: DEFAULT_MAX_RETRIES, backoffMs: DEFAULT_CHAT_BASE_DELAY_MS },
       stall: { maxRetries: DEFAULT_MAX_RETRIES, backoffMs: DEFAULT_CHAT_BASE_DELAY_MS },
       cycles: { maxRetries: 3, backoffMs: 0 },
@@ -233,8 +284,7 @@ describe("resolveRetrySettings — garbage inputs never throw and fall back", ()
   });
 
   test("extra unknown keys are ignored", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: testing runtime garbage
-    const r = resolveRetrySettings({ maxAttempts: 5, hacker: "value" } as any);
+    const r = resolveRetrySettings(badConfig({ maxAttempts: 5, hacker: "value" }));
     expect(r.transient.maxRetries).toBe(5);
     expect(r.transient.backoffMs).toBe(DEFAULT_CHAT_BASE_DELAY_MS);
   });
@@ -257,8 +307,12 @@ describe("resolveRetrySettings — garbage inputs never throw and fall back", ()
     ];
     for (const input of hostile) {
       expect(() => {
-        // biome-ignore lint/suspicious/noExplicitAny: hostile input
-        const r = resolveRetrySettings(input as any);
+        // Non-RetryConfig values (string, number, boolean, array) require a cast.
+        const r = resolveRetrySettings(
+          typeof input === "object" && input !== null
+            ? badConfig(input as Record<string, unknown>)
+            : (input as unknown as RetryConfig),
+        );
         expect(Number.isFinite(r.transient.maxRetries)).toBe(true);
         expect(Number.isFinite(r.stall.maxRetries)).toBe(true);
         expect(Number.isFinite(r.transient.backoffMs)).toBe(true);
@@ -285,8 +339,7 @@ describe("resolveRetrySettings — backoff math stays bounded", () => {
 
 describe("resolveRetrySettings — warns on invalid user input", () => {
   test("string maxAttempts logs a config warning", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: hostile input
-    resolveRetrySettings({ maxAttempts: "5" } as any);
+    resolveRetrySettings(badConfig({ maxAttempts: "5" }));
     const errors = useErrorStore.getState().errors;
     expect(errors).toHaveLength(1);
     expect(errors[0]?.source).toBe("config");
@@ -302,12 +355,9 @@ describe("resolveRetrySettings — warns on invalid user input", () => {
   });
 
   test("warns once per key across repeated calls", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: hostile input
-    resolveRetrySettings({ maxAttempts: "5" } as any);
-    // biome-ignore lint/suspicious/noExplicitAny: hostile input
-    resolveRetrySettings({ maxAttempts: "7" } as any);
-    // biome-ignore lint/suspicious/noExplicitAny: hostile input
-    resolveRetrySettings({ maxAttempts: true } as any);
+    resolveRetrySettings(badConfig({ maxAttempts: "5" }));
+    resolveRetrySettings(badConfig({ maxAttempts: "7" }));
+    resolveRetrySettings(badConfig({ maxAttempts: true }));
     expect(useErrorStore.getState().errors).toHaveLength(1);
   });
 

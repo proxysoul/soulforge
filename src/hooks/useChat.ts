@@ -448,6 +448,9 @@ export function useChat({
   const steeringAbortedRef = useRef(false);
   const abortedSegmentsSnapshot = useRef<StreamSegment[]>([]);
   const abortedToolCallsSnapshot = useRef<LiveToolCall[]>([]);
+  // Instance-level: whether this hook instance has already shown the "no fallback chain" warning.
+  // Using a ref boolean instead of globalThis so each session/tab gets its own tracking.
+  const noFallbackWarningShownRef = useRef(false);
 
   // LLM state
   const [activeModel, setActiveModel] = useState(
@@ -3406,8 +3409,8 @@ export function useChat({
               // No model-specific and no wildcard chain — add a guardrail message
               // once per session and surface in the status bar so the user knows
               // why no fallback is being tried.
-              if (!(globalThis as Record<string, unknown>).__noFallbackWarning) {
-                (globalThis as Record<string, unknown>).__noFallbackWarning = true;
+              if (!noFallbackWarningShownRef.current) {
+                noFallbackWarningShownRef.current = true;
                 useStatusBarStore.getState().setRetryStatus({
                   type: "fallback",
                   label: "no chain",
