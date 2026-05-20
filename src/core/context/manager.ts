@@ -7,6 +7,7 @@ import { recordModelCall } from "../../stores/model-events.js";
 import { useRepoMapStore } from "../../stores/repomap.js";
 import type { EditorIntegration, ForgeMode, TaskRouter } from "../../types/index.js";
 import { toErrorMessage } from "../../utils/errors.js";
+import { getCachedInstructionsSize } from "../agents/forge.js";
 import { setNeovimFileWrittenHandler } from "../editor/neovim.js";
 import { setIntelligenceClient } from "../intelligence/instance.js";
 import type { SymbolForSummary } from "../intelligence/repo-map.js";
@@ -1144,10 +1145,11 @@ export class ContextManager {
   getContextBreakdown(): { section: string; chars: number; active: boolean }[] {
     const sections: { section: string; chars: number; active: boolean }[] = [];
 
-    // Core + tools reference (always present)
+    // System prompt size — use actual cached size from forge if available, else estimate
+    const cachedSize = getCachedInstructionsSize(this);
     sections.push({
-      section: "Core + tool reference",
-      chars: 1800, // approximate: identity + all tool docs + guidelines
+      section: "System prompt + tools",
+      chars: cachedSize ?? 1800,
       active: true,
     });
 

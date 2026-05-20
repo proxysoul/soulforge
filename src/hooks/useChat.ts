@@ -1174,7 +1174,7 @@ export function useChat({
         const afterChars = systemChars + newCoreChars;
         const afterPct = Math.round((afterChars / charsPerToken / contextWindow) * 100);
         const estimatedTokens = Math.ceil(afterChars / charsPerToken);
-        setContextTokens(0);
+        setContextTokens(estimatedTokens);
         setStreamingChars(0);
         setTokenUsage((prev) => {
           let bd = prev.modelBreakdown;
