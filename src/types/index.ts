@@ -408,6 +408,13 @@ export interface AppConfig {
     /** Ephemeral cache TTL. "5m" (free, default) or "1h" (paid: ~2× cache-write cost, 12× lifetime). */
     ttl?: "5m" | "1h";
   };
+  /**
+   * Per-model context window overrides (in tokens). Takes precedence over
+   * provider API metadata and OpenRouter values. Use when an upstream reports
+   * an incorrect window (e.g. a proxy that advertises 1.1M but truncates at 400k).
+   * Key = model ID (e.g. "proxy/gpt-5.5"), Value = real window in tokens.
+   */
+  contextWindowOverrides?: Record<string, number>;
 }
 
 export interface RetryConfig {

@@ -1043,6 +1043,8 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/theme", handleTheme);
   map.set("/timeouts", handleTimeouts);
   map.set("/watchdog", handleTimeouts); // alias for /timeouts
+  map.set("/context-window", handleContextWindow);
+  map.set("/ctxwin", handleContextWindow); // alias
 }
 
 export function matchConfigPrefix(cmd: string): CommandHandler | null {
@@ -1053,5 +1055,70 @@ export function matchConfigPrefix(cmd: string): CommandHandler | null {
   if (cmd === "/mode" || cmd.startsWith("/mode ")) return handleMode;
   if (cmd === "/nvim-config" || cmd.startsWith("/nvim-config ")) return handleNvimConfig;
   if (cmd === "/theme" || cmd.startsWith("/theme ")) return handleTheme;
+  if (
+    cmd === "/context-window" ||
+    cmd === "/ctxwin" ||
+    cmd === "/ctx-window" ||
+    cmd.startsWith("/context-window ") ||
+    cmd.startsWith("/ctxwin ") ||
+    cmd.startsWith("/ctx-window ")
+  )
+    return handleContextWindow;
   return null;
+}
+function handleContextWindow(input: string, ctx: CommandContext): void {
+  const trimmed = input
+    .trim()
+    .replace(/^\/(context-window|ctxwin|ctx-window)\s*/, "")
+    .trim();
+  const cfg = loadConfig();
+  const existing = cfg.contextWindowOverrides ?? {};
+
+  if (!trimmed) {
+    const lines = Object.entries(existing).map(([m, t]) => `  ${m} → ${t.toLocaleString()} tok`);
+    sysMsg(
+      ctx,
+      lines.length
+        ? `Context window overrides:\n${lines.join("\n")}\n\nSet: /context-window <model> <tokens>\nClear: /context-window <model> clear\nClear all: /context-window clear`
+        : `No context window overrides set.\n\nSet: /context-window <model> <tokens>\nExample: /context-window proxy/gpt-5.5 400000`,
+    );
+    return;
+  }
+
+  if (trimmed === "clear") {
+    ctx.saveToScope({ contextWindowOverrides: undefined }, "global");
+    sysMsg(ctx, "Cleared all context window overrides.");
+    return;
+  }
+
+  const parts = trimmed.split(/\s+/);
+  if (parts.length < 2) {
+    sysMsg(ctx, `Usage: /context-window <model-id> <tokens|clear>`);
+    return;
+  }
+
+  const modelId = parts[0];
+  const valueArg = parts[1];
+  if (!modelId || !valueArg) {
+    sysMsg(ctx, `Usage: /context-window <model-id> <tokens|clear>`);
+    return;
+  }
+  const next = { ...existing };
+
+  if (valueArg === "clear" || valueArg === "off" || valueArg === "none") {
+    delete next[modelId];
+    ctx.saveToScope({ contextWindowOverrides: next }, "global");
+    sysMsg(ctx, `Cleared context window override for ${modelId}.`);
+    return;
+  }
+
+  const tokens = Number(valueArg.replace(/[_,]/g, ""));
+  if (!Number.isFinite(tokens) || tokens <= 0) {
+    sysMsg(ctx, `Invalid token count: "${valueArg}". Must be a positive integer.`);
+    return;
+  }
+
+  next[modelId] = Math.floor(tokens);
+  ctx.saveToScope({ contextWindowOverrides: next }, "global");
+  sysMsg(ctx, `Context window for ${modelId} → ${Math.floor(tokens).toLocaleString()} tokens.`);
 }

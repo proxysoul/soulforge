@@ -1,3 +1,4 @@
+import { loadConfig } from "../../config/index.js";
 import { toErrorMessage } from "../../utils/errors.js";
 import { getProviderApiKey } from "../secrets.js";
 import { getIOClient } from "../workers/io-client.js";
@@ -73,6 +74,17 @@ export function getModelContextInfoSync(modelId: string): ContextWindowResult {
   const providerId = slashIdx >= 0 ? modelId.slice(0, slashIdx) : "";
   const model = slashIdx >= 0 ? modelId.slice(slashIdx + 1) : modelId;
 
+  // -1. User-configured per-model override (highest priority).
+  try {
+    const cfg = loadConfig();
+    const userOverride = cfg.contextWindowOverrides?.[modelId];
+    if (typeof userOverride === "number" && userOverride > 0) {
+      return { tokens: userOverride, source: "fallback" };
+    }
+  } catch {
+    // config unavailable — ignore
+  }
+
   // 0. Provider-specific overrides for known-incorrect upstream API values
   //    (e.g. OpenRouter lists GLM-5 as 80k, actual ~200k)
   const ownProvider = providerId ? getProvider(providerId) : null;
@@ -145,6 +157,16 @@ export async function getModelContextInfo(modelId: string): Promise<ContextWindo
   const cached = getModelContextInfoSync(modelId);
   if (cached.source !== "fallback") {
     return cached;
+  }
+
+  // User-configured override resolved as "fallback" — still authoritative.
+  try {
+    const cfg = loadConfig();
+    if (cfg.contextWindowOverrides?.[modelId]) {
+      return cached;
+    }
+  } catch {
+    // ignore
   }
 
   // Cache miss on a non-hardcoded model — fetch metadata
