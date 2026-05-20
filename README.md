@@ -82,6 +82,8 @@ Same model (Claude Opus 4.6), same codebase, same prompt.
 | **Embedded Neovim** | real nvim in a PTY, your config |
 | **5 tabs** | per-tab model, session, checkpoints, file claims |
 | **Time machine** | every prompt is a checkpoint with a git tag. `Ctrl+B` / `Ctrl+F` rewinds and redoes both conversation and files on disk. `/checkpoint undo <N>`, `/checkpoint save`, per-tab |
+| **Sessions** | auto-saved JSONL, crash-resilient, resumable by short-id prefix. Export to markdown / JSON / clipboard. `Ctrl+P` browser, multi-tab. [docs](https://soulforge.proxysoul.com/tools/sessions) |
+| **Memory** | cross-session SQLite store of prefs, decisions, gotchas, context. Auto-recalled per turn from prompt + edited files. Project + global scopes, browser at `/memory`. [docs](https://soulforge.proxysoul.com/tools/memory) |
 | **21 providers** | Anthropic, OpenAI, Google, Groq, DeepSeek, Bedrock, Ollama, LM Studio, ... + any OpenAI-compatible |
 | **Cost tracking** | per-model + per-subagent USD, cache-aware |
 | **MCP + hooks** | any MCP server, 13 events, drop-in `.claude/settings.json` |
