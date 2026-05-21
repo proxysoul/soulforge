@@ -35,7 +35,13 @@ Memory is your across-session brain — SQLite-backed, survives restarts. Soul M
 
 Auto-recall fires before each user turn — relevant entries arrive as <recalled_memories> stubs (summary + id + signals + '↳ has details'). When details matter, \`memory(get, id)\` reads the full body.
 
-Inline hints — tool results may append an actionable footer:
+Inline hints — tool results may append a footer referencing relevant stored memories:
+  - \`· gotcha "summary" [id8] — review before edit/commit\` → act on it. \`memory(get, id8)\` for the full body.
+  - \`· pinned … [id8]\` → durable user preference, respect it.
+  - \`· pref|decision "summary" [id8]\` → relevant rule or rationale; read with \`memory(get)\` if it touches what you're about to do.
+  - \`· N memories — memory(search) recommended\` → multi-match volume; run the search before mutating.
+  - No footer = no stored memory matched. Run \`memory(search, <topic>)\` proactively at the start of relevant work — recall is signal-driven and can miss topic-only matches.
+Footers are silent on edit_file/ast_edit/git commit results (too late). Once you call \`memory(search|get|list)\` this turn, further footers are suppressed — you're already memory-aware.
   - \`· gotcha "summary" [id8] — review before edit/commit\` → act on it. \`memory(get, id8)\` for the full body.
   - \`· pinned … [id8]\` → durable user preference, respect it.
   - \`· N memories — memory(search) recommended\` → multi-match volume; run the search before mutating.
@@ -62,7 +68,7 @@ Use dedicated tools over shell for file reads, searches, definitions, and edits.
 For TS/JS (.ts/.tsx/.js/.jsx/.mts/.cts/.mjs/.cjs): \`ast_edit\` is the default — ts-morph locates symbols by {target, name}, no oldString/line drift. Use \`edit_file\`/\`multi_edit\` only for non-TS/JS or raw text outside any symbol (pass \`lineStart\` from read output).
 Batch independent tool calls in one parallel block. Never use placeholders for unknown parameters. \`git\` for git ops, \`soul_vision\` for images.
 
-Memory is your across-session brain. Auto-recall fires before each user turn (top-3 stubs; \`memory(get, id)\` reads full body). Inline footers on read/grep/git results: \`· gotcha|pinned "…" [id8] — review before edit/commit\` is actionable, act on it. \`· N memories — memory(search) recommended\` means run the search. No footer = nothing high-signal.
+Memory is your across-session brain. Auto-recall fires before each user turn (top-3 stubs; \`memory(get, id)\` reads full body). Inline footers on read/grep/git results: \`· gotcha|pinned|pref|decision "…" [id8]\` is a relevant memory — \`memory(get, id8)\` for the body, act if it applies. \`· N memories — memory(search) recommended\` means run the search. No footer = no match; run \`memory(search)\` proactively before non-trivial work.
 
 Write when:
 - User preference/directive (corrective tone, "always/never/by default", repeated corrections, "why didn't you…?") → pref.

@@ -46,8 +46,8 @@ const _scope = new AsyncLocalStorage<SubagentHintScope>();
 
 const SUMMARY_MAX = 60;
 const COOLDOWN_TURNS = 10;
-const SESSION_BUDGET = 15;
-const SUBAGENT_BUDGET = 3;
+const SESSION_BUDGET = 60;
+const SUBAGENT_BUDGET = 10;
 
 export function setMemoryHintProvider(manager: MemoryManager | null): void {
   _manager = manager;
@@ -208,20 +208,13 @@ interface TopCandidate {
   hasPathMatch: boolean;
 }
 
-/** Quality gate — must pass for any non-empty hint to surface. */
-function passesQualityGate(top: TopCandidate | null, total: number): boolean {
-  if (!top) return total >= 3; // bare count only useful at volume
-  if (top.pinned) return true;
-  if (top.category === "gotcha") return true;
-  if (top.hasPathMatch) return true;
-  if (total >= 3) return true;
-  return false;
-}
-
-/** Subagent gate — only loudest signals pass. */
+/**
+ * Subagent gate — looser than before. Memories are relevant by definition
+ * if the recall query matched (paths/topics/query). Surface any hit so the
+ * subagent gets the same signal the parent would. Budget still applies.
+ */
 function passesSubagentGate(top: TopCandidate | null): boolean {
-  if (!top) return false;
-  return top.category === "gotcha" && top.hasPathMatch;
+  return top != null;
 }
 
 /** Budget gate — past budget, only gotcha/pinned slip through. */
@@ -245,7 +238,6 @@ function buildHintLine(top: TopCandidate | null, total: number, ctx: HintContext
   if (getActed()) return "";
   if (inSubagentScope() && !passesSubagentGate(top)) return "";
   if (!passesBudgetGate(top)) return "";
-  if (!passesQualityGate(top, total)) return "";
 
   const surfaced = getSurfacedSet();
 
