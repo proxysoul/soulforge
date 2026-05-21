@@ -1,30 +1,29 @@
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { IGNORED_DIRS } from "../context/file-tree.js";
 import { isForbidden } from "../security/forbidden.js";
 import type { Language, SymbolKind } from "./types.js";
-import { EXT_TO_LANGUAGE } from "./types.js";
+import { BARE_FILENAME_TO_LANGUAGE, detectLanguageFromPath, EXT_TO_LANGUAGE } from "./types.js";
 
 /**
- * Extensions tracked by the repo map.
- *
- * Derived view over the canonical `EXT_TO_LANGUAGE` (see `./types.ts`).
- * Re-export shape kept for callers that want a fast O(1) lookup of
- * "is this extension indexable?".
+ * Indexable extension set — derived from the canonical EXT_TO_LANGUAGE map.
+ * Single source of truth: edit src/core/intelligence/types.ts.
  */
-export const INDEXABLE_EXTENSIONS: Record<string, Language> = { ...EXT_TO_LANGUAGE };
+export const INDEXABLE_EXTENSIONS: Readonly<Record<string, Language>> = EXT_TO_LANGUAGE;
 
-/** Languages that are tracked in the file list but should not produce identifier-based
- *  refs, accumulate PageRank, or be classified as "dead" via the import graph.
- *  They have no meaningful AST symbols and their textual content (JSON keys, YAML
- *  fields, markdown prose) would pollute the cross-file reference graph with false
- *  edges. */
+/**
+ * Languages tracked in the file list but excluded from identifier-ref extraction,
+ * PageRank, and dead-code analysis. Their text content (JSON keys, YAML fields,
+ * markdown prose, config values) would pollute the cross-file reference graph
+ * with false edges. Derived: everything that isn't a real programming language.
+ */
 export const NON_CODE_LANGUAGES: ReadonlySet<Language> = new Set<Language>([
   "unknown",
   "css",
   "html",
   "json",
+  "jsonnet",
   "toml",
   "yaml",
   "xml",
@@ -41,13 +40,35 @@ export const NON_CODE_LANGUAGES: ReadonlySet<Language> = new Set<Language>([
   "nix",
   "hcl",
   "bazel",
-  "jsonnet",
   "just",
   "svg",
   "csv",
   "ignore",
   "lockfile",
 ]);
+
+/**
+ * True when a file path is indexable — covers both extension-based languages
+ * (.ts, .py, .nix, .hcl, …) and bare-filename languages (Dockerfile, Makefile,
+ * Justfile, BUILD, .gitignore, package-lock.json, …). Prefer over manual
+ * `ext in INDEXABLE_EXTENSIONS` checks so dotfiles + extensionless config files
+ * don't slip out of the index.
+ */
+export function isIndexablePath(file: string): boolean {
+  return detectLanguageFromPath(file) !== "unknown" || isBareIndexable(file);
+}
+
+function isBareIndexable(file: string): boolean {
+  const slash = file.lastIndexOf("/");
+  const base = (slash === -1 ? file : file.slice(slash + 1)).toLowerCase();
+  if (BARE_FILENAME_TO_LANGUAGE[base]) return true;
+  return (
+    base.startsWith("dockerfile.") ||
+    base.startsWith("containerfile.") ||
+    base.startsWith("makefile.") ||
+    base.startsWith("justfile.")
+  );
+}
 
 /**
  * Languages where we can reliably track cross-file imports via tree-sitter queries.
@@ -352,8 +373,7 @@ async function collectFilesViaGit(dir: string): Promise<CollectedFile[] | null> 
     const files: CollectedFile[] = [];
     for (const line of text.split("\n")) {
       if (!line) continue;
-      const ext = extname(line).toLowerCase();
-      if (!(ext in INDEXABLE_EXTENSIONS)) continue;
+      if (!isIndexablePath(line)) continue;
       const fullPath = join(dir, line);
       if (isForbidden(fullPath)) continue;
       try {
@@ -385,7 +405,11 @@ async function collectFilesWalk(
   try {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       if (ctx.n >= WALK_FILE_CAP) break;
-      if (entry.name.startsWith(".") && entry.name !== ".") continue;
+      // Skip hidden dirs/files except known dot-prefixed config files (.gitignore,
+      // .env, .editorconfig, .dockerignore, …) that detectLanguageFromPath knows.
+      if (entry.name.startsWith(".") && entry.name !== ".") {
+        if (!entry.isFile() || !isIndexablePath(entry.name)) continue;
+      }
       const fullPath = join(dir, entry.name);
       if (entry.isDirectory()) {
         if (!IGNORED_DIRS.has(entry.name)) {
@@ -393,8 +417,7 @@ async function collectFilesWalk(
         }
       } else if (entry.isFile()) {
         if (isForbidden(fullPath)) continue;
-        const ext = extname(entry.name).toLowerCase();
-        if (ext in INDEXABLE_EXTENSIONS) {
+        if (isIndexablePath(entry.name)) {
           try {
             const s = await stat(fullPath);
             if (s.size < MAX_FILE_SIZE) {

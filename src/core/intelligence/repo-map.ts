@@ -35,6 +35,7 @@ import {
   PAGERANK_ITERATIONS,
 } from "./repo-map-utils.js";
 import type { Language, SymbolKind } from "./types.js";
+import { detectLanguageFromPath } from "./types.js";
 
 interface FileRow {
   id: number;
@@ -527,8 +528,7 @@ export class RepoMap {
 
         const existing = existingFiles.get(relPath);
         if (existing && existing.mtime_ms === file.mtimeMs) continue;
-        const ext = extname(file.path).toLowerCase();
-        const language = INDEXABLE_EXTENSIONS[ext] ?? "unknown";
+        const language = detectLanguageFromPath(file.path);
         toIndex.push({ absPath: file.path, relPath, mtime: file.mtimeMs, language });
       }
 
