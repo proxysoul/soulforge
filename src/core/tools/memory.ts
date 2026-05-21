@@ -20,11 +20,13 @@ const categorySchema = z
 interface CreateMemoryToolDeps {
   manager: MemoryManager;
   intelligence?: IntelligenceClient | null;
+  tabId?: string;
 }
 
 export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
   const manager = "manager" in deps ? deps.manager : deps;
   const intelligence = "manager" in deps ? (deps.intelligence ?? null) : null;
+  const toolTabId = "manager" in deps ? deps.tabId : undefined;
   const adapt = (db: ReturnType<typeof manager.getDbForScope>) => ({
     searchUnicode: (q: string, l?: number) => db.searchUnicode(q, l),
     searchTrigram: (q: string, l?: number) => db.searchTrigram(q, l),
@@ -176,7 +178,7 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
         // Mark agent as memory-aware this turn → suppress further passive hints.
         if (args.action === "search" || args.action === "get" || args.action === "list") {
           try {
-            markMemoryAction();
+            markMemoryAction(toolTabId);
           } catch {}
         }
         switch (args.action) {

@@ -567,7 +567,7 @@ export class ContextManager {
   resetConversationTracking(): void {
     this.editedFiles.clear();
     this.surfacedMemoryIds.clear();
-    resetSurfacedHints();
+    resetSurfacedHints(this.tabId ?? undefined);
     this.recallCache = null;
     this.mentionedFiles.clear();
 
@@ -593,7 +593,7 @@ export class ContextManager {
    */
   resetForCompaction(): void {
     this.recallCache = null;
-    resetSurfacedHints();
+    resetSurfacedHints(this.tabId ?? undefined);
     if (this.repoMapCache) this.repoMapCache.at = 0;
     this.repoMapGeneration++;
     this.soulMapDiffChangedFiles.clear();

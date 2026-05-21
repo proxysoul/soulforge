@@ -415,10 +415,16 @@ export async function runAgentTask(
               ...callbacks,
             };
 
-        // Subagent-scoped memory hints — only gotcha-with-path passes,
-        // budget is per-agent (3), parent's surfaced IDs seed dedup.
-        const parentSurfaced = getSurfacedHintIds();
-        result = await runInSubagentScope(parentSurfaced, () => agent.generate(generateArgs));
+        // Subagent-scoped memory hints — budget is per-agent, parent's
+        // surfaced IDs seed dedup. Tab inherited so subagent sees the same
+        // recently-surfaced set as its parent on first probe.
+        const parentTabId = models.tabId;
+        const parentSurfaced = getSurfacedHintIds(parentTabId);
+        result = await runInSubagentScope(
+          parentSurfaced,
+          () => agent.generate(generateArgs),
+          parentTabId,
+        );
       } catch (genErr: unknown) {
         // Recover steps from error or callback accumulator so we can
         // synthesize results even when the agent errors mid-run.

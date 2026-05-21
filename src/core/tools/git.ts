@@ -219,16 +219,19 @@ export const gitTool = {
             paths,
             topics: ["git", args.action],
             context: "git_diff",
+            tabId,
           });
         } else if (args.action === "status") {
           hint = memoryHintComposite({
             topics: ["git", "commit", "status"],
             context: "git_status",
+            tabId,
           });
         } else if (args.action === "commit") {
           hint = memoryHintComposite({
             topics: ["git", "commit", "conventional-commits"],
             context: "git_commit",
+            tabId,
           });
         } else if (
           args.action === "log" ||
@@ -239,7 +242,11 @@ export const gitTool = {
           args.action === "cherry_pick" ||
           args.action === "reset"
         ) {
-          hint = memoryHintComposite({ topics: ["git", args.action], context: "git_other" });
+          hint = memoryHintComposite({
+            topics: ["git", args.action],
+            context: "git_other",
+            tabId,
+          });
         }
         if (hint) result = { ...result, output: `${result.output}${hint}` };
       } catch {}

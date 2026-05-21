@@ -373,7 +373,11 @@ export function buildTools(
 ) {
   const effectiveCwd = cwd ?? process.cwd();
   const mm = opts?.memoryManager ?? new MemoryManager(effectiveCwd);
-  const memoryTool = createMemoryTool({ manager: mm, intelligence: opts?.repoMap ?? null });
+  const memoryTool = createMemoryTool({
+    manager: mm,
+    intelligence: opts?.repoMap ?? null,
+    tabId: opts?.tabId,
+  });
   const skillsEnabled = opts?.agentSkills === true;
   const skillsTool =
     skillsEnabled && opts?.contextManager
@@ -505,7 +509,12 @@ export function buildTools(
             if (hasRanges && spec.ranges) {
               const rangeResults = await Promise.all(
                 spec.ranges.map((r) =>
-                  readFileTool.execute({ path: fp, startLine: r.start, endLine: r.end }),
+                  readFileTool.execute({
+                    path: fp,
+                    startLine: r.start,
+                    endLine: r.end,
+                    tabId: opts?.tabId,
+                  }),
                 ),
               );
               readCountPerFile.set(
@@ -519,6 +528,7 @@ export function buildTools(
             const result = await readFileTool.execute({
               path: fp,
               ...(spec.target ? { target: spec.target, name: spec.name } : {}),
+              tabId: opts?.tabId,
             });
             if (!result.success && isFullRead) fullReadCache.delete(normPath);
             if (result.success && !isFullRead) {
@@ -2034,6 +2044,7 @@ export function buildSubagentExploreTools(opts?: {
                 path: spec.path,
                 startLine: r.start,
                 endLine: r.end,
+                tabId: opts?.tabId,
               });
               outputs.push(result.success ? truncateLines(result.output) : result.output);
             }
@@ -2041,6 +2052,7 @@ export function buildSubagentExploreTools(opts?: {
             const result = await readFileTool.execute({
               path: spec.path,
               ...(spec.target ? { target: spec.target, name: spec.name } : {}),
+              tabId: opts?.tabId,
             });
             if (!result.success) {
               outputs.push(result.output);

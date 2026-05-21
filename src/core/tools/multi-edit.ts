@@ -239,7 +239,7 @@ export const multiEditTool = {
 
       const cwd = process.cwd();
       const rel = filePath.startsWith(`${cwd}/`) ? filePath.slice(cwd.length + 1) : filePath;
-      output += memoryHintComposite({ paths: [rel], context: "edit" });
+      output += memoryHintComposite({ paths: [rel], context: "edit", tabId: args.tabId });
 
       return { success: true, output };
     } catch (err: unknown) {

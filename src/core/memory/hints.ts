@@ -1,20 +1,26 @@
 /**
- * Inline memory hints — surface ACTIONABLE memory references on tool results.
+ * Inline memory hints — surface relevant memory references on tool results.
  *
- * Design principles (the hint earns its tokens by changing live behavior):
- *   1. Only surface hints that pass a quality gate (gotcha, pinned, direct
- *      file_paths match, or volume ≥3). Vague matches stay silent.
+ * State is keyed per-tab (TabHintState in `_tabs`). Tabs share the same Node
+ * process, so without this each tab would dedup against the others and
+ * silence valid hints. tabId flows in via memoryHintComposite({tabId}).
+ * Subagents get their own AsyncLocalStorage scope (runInSubagentScope)
+ * that inherits the parent's tabId + surfaced IDs.
+ *
+ * Design principles:
+ *   1. Any candidate that survives recall is surfaced (no quality gate).
+ *      Memories are precious; users curate them. Treat them as relevant.
  *   2. Imperative wording per tool context — "review before editing",
- *      "review before commit". Bare counts only when a memory(search) call
- *      would actually help.
- *   3. Per-turn dedup + cross-turn cooldown so the agent never sees the same
- *      hint twice in a session.
+ *      "review before commit". Bare volume hints suggest memory(search).
+ *   3. Per-turn dedup + 10-turn cooldown so the agent never sees the same
+ *      hint twice in a row.
  *   4. Suppression after the agent has acted (called memory(search|get|list))
  *      — already in memory-aware mode, no need to nag.
- *   5. Subagent mode: only gotcha with direct path match passes; parent's
- *      already-surfaced IDs seed the dedup set so we don't repeat the parent.
- *   6. Session-wide budget — once 15 hints have surfaced, only gotcha/pinned
- *      slip through. Memory debt does not compound.
+ *   5. Subagent scope: parent's surfaced IDs seed the dedup set so the
+ *      subagent never re-surfaces what the parent already saw. Independent
+ *      budget (SUBAGENT_BUDGET).
+ *   6. Per-tab session budget — once SESSION_BUDGET hints fire, only
+ *      gotcha/pinned slip through. Memory debt does not compound.
  *
  * All helpers swallow errors via reportHintError and never throw — a memory
  * failure can never crash a tool result.
@@ -25,19 +31,46 @@ import type { MemoryManager } from "./manager.js";
 import type { MemoryCategory } from "./types.js";
 
 let _manager: MemoryManager | null = null;
-/** Parent-scope state — used when no subagent ALS context is active. */
-const _surfacedThisTurn = new Set<string>();
-const _surfacedRecently = new Map<string, number>();
-let _turnCounter = 0;
-let _sessionBudgetUsed = 0;
-let _agentActedThisTurn = false;
+
+/**
+ * Per-tab hint state. Tabs share the same Node process; without this each
+ * tab would dedup against the others and silence valid hints. tabId is
+ * passed via memoryHintComposite({tabId}). Callers without a tabId fall
+ * into the GLOBAL_TAB bucket (e.g. headless mode, tests).
+ */
+interface TabHintState {
+  surfacedThisTurn: Set<string>;
+  surfacedRecently: Map<string, number>;
+  turnCounter: number;
+  sessionBudgetUsed: number;
+  agentActedThisTurn: boolean;
+}
+const GLOBAL_TAB = "__global__";
+const _tabs = new Map<string, TabHintState>();
+
+function getTabState(tabId: string): TabHintState {
+  let s = _tabs.get(tabId);
+  if (!s) {
+    s = {
+      surfacedThisTurn: new Set<string>(),
+      surfacedRecently: new Map<string, number>(),
+      turnCounter: 0,
+      sessionBudgetUsed: 0,
+      agentActedThisTurn: false,
+    };
+    _tabs.set(tabId, s);
+  }
+  return s;
+}
 
 /**
  * Per-subagent state lives in AsyncLocalStorage so concurrent agents can't
- * race on a module-level flag. When set, this fully replaces parent state
- * for the duration of the agent's run.
+ * race on a module-level flag. When set, this fully replaces tab state
+ * for the duration of the agent's run. tabId stored so any nested call
+ * still resolves to the right parent tab if scope is exited.
  */
 interface SubagentHintScope {
+  tabId: string;
   surfaced: Set<string>;
   acted: boolean;
   budgetUsed: number;
@@ -54,32 +87,33 @@ export function setMemoryHintProvider(manager: MemoryManager | null): void {
 }
 
 /** Called on /clear, compaction, session restore — flushes per-turn dedup state. */
-export function resetSurfacedHints(): void {
-  _surfacedThisTurn.clear();
-  _agentActedThisTurn = false;
-  _turnCounter++;
-  for (const [id, turn] of _surfacedRecently) {
-    if (_turnCounter - turn > COOLDOWN_TURNS) _surfacedRecently.delete(id);
+export function resetSurfacedHints(tabId: string = GLOBAL_TAB): void {
+  const t = getTabState(tabId);
+  t.surfacedThisTurn.clear();
+  t.agentActedThisTurn = false;
+  t.turnCounter++;
+  for (const [id, turn] of t.surfacedRecently) {
+    if (t.turnCounter - turn > COOLDOWN_TURNS) t.surfacedRecently.delete(id);
   }
 }
 
 /** Hard reset — call on session restore or compaction full reset. */
-export function resetSurfacedHintsHard(): void {
-  _surfacedThisTurn.clear();
-  _surfacedRecently.clear();
-  _agentActedThisTurn = false;
-  _sessionBudgetUsed = 0;
-  _turnCounter = 0;
+export function resetSurfacedHintsHard(tabId?: string): void {
+  if (tabId) {
+    _tabs.delete(tabId);
+    return;
+  }
+  _tabs.clear();
 }
 
 /** Mark that the agent ran a memory action this turn — suppress further hints. */
-export function markMemoryAction(): void {
+export function markMemoryAction(tabId: string = GLOBAL_TAB): void {
   const s = _scope.getStore();
   if (s) {
     s.acted = true;
     return;
   }
-  _agentActedThisTurn = true;
+  getTabState(tabId).agentActedThisTurn = true;
 }
 
 /**
@@ -98,21 +132,26 @@ export function recordMemoryAction(id: string): void {
 }
 
 /** Snapshot IDs surfaced so far — for passing to subagents. */
-export function getSurfacedHintIds(): string[] {
+export function getSurfacedHintIds(tabId: string = GLOBAL_TAB): string[] {
   const s = _scope.getStore();
   if (s) return [...s.surfaced];
-  return [...new Set([..._surfacedThisTurn, ..._surfacedRecently.keys()])];
+  const t = getTabState(tabId);
+  return [...new Set([...t.surfacedThisTurn, ...t.surfacedRecently.keys()])];
 }
 
 /**
  * Run `fn` inside a subagent-scoped hint context. Concurrent agents each get
  * their own scope — no module-level race. Parent IDs seed the dedup set so
- * the subagent never re-surfaces what the parent already saw. Only
- * gotcha-with-path-match passes through (see passesSubagentGate). Budget is
- * SUBAGENT_BUDGET (3) per agent, independent of the parent session budget.
+ * the subagent never re-surfaces what the parent already saw. Budget is
+ * SUBAGENT_BUDGET per agent, independent of the parent tab budget.
  */
-export function runInSubagentScope<T>(parentSurfacedIds: readonly string[], fn: () => T): T {
+export function runInSubagentScope<T>(
+  parentSurfacedIds: readonly string[],
+  fn: () => T,
+  tabId: string = GLOBAL_TAB,
+): T {
   const scope: SubagentHintScope = {
+    tabId,
     surfaced: new Set(parentSurfacedIds),
     acted: false,
     budgetUsed: 0,
@@ -125,23 +164,25 @@ function inSubagentScope(): boolean {
   return _scope.getStore() != null;
 }
 
-/** Mutable accessors that respect the active scope (subagent or parent). */
-function getSurfacedSet(): Set<string> {
-  return _scope.getStore()?.surfaced ?? _surfacedThisTurn;
+/** Mutable accessors that respect the active scope (subagent or parent tab). */
+function getSurfacedSet(tabId: string): Set<string> {
+  return _scope.getStore()?.surfaced ?? getTabState(tabId).surfacedThisTurn;
 }
-function getActed(): boolean {
-  return _scope.getStore()?.acted ?? _agentActedThisTurn;
+function getActed(tabId: string): boolean {
+  const s = _scope.getStore();
+  if (s) return s.acted;
+  return getTabState(tabId).agentActedThisTurn;
 }
-function bumpBudget(): void {
+function bumpBudget(tabId: string): void {
   const s = _scope.getStore();
   if (s) {
     s.budgetUsed++;
     return;
   }
-  _sessionBudgetUsed++;
+  getTabState(tabId).sessionBudgetUsed++;
 }
-function budgetUsed(): number {
-  return _scope.getStore()?.budgetUsed ?? _sessionBudgetUsed;
+function budgetUsed(tabId: string): number {
+  return _scope.getStore()?.budgetUsed ?? getTabState(tabId).sessionBudgetUsed;
 }
 function budgetLimit(): number {
   return _scope.getStore() ? SUBAGENT_BUDGET : SESSION_BUDGET;
@@ -218,8 +259,8 @@ function passesSubagentGate(top: TopCandidate | null): boolean {
 }
 
 /** Budget gate — past budget, only gotcha/pinned slip through. */
-function passesBudgetGate(top: TopCandidate | null): boolean {
-  if (budgetUsed() < budgetLimit()) return true;
+function passesBudgetGate(top: TopCandidate | null, tabId: string): boolean {
+  if (budgetUsed(tabId) < budgetLimit()) return true;
   if (!top) return false;
   return top.pinned || top.category === "gotcha";
 }
@@ -232,17 +273,23 @@ function passesBudgetGate(top: TopCandidate | null): boolean {
  *   single:  · "Commit shape" [a97ae3be] — review before commit
  * Returns "" when nothing should surface.
  */
-function buildHintLine(top: TopCandidate | null, total: number, ctx: HintContext): string {
+function buildHintLine(
+  top: TopCandidate | null,
+  total: number,
+  ctx: HintContext,
+  tabId: string,
+): string {
   if (total <= 0) return "";
   if (isLateContext(ctx)) return "";
-  if (getActed()) return "";
+  if (getActed(tabId)) return "";
   if (inSubagentScope() && !passesSubagentGate(top)) return "";
-  if (!passesBudgetGate(top)) return "";
+  if (!passesBudgetGate(top, tabId)) return "";
 
-  const surfaced = getSurfacedSet();
+  const surfaced = getSurfacedSet(tabId);
+  const tabState = inSubagentScope() ? null : getTabState(tabId);
 
   // Top already shown — collapse to a volume hint only if multi-match.
-  if (top && (surfaced.has(top.id) || (!inSubagentScope() && _surfacedRecently.has(top.id)))) {
+  if (top && (surfaced.has(top.id) || (tabState && tabState.surfacedRecently.has(top.id)))) {
     if (total < 3) return "";
     return `\n· ${String(total)} memories — memory(search) recommended`;
   }
@@ -252,8 +299,8 @@ function buildHintLine(top: TopCandidate | null, total: number, ctx: HintContext
   }
 
   surfaced.add(top.id);
-  if (!inSubagentScope()) _surfacedRecently.set(top.id, _turnCounter);
-  bumpBudget();
+  if (tabState) tabState.surfacedRecently.set(top.id, tabState.turnCounter);
+  bumpBudget(tabId);
   // Telemetry — surface_count++. Acted is recorded later by recordMemoryAction.
   if (_manager) {
     try {
@@ -360,16 +407,28 @@ export function formatMemoryHint(count: number): string {
  * Convenience helpers — route through memoryHintComposite so they get the
  * full quality gate, dedup, budget, and subagent rules.
  */
-export function memoryHintForPaths(paths: string[], context: HintContext = "read"): string {
-  return memoryHintComposite({ paths, context });
+export function memoryHintForPaths(
+  paths: string[],
+  context: HintContext = "read",
+  tabId?: string,
+): string {
+  return memoryHintComposite({ paths, context, tabId });
 }
 
-export function memoryHintForTopics(topics: string[], context: HintContext = "default"): string {
-  return memoryHintComposite({ topics, context });
+export function memoryHintForTopics(
+  topics: string[],
+  context: HintContext = "default",
+  tabId?: string,
+): string {
+  return memoryHintComposite({ topics, context, tabId });
 }
 
-export function memoryHintForQuery(query: string, context: HintContext = "default"): string {
-  return memoryHintComposite({ query, context });
+export function memoryHintForQuery(
+  query: string,
+  context: HintContext = "default",
+  tabId?: string,
+): string {
+  return memoryHintComposite({ query, context, tabId });
 }
 
 /**
@@ -382,9 +441,11 @@ export function memoryHintComposite(opts: {
   topics?: string[];
   query?: string;
   context?: HintContext;
+  tabId?: string;
 }): string {
   if (!_manager) return "";
-  if (_agentActedThisTurn) return "";
+  const tabId = opts.tabId ?? _scope.getStore()?.tabId ?? GLOBAL_TAB;
+  if (getActed(tabId)) return "";
   try {
     const ctx: HintContext = opts.context ?? "default";
     if (isLateContext(ctx)) return "";
@@ -427,7 +488,7 @@ export function memoryHintComposite(opts: {
       else if (c.category === "gotcha" && top.category !== "gotcha" && !top.pinned) top = c;
     }
 
-    return buildHintLine(top, total, ctx);
+    return buildHintLine(top, total, ctx, tabId);
   } catch (err) {
     reportHintError("composite", err);
     return "";
