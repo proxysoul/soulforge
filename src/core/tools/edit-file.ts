@@ -197,7 +197,7 @@ async function applyEdit(
   const nudge = await consumeAstEditNudge(filePath);
   if (nudge) output += `\n${nudge}`;
 
-  output += memoryHintComposite({ paths: [toRelEditPath(filePath)] });
+  output += memoryHintComposite({ paths: [toRelEditPath(filePath)], context: "edit" });
 
   return { success: true, output };
 }
@@ -256,7 +256,7 @@ export const editFileTool = {
         if (dirCreated) out += ` [directory created: ${dir}]`;
         if (openedInEditor) out += " → opened in editor";
         out = await appendCloneHints(filePath, out);
-        out += memoryHintComposite({ paths: [toRelEditPath(filePath)] });
+        out += memoryHintComposite({ paths: [toRelEditPath(filePath)], context: "edit" });
         return { success: true, output: out };
       }
 

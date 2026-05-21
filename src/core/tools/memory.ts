@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { markMemoryAction } from "../memory/hints.js";
 import type { MemoryManager } from "../memory/manager.js";
 import { MemoryRecall } from "../memory/recall.js";
 import type { MemoryCategory, MemoryRecord, MemoryScope } from "../memory/types.js";
@@ -172,6 +173,12 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
     }),
     execute: async (args) => {
       try {
+        // Mark agent as memory-aware this turn → suppress further passive hints.
+        if (args.action === "search" || args.action === "get" || args.action === "list") {
+          try {
+            markMemoryAction();
+          } catch {}
+        }
         switch (args.action) {
           case "write":
             return await handleWrite();

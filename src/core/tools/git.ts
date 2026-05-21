@@ -215,12 +215,20 @@ export const gitTool = {
         let hint = "";
         if (args.action === "diff" || args.action === "show") {
           const paths = extractDiffPaths(result.output);
-          hint = memoryHintComposite({ paths, topics: ["git", args.action] });
+          hint = memoryHintComposite({
+            paths,
+            topics: ["git", args.action],
+            context: "git_diff",
+          });
         } else if (args.action === "status") {
-          hint = memoryHintComposite({ topics: ["git", "commit", "status"] });
+          hint = memoryHintComposite({
+            topics: ["git", "commit", "status"],
+            context: "git_status",
+          });
         } else if (args.action === "commit") {
           hint = memoryHintComposite({
             topics: ["git", "commit", "conventional-commits"],
+            context: "git_commit",
           });
         } else if (
           args.action === "log" ||
@@ -231,7 +239,7 @@ export const gitTool = {
           args.action === "cherry_pick" ||
           args.action === "reset"
         ) {
-          hint = memoryHintComposite({ topics: ["git", args.action] });
+          hint = memoryHintComposite({ topics: ["git", args.action], context: "git_other" });
         }
         if (hint) result = { ...result, output: `${result.output}${hint}` };
       } catch {}

@@ -1187,11 +1187,18 @@ export class MemoryDB {
   topRecallFor(
     opts: { paths?: string[]; topics?: string[]; query?: string },
     limit = 1,
-  ): Array<{ id: string; summary: string; pinned: boolean }> {
-    const ids = new Set<string>();
+  ): Array<{
+    id: string;
+    summary: string;
+    pinned: boolean;
+    category: MemoryCategory | null;
+    hasPathMatch: boolean;
+  }> {
+    const pathIds = new Set<string>();
     if (opts.paths && opts.paths.length > 0) {
-      for (const id of this.findByPaths(opts.paths, 50)) ids.add(id);
+      for (const id of this.findByPaths(opts.paths, 50)) pathIds.add(id);
     }
+    const ids = new Set<string>(pathIds);
     if (opts.topics && opts.topics.length > 0) {
       for (const id of this.findByTopics(opts.topics, 50)) ids.add(id);
     }
@@ -1202,15 +1209,24 @@ export class MemoryDB {
     if (ids.size === 0) return [];
     const placeholders = [...ids].map(() => "?").join(",");
     const rows = this.db
-      .query<{ id: string; summary: string; pinned: number }, string[]>(
-        `SELECT id, summary, pinned
+      .query<{ id: string; summary: string; pinned: number; category: string | null }, string[]>(
+        `SELECT id, summary, pinned, category
        FROM memories
        WHERE id IN (${placeholders}) AND hidden = 0
-       ORDER BY pinned DESC, last_used_at DESC, use_count DESC
+       ORDER BY pinned DESC,
+                CASE category WHEN 'gotcha' THEN 0 WHEN 'pref' THEN 1 WHEN 'decision' THEN 2 ELSE 3 END,
+                last_used_at DESC,
+                use_count DESC
        LIMIT ${limit}`,
       )
       .all(...[...ids]);
-    return rows.map((r) => ({ id: r.id, summary: r.summary, pinned: r.pinned === 1 }));
+    return rows.map((r) => ({
+      id: r.id,
+      summary: r.summary,
+      pinned: r.pinned === 1,
+      category: (r.category as MemoryCategory | null) ?? null,
+      hasPathMatch: pathIds.has(r.id),
+    }));
   }
 }
 

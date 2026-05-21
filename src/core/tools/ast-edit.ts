@@ -193,7 +193,7 @@ export const astEditTool = {
           const relHint = filePath.startsWith(`${cwdHint}/`)
             ? filePath.slice(cwdHint.length + 1)
             : filePath;
-          output += memoryHintComposite({ paths: [relHint] });
+          output += memoryHintComposite({ paths: [relHint], context: "edit" });
           return { success: true, output };
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -283,7 +283,7 @@ export const astEditTool = {
       const relHint = filePath.startsWith(`${cwdHint}/`)
         ? filePath.slice(cwdHint.length + 1)
         : filePath;
-      output += memoryHintComposite({ paths: [relHint] });
+      output += memoryHintComposite({ paths: [relHint], context: "edit" });
 
       return { success: true, output };
     } catch (err: unknown) {

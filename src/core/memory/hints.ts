@@ -1,26 +1,43 @@
 /**
- * Inline memory hints — surface a top memory summary + count alongside tool
- * results that touch files, topics, or query terms with linked memories.
- * Encourages the agent to lean on memory search naturally without spending
- * tokens on a search call.
+ * Inline memory hints — surface ACTIONABLE memory references on tool results.
  *
- * Wired by ContextManager via setMemoryHintProvider; tools call
- * memoryHintForPaths / memoryHintForTopics / memoryHintForQuery /
- * memoryHintComposite — fast SQLite lookups, zero awaited I/O on the read-only
- * path. All helpers swallow errors and report to /errors so a memory failure
- * never crashes a tool.
+ * Design principles (the hint earns its tokens by changing live behavior):
+ *   1. Only surface hints that pass a quality gate (gotcha, pinned, direct
+ *      file_paths match, or volume ≥3). Vague matches stay silent.
+ *   2. Imperative wording per tool context — "review before editing",
+ *      "review before commit". Bare counts only when a memory(search) call
+ *      would actually help.
+ *   3. Per-turn dedup + cross-turn cooldown so the agent never sees the same
+ *      hint twice in a session.
+ *   4. Suppression after the agent has acted (called memory(search|get|list))
+ *      — already in memory-aware mode, no need to nag.
+ *   5. Subagent mode: only gotcha with direct path match passes; parent's
+ *      already-surfaced IDs seed the dedup set so we don't repeat the parent.
+ *   6. Session-wide budget — once 15 hints have surfaced, only gotcha/pinned
+ *      slip through. Memory debt does not compound.
  *
- * Per-turn dedup: each surfaced memory ID is tracked. Repeat fires of the same
- * top memory in the same turn fall back to a bare count to save tokens.
- * `resetSurfacedHints()` is called on cache reset (/clear, compaction).
+ * All helpers swallow errors via reportHintError and never throw — a memory
+ * failure can never crash a tool result.
  */
 import { logBackgroundError } from "../../stores/errors.js";
 import type { MemoryManager } from "./manager.js";
+import type { MemoryCategory } from "./types.js";
 
 let _manager: MemoryManager | null = null;
+/** IDs surfaced in the active turn — cleared on resetSurfacedHints(). */
 const _surfacedThisTurn = new Set<string>();
+/** IDs surfaced earlier in the session with the turn-number stamp. */
+const _surfacedRecently = new Map<string, number>();
+let _turnCounter = 0;
+let _sessionBudgetUsed = 0;
+/** True after the agent ran memory(search|get|list) — suppress further hints this turn. */
+let _agentActedThisTurn = false;
+/** Subagent mode — only gotcha-with-path-match passes through. */
+let _subagentMode = false;
 
 const SUMMARY_MAX = 60;
+const COOLDOWN_TURNS = 10;
+const SESSION_BUDGET = 15;
 
 export function setMemoryHintProvider(manager: MemoryManager | null): void {
   _manager = manager;
@@ -29,6 +46,42 @@ export function setMemoryHintProvider(manager: MemoryManager | null): void {
 /** Called on /clear, compaction, session restore — flushes per-turn dedup state. */
 export function resetSurfacedHints(): void {
   _surfacedThisTurn.clear();
+  _agentActedThisTurn = false;
+  _turnCounter++;
+  // GC cooldown map of entries older than COOLDOWN_TURNS turns.
+  for (const [id, turn] of _surfacedRecently) {
+    if (_turnCounter - turn > COOLDOWN_TURNS) _surfacedRecently.delete(id);
+  }
+}
+
+/** Hard reset — call on session restore or compaction full reset. */
+export function resetSurfacedHintsHard(): void {
+  _surfacedThisTurn.clear();
+  _surfacedRecently.clear();
+  _agentActedThisTurn = false;
+  _sessionBudgetUsed = 0;
+  _turnCounter = 0;
+  _subagentMode = false;
+}
+
+/** Mark that the agent ran a memory action this turn — suppress further hints. */
+export function markMemoryAction(): void {
+  _agentActedThisTurn = true;
+}
+
+/** Enter/exit subagent mode — only gotcha-with-path passes through when true. */
+export function setSubagentMode(enabled: boolean): void {
+  _subagentMode = enabled;
+}
+
+/** Seed the per-turn dedup set with parent's already-surfaced IDs. */
+export function setSurfacedHintBaseline(ids: readonly string[]): void {
+  for (const id of ids) _surfacedThisTurn.add(id);
+}
+
+/** Snapshot IDs surfaced so far — for passing to subagents. */
+export function getSurfacedHintIds(): string[] {
+  return [...new Set([..._surfacedThisTurn, ..._surfacedRecently.keys()])];
 }
 
 function reportHintError(scope: string, err: unknown): void {
@@ -46,31 +99,126 @@ function truncateSummary(s: string): string {
 }
 
 /**
- * Build a rich hint line:
- *   first fire of top:  · "Commit body: short bullets" +2
- *   pinned variant:     · pinned: "Never force push" +4
- *   repeat (dedup):     · 3 memories
- *   only 1 memory:      · "Commit body: short bullets"
- * Returns "" when total is 0.
+ * Hint context — which tool surfaced this hint. Determines the imperative.
+ *   read/grep        → "review before editing"
+ *   git_status/diff  → "review before commit"
+ *   git_commit       → suppressed (too late)
+ *   edit_file/write  → suppressed (too late)
+ *   default          → no imperative (volume hints still pass)
  */
-function buildHintLine(
-  top: { id: string; summary: string; pinned: boolean } | null,
-  total: number,
-): string {
-  if (total <= 0) return "";
-  if (!top) return total === 1 ? "\n· 1 memory" : `\n· ${String(total)} memories`;
+export type HintContext =
+  | "read"
+  | "grep"
+  | "edit"
+  | "git_status"
+  | "git_diff"
+  | "git_commit"
+  | "git_other"
+  | "default";
 
-  // Dedup: top already shown this turn → fall back to bare count.
-  if (_surfacedThisTurn.has(top.id)) {
-    return total === 1 ? "\n· 1 memory" : `\n· ${String(total)} memories`;
+function imperativeFor(ctx: HintContext): string {
+  switch (ctx) {
+    case "read":
+    case "grep":
+      return " — review before editing";
+    case "git_status":
+    case "git_diff":
+      return " — review before commit";
+    case "edit":
+    case "git_commit":
+      return "";
+    default:
+      return "";
   }
-  _surfacedThisTurn.add(top.id);
+}
 
-  const prefix = top.pinned ? "pinned: " : "";
+/** Suppress hints emitted after the agent already edited or committed. */
+function isLateContext(ctx: HintContext): boolean {
+  return ctx === "edit" || ctx === "git_commit";
+}
+
+interface TopCandidate {
+  id: string;
+  summary: string;
+  pinned: boolean;
+  category: MemoryCategory | null;
+  hasPathMatch: boolean;
+}
+
+/** Quality gate — must pass for any non-empty hint to surface. */
+function passesQualityGate(top: TopCandidate | null, total: number): boolean {
+  if (!top) return total >= 3; // bare count only useful at volume
+  if (top.pinned) return true;
+  if (top.category === "gotcha") return true;
+  if (top.hasPathMatch) return true;
+  if (total >= 3) return true;
+  return false;
+}
+
+/** Subagent gate — only loudest signals pass. */
+function passesSubagentGate(top: TopCandidate | null): boolean {
+  if (!top) return false;
+  return top.category === "gotcha" && top.hasPathMatch;
+}
+
+/** Budget gate — past budget, only gotcha/pinned slip through. */
+function passesBudgetGate(top: TopCandidate | null): boolean {
+  if (_sessionBudgetUsed < SESSION_BUDGET) return true;
+  if (!top) return false;
+  return top.pinned || top.category === "gotcha";
+}
+
+/**
+ * Build the hint line. Shape:
+ *   gotcha:  · gotcha "JWT expiry uses container clock" [a97ae3be] — review before commit
+ *   pinned:  · pinned pref "Be terse, fragments over sentences" [1d6d9516]
+ *   volume:  · 3 memories — memory(search) recommended
+ *   single:  · "Commit shape" [a97ae3be] — review before commit
+ * Returns "" when nothing should surface.
+ */
+function buildHintLine(top: TopCandidate | null, total: number, ctx: HintContext): string {
+  if (total <= 0) return "";
+  if (isLateContext(ctx)) return "";
+  if (_agentActedThisTurn) return "";
+  if (_subagentMode && !passesSubagentGate(top)) return "";
+  if (!passesBudgetGate(top)) return "";
+  if (!passesQualityGate(top, total)) return "";
+
+  // Top already shown — collapse to a volume hint only if multi-match.
+  if (top && (_surfacedThisTurn.has(top.id) || _surfacedRecently.has(top.id))) {
+    if (total < 3) return "";
+    return `\n· ${String(total)} memories — memory(search) recommended`;
+  }
+
+  if (!top) {
+    // Volume-only fallback. Always imperative — agent should search.
+    return `\n· ${String(total)} memories — memory(search) recommended`;
+  }
+
+  _surfacedThisTurn.add(top.id);
+  _surfacedRecently.set(top.id, _turnCounter);
+  _sessionBudgetUsed++;
+
+  const id8 = top.id.slice(0, 8);
   const summary = truncateSummary(top.summary);
+  const imp = imperativeFor(ctx);
+
+  // Label: prioritize category for gotcha, then pinned.
+  let label: string;
+  if (top.category === "gotcha") {
+    label = top.pinned ? "pinned gotcha" : "gotcha";
+  } else if (top.pinned) {
+    label = top.category ? `pinned ${top.category}` : "pinned";
+  } else if (top.category && top.category !== "context") {
+    label = top.category;
+  } else {
+    label = "";
+  }
+
+  const labelPart = label ? `${label} ` : "";
   const rest = total - 1;
   const more = rest > 0 ? ` +${String(rest)}` : "";
-  return `\n· ${prefix}"${summary}"${more}`;
+  return `\n· ${labelPart}"${summary}" [${id8}]${more}${imp}`;
 }
 
 /**
@@ -136,41 +284,48 @@ export function countMemoriesForQuery(query: string): number {
 
 /**
  * Format a one-line hint. Returns empty string when count === 0 so callers
- * can unconditionally concatenate.
+ * can unconditionally concatenate. Kept for back-compat — prefer
+ * memoryHintComposite which applies the quality gate.
  */
 export function formatMemoryHint(count: number): string {
   if (count <= 0) return "";
-  return count === 1 ? "\n· 1 memory" : `\n· ${String(count)} memories`;
+  if (count < 3) return ""; // bare counts below volume threshold are noise
+  return `\n· ${String(count)} memories — memory(search) recommended`;
 }
 
 /**
- * Convenience: count + format in one call. Returns "" when nothing linked.
+ * Convenience helpers — route through memoryHintComposite so they get the
+ * full quality gate, dedup, budget, and subagent rules.
  */
-export function memoryHintForPaths(paths: string[]): string {
-  return formatMemoryHint(countMemoriesForPaths(paths));
+export function memoryHintForPaths(paths: string[], context: HintContext = "read"): string {
+  return memoryHintComposite({ paths, context });
 }
 
-export function memoryHintForTopics(topics: string[]): string {
-  return formatMemoryHint(countMemoriesForTopics(topics));
+export function memoryHintForTopics(topics: string[], context: HintContext = "default"): string {
+  return memoryHintComposite({ topics, context });
 }
 
-export function memoryHintForQuery(query: string): string {
-  return formatMemoryHint(countMemoriesForQuery(query));
+export function memoryHintForQuery(query: string, context: HintContext = "default"): string {
+  return memoryHintComposite({ query, context });
 }
 
 /**
  * Composite hint — dedup across paths + topics + query, ranks the best
- * memory (pinned > recent > used) and inlines its summary. Repeats within
- * the same turn fall back to a bare count. Single tail line.
- * Never throws; falls back to "" on error.
+ * memory (pinned > gotcha > pref > decision), applies all gates and emits
+ * an imperative tail line. Returns "" when nothing should surface.
  */
 export function memoryHintComposite(opts: {
   paths?: string[];
   topics?: string[];
   query?: string;
+  context?: HintContext;
 }): string {
   if (!_manager) return "";
+  if (_agentActedThisTurn) return "";
   try {
+    const ctx: HintContext = opts.context ?? "default";
+    if (isLateContext(ctx)) return "";
+
     const projectDb = _manager.getDbForScope("project");
     const globalDb = _manager.getDbForScope("global");
 
@@ -194,21 +349,22 @@ export function memoryHintComposite(opts: {
     const total = ids.size;
     if (total === 0) return "";
 
-    // Rank: query both scopes for top candidate, pick the better one.
+    // Rank: query both scopes for top candidate, pick the loudest signal.
     const projectTop = projectDb.topRecallFor(opts, 1);
     const globalTop = globalDb.topRecallFor(opts, 1);
-    let top: { id: string; summary: string; pinned: boolean } | null = null;
+    let top: TopCandidate | null = null;
     const candidates = [...projectTop, ...globalTop];
     for (const c of candidates) {
       if (!top) {
         top = c;
         continue;
       }
-      // Prefer pinned; otherwise leave existing (already last_used_at sorted).
+      // Loudest wins: pinned > gotcha > existing.
       if (c.pinned && !top.pinned) top = c;
+      else if (c.category === "gotcha" && top.category !== "gotcha" && !top.pinned) top = c;
     }
 
-    return buildHintLine(top, total);
+    return buildHintLine(top, total, ctx);
   } catch (err) {
     reportHintError("composite", err);
     return "";

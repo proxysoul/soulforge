@@ -129,7 +129,7 @@ async function readViaWorker(filePath: string, args: ReadFileArgs): Promise<Tool
   const lineCount = result.numbered.split("\n").length;
   const isRangeRead = args.startLine != null || args.endLine != null;
 
-  const tail = memoryHintForPaths([toRelPath(filePath)]);
+  const tail = memoryHintForPaths([toRelPath(filePath)], "read");
 
   if (!isRangeRead && lineCount > SMART_TRUNCATE_LINES) {
     const cutoffLine = result.start + SMART_TRUNCATE_LINES;
@@ -231,7 +231,7 @@ async function readOnMainThread(filePath: string, args: ReadFileArgs): Promise<T
   if (truncated) {
     output += `\n\n(File has ${String(totalLines)} lines. Showing first ${String(MAX_READ_LINES)}. Use ranges:[{start:${String(start + MAX_READ_LINES)}, end:N}] to continue.)`;
   }
-  output += memoryHintForPaths([toRelPath(filePath)]);
+  output += memoryHintForPaths([toRelPath(filePath)], "read");
 
   return { success: true, output };
 }
