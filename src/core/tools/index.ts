@@ -2442,12 +2442,24 @@ export function buildSubagentExploreTools(opts?: {
 /** Minimal tools for ember explore agents — read-only intelligence tools only.
  *  Used when exploration model differs from parent (no cache sharing, minimize tool schema tokens).
  *  The forge pre-digests tasks with Soul Map data, so these agents do targeted reads + analysis. */
-export function buildEmberExploreTools(opts?: { repoMap?: IntelligenceClient; tabId?: string }) {
+export function buildEmberExploreTools(opts?: {
+  webSearchModel?: import("ai").LanguageModel;
+  onApproveWebSearch?: (query: string) => Promise<boolean>;
+  onApproveFetchPage?: (url: string) => Promise<boolean>;
+  repoMap?: IntelligenceClient;
+  tabId?: string;
+}) {
   const all = buildSubagentExploreTools(opts);
-  const { read, navigate, soul_grep, soul_find, soul_analyze, soul_impact } = all as Record<
-    string,
-    unknown
-  >;
+  const {
+    read,
+    navigate,
+    soul_grep,
+    soul_find,
+    soul_analyze,
+    soul_impact,
+    web_search,
+    fetch_page,
+  } = all as Record<string, unknown>;
   return {
     ...(read ? { read } : {}),
     ...(navigate ? { navigate } : {}),
@@ -2455,6 +2467,8 @@ export function buildEmberExploreTools(opts?: { repoMap?: IntelligenceClient; ta
     ...(soul_find ? { soul_find } : {}),
     ...(soul_analyze ? { soul_analyze } : {}),
     ...(soul_impact ? { soul_impact } : {}),
+    ...(web_search ? { web_search } : {}),
+    ...(fetch_page ? { fetch_page } : {}),
   };
 }
 
