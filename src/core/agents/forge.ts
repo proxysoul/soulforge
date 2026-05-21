@@ -727,8 +727,6 @@ export function createForgeAgent({
   // and soul tools are TIER-1 (cheapest, most informative). This ordering reinforces
   // the decision flow in the system prompt without adding tokens.
   const STABLE_ORDER = [
-    // Lock-in control (auto mode only) — first so model sees it immediately
-    "set_lockin",
     // TIER-1: Soul tools (cheapest, graph-backed)
     "soul_grep",
     "soul_find",
@@ -759,11 +757,12 @@ export function createForgeAgent({
     // Web
     "web_search",
     "fetch_page",
-    // Agent & interactive
+    // Agent & interactive flow-control
     "dispatch",
     "plan",
     "update_plan_step",
     "ask_user",
+    "set_lockin",
     // Editor & session
     "editor",
     "task_list",
