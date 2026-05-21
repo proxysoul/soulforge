@@ -786,6 +786,9 @@ export class MemoryDB {
   }
 
   close(): void {
+    try {
+      this.db.run("PRAGMA optimize");
+    } catch {}
     this.db.close();
   }
 

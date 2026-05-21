@@ -203,6 +203,7 @@ export class RepoMap {
         weight REAL NOT NULL DEFAULT 1.0,
         PRIMARY KEY (source_file_id, target_file_id)
       );
+      CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_file_id);
     `);
 
     this.db.run(`
@@ -5019,6 +5020,11 @@ export class RepoMap {
         );
       }
     }
+    // Refresh query-planner stats so the next boot picks optimal indexes.
+    // Best-effort: never block shutdown on this.
+    try {
+      this.db.run("PRAGMA optimize");
+    } catch {}
     this.db.close();
   }
 
