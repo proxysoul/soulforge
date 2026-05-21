@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { normalizeTokenKey, type ThemeTokens, BUILTIN_THEMES, DARK_THEME } from "./tokens.js";
+import { BUILTIN_THEMES, DARK_THEME, normalizeTokenKey, type ThemeTokens } from "./tokens.js";
 
 interface ThemeState {
   name: string;
