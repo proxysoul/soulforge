@@ -2,6 +2,39 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.16.5] — 2026-05-21
+
+### Bug Fixes
+
+- **assets**: widen llmg svg viewBox to prevent text clipping
+- **context**: drive pending semantic mode through onScanComplete
+- **memory**: per-tab hint state — tabs no longer silence each other
+- **presets**: skip malformed specs at boot instead of failing each load
+- **sessions**: single app-level session id + per-tab slice writes
+- **sessions**: serialize saves per session to prevent restore corruption
+- **ui**: keep thinking spinner up until final text streams
+### Documentation
+
+- **sponsors**: clarify GitHub Sponsors supports one-time, fix dark-mode logo, reorder nav
+- **sponsors**: self-host LLM Gateway logo + add mintlify sponsors page
+### Features
+
+- **memory**: hint surface telemetry — schema v2→v3, non-breaking
+- **memory**: per-subagent hint scope via AsyncLocalStorage
+- **memory**: strip hint footers on compaction + teach agent the new shape
+- **memory**: actionable inline hints — category, imperatives, dedup, gates
+- **repo-map**: scale type-edge weight in PageRank propagation
+- **repo-map**: demote type-only and barrel files in ranking
+### Miscellaneous
+
+- **biome**: add github + json reporters with artifact upload
+### Performance
+
+- **repo-map**: cache cochanges by HEAD sha and persist rendered map
+### Refactor
+
+- **memory**: loud/quiet hint shape — prefs are loudest, pinned/pref bypass cooldown
+- **memory**: relax hint gate — surface relevant decisions, not just gotcha/pinned
 ## [2.16.4] — 2026-05-21
 
 ### Features
