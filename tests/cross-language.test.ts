@@ -614,11 +614,10 @@ describe("RegexBackend — extension edge cases", () => {
     expect(outline?.language).toBe("javascript");
   });
 
-  it("no extension defaults to unknown (uses TS patterns)", async () => {
+  it("Makefile detected by bare filename", async () => {
     const f = writeTemp("Makefile", "function build() {}");
     const outline = await backend.getFileOutline(f);
-    expect(outline?.language).toBe("unknown");
-    expect(outline?.symbols.find((s) => s.name === "build")).toBeDefined();
+    expect(outline?.language).toBe("makefile");
   });
 
   it(".vue file is detected as vue by regex backend", async () => {

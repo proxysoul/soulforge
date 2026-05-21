@@ -26,7 +26,26 @@ export type Language =
   | "json"
   | "toml"
   | "yaml"
+  | "xml"
+  | "markdown"
+  | "mdx"
+  | "sql"
+  | "graphql"
+  | "proto"
+  | "properties"
+  | "ini"
+  | "env"
   | "dockerfile"
+  | "makefile"
+  | "nix"
+  | "hcl"
+  | "bazel"
+  | "jsonnet"
+  | "just"
+  | "svg"
+  | "csv"
+  | "ignore"
+  | "lockfile"
   | "vue"
   | "rescript"
   | "solidity"
@@ -114,8 +133,47 @@ export const EXT_TO_LANGUAGE: Record<string, Language> = {
   // YAML
   ".yaml": "yaml",
   ".yml": "yaml",
+  // XML
+  ".xml": "xml",
+  // Markdown
+  ".md": "markdown",
+  ".markdown": "markdown",
+  ".mdx": "mdx",
+  // Query / schema languages
+  ".sql": "sql",
+  ".graphql": "graphql",
+  ".gql": "graphql",
+  ".proto": "proto",
+  // Config / dotfiles
+  ".env": "env",
+  ".ini": "ini",
+  ".cfg": "ini",
+  ".conf": "ini",
+  ".properties": "properties",
   // Dockerfile
   ".dockerfile": "dockerfile",
+  // Make
+  ".mk": "makefile",
+  // Nix
+  ".nix": "nix",
+  // HCL / Terraform
+  ".hcl": "hcl",
+  ".tf": "hcl",
+  ".tfvars": "hcl",
+  // Bazel / Starlark
+  ".bzl": "bazel",
+  ".star": "bazel",
+  ".bazel": "bazel",
+  // Jsonnet
+  ".jsonnet": "jsonnet",
+  ".libsonnet": "jsonnet",
+  // Data / assets
+  ".svg": "svg",
+  ".csv": "csv",
+  ".tsv": "csv",
+  // Lockfiles
+  ".lock": "lockfile",
+  ".lockb": "lockfile",
   // Vue
   ".vue": "vue",
   // ReScript
@@ -129,16 +187,59 @@ export const EXT_TO_LANGUAGE: Record<string, Language> = {
   ".el": "elisp",
 };
 
-/** Detect language from a file path using the canonical map */
+/** Bare filenames (no extension) that map to a language. Lowercased lookup. */
+export const BARE_FILENAME_TO_LANGUAGE: Record<string, Language> = {
+  dockerfile: "dockerfile",
+  containerfile: "dockerfile",
+  makefile: "makefile",
+  gnumakefile: "makefile",
+  justfile: "just",
+  ".justfile": "just",
+  build: "bazel",
+  "build.bazel": "bazel",
+  workspace: "bazel",
+  "workspace.bazel": "bazel",
+  "module.bazel": "bazel",
+  ".env": "env",
+  ".gitignore": "ignore",
+  ".dockerignore": "ignore",
+  ".npmignore": "ignore",
+  ".prettierignore": "ignore",
+  ".eslintignore": "ignore",
+  ".editorconfig": "ini",
+  "bun.lock": "lockfile",
+  "bun.lockb": "lockfile",
+  "package-lock.json": "lockfile",
+  "pnpm-lock.yaml": "lockfile",
+  "yarn.lock": "lockfile",
+  "cargo.lock": "lockfile",
+  "poetry.lock": "lockfile",
+  "composer.lock": "lockfile",
+  "gemfile.lock": "lockfile",
+  "go.sum": "lockfile",
+  gemfile: "ruby",
+  rakefile: "ruby",
+  podfile: "ruby",
+};
+
+/** Detect language from a file path using the canonical maps. */
 export function detectLanguageFromPath(file: string): Language {
-  const dot = file.lastIndexOf(".");
-  if (dot === -1) {
-    // Handle Dockerfile, Makefile, etc.
-    const name = file.slice(file.lastIndexOf("/") + 1);
-    if (name === "Dockerfile" || name.startsWith("Dockerfile.")) return "dockerfile";
-    return "unknown";
-  }
-  return EXT_TO_LANGUAGE[file.slice(dot).toLowerCase()] ?? "unknown";
+  const slash = file.lastIndexOf("/");
+  const base = (slash === -1 ? file : file.slice(slash + 1)).toLowerCase();
+
+  // Bare-filename match first (Makefile, Dockerfile, .gitignore, BUILD, etc.).
+  const bare = BARE_FILENAME_TO_LANGUAGE[base];
+  if (bare) return bare;
+
+  // Dockerfile.* / Makefile.* / Justfile.* variants.
+  if (base.startsWith("dockerfile.")) return "dockerfile";
+  if (base.startsWith("containerfile.")) return "dockerfile";
+  if (base.startsWith("makefile.")) return "makefile";
+  if (base.startsWith("justfile.")) return "just";
+
+  const dot = base.lastIndexOf(".");
+  if (dot === -1) return "unknown";
+  return EXT_TO_LANGUAGE[base.slice(dot)] ?? "unknown";
 }
 
 /** A location in source code */

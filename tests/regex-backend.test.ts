@@ -243,11 +243,10 @@ describe("detectLang (via readSymbol language field)", () => {
     expect(block?.language).toBe("javascript");
   });
 
-  it("returns unknown for extensionless files", async () => {
+  it("detects Makefile by bare filename", async () => {
     const f = writeTemp("Makefile", "function foo() {}");
     const block = await backend.readSymbol(f, "foo");
-    // Falls back to TS_PATTERNS, language will be "unknown"
-    expect(block?.language).toBe("unknown");
+    expect(block?.language).toBe("makefile");
   });
 });
 

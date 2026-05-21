@@ -4,83 +4,22 @@ import { extname, join, resolve } from "node:path";
 import { IGNORED_DIRS } from "../context/file-tree.js";
 import { isForbidden } from "../security/forbidden.js";
 import type { Language, SymbolKind } from "./types.js";
+import { EXT_TO_LANGUAGE } from "./types.js";
 
-export const INDEXABLE_EXTENSIONS: Record<string, Language> = {
-  ".ts": "typescript",
-  ".tsx": "typescript",
-  ".mts": "typescript",
-  ".cts": "typescript",
-  ".js": "javascript",
-  ".jsx": "javascript",
-  ".mjs": "javascript",
-  ".cjs": "javascript",
-  ".py": "python",
-  ".go": "go",
-  ".rs": "rust",
-  ".java": "java",
-  ".c": "c",
-  ".h": "c",
-  ".cpp": "cpp",
-  ".cc": "cpp",
-  ".cxx": "cpp",
-  ".hpp": "cpp",
-  ".hh": "cpp",
-  ".hxx": "cpp",
-  ".cs": "csharp",
-  ".rb": "ruby",
-  ".php": "php",
-  ".swift": "swift",
-  ".kt": "kotlin",
-  ".kts": "kotlin",
-  ".scala": "scala",
-  ".sc": "scala",
-  ".lua": "lua",
-  ".ex": "elixir",
-  ".exs": "elixir",
-  ".dart": "dart",
-  ".zig": "zig",
-  ".sh": "bash",
-  ".bash": "bash",
-  ".zsh": "bash",
-  ".ml": "ocaml",
-  ".mli": "ocaml",
-  ".m": "objc",
-  ".el": "elisp",
-  ".res": "rescript",
-  ".resi": "rescript",
-  ".sol": "solidity",
-  ".tla": "tlaplus",
-  ".vue": "vue",
-  // Additional extensions from EXT_TO_LANGUAGE
-  ".pyw": "python",
-  ".erb": "ruby",
-  // Config/data files — no AST symbols, but tracked in the map
-  ".json": "unknown",
-  ".jsonc": "unknown",
-  ".yaml": "unknown",
-  ".yml": "unknown",
-  ".toml": "unknown",
-  ".xml": "unknown",
-  ".md": "unknown",
-  ".css": "css",
-  ".scss": "css",
-  ".less": "css",
-  ".html": "html",
-  ".htm": "html",
-  ".sql": "unknown",
-  ".graphql": "unknown",
-  ".gql": "unknown",
-  ".proto": "unknown",
-  ".env": "unknown",
-  ".conf": "unknown",
-  ".ini": "unknown",
-  ".cfg": "unknown",
-  ".dockerfile": "unknown",
-};
+/**
+ * Extensions tracked by the repo map.
+ *
+ * Derived view over the canonical `EXT_TO_LANGUAGE` (see `./types.ts`).
+ * Re-export shape kept for callers that want a fast O(1) lookup of
+ * "is this extension indexable?".
+ */
+export const INDEXABLE_EXTENSIONS: Record<string, Language> = { ...EXT_TO_LANGUAGE };
 
-/** Languages that are tracked in the file list but should not produce identifier-based refs.
- *  They have no meaningful AST symbols and their text content (JSON keys, YAML fields, markdown prose)
- *  would pollute the cross-file reference graph with false edges. */
+/** Languages that are tracked in the file list but should not produce identifier-based
+ *  refs, accumulate PageRank, or be classified as "dead" via the import graph.
+ *  They have no meaningful AST symbols and their textual content (JSON keys, YAML
+ *  fields, markdown prose) would pollute the cross-file reference graph with false
+ *  edges. */
 export const NON_CODE_LANGUAGES: ReadonlySet<Language> = new Set<Language>([
   "unknown",
   "css",
@@ -88,7 +27,26 @@ export const NON_CODE_LANGUAGES: ReadonlySet<Language> = new Set<Language>([
   "json",
   "toml",
   "yaml",
+  "xml",
+  "markdown",
+  "mdx",
+  "sql",
+  "graphql",
+  "proto",
+  "properties",
+  "ini",
+  "env",
   "dockerfile",
+  "makefile",
+  "nix",
+  "hcl",
+  "bazel",
+  "jsonnet",
+  "just",
+  "svg",
+  "csv",
+  "ignore",
+  "lockfile",
 ]);
 
 /**

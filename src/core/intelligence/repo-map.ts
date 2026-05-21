@@ -1848,16 +1848,21 @@ export class RepoMap {
   private async computePageRank(personalization?: Map<number, number>): Promise<void> {
     const tick = () => new Promise<void>((r) => setTimeout(r, 1));
     const files = this.db
-      .query<{ id: number; pagerank: number }, []>("SELECT id, pagerank FROM files")
+      .query<{ id: number; pagerank: number; language: string }, []>(
+        "SELECT id, pagerank, language FROM files",
+      )
       .all();
     if (files.length === 0) return;
 
     const n = files.length;
     const idToIdx = new Map<number, number>();
     const ids: number[] = [];
+    const isCode: boolean[] = new Array(n);
     for (const file of files) {
-      idToIdx.set(file.id, ids.length);
+      const idx = ids.length;
+      idToIdx.set(file.id, idx);
       ids.push(file.id);
+      isCode[idx] = !NON_CODE_LANGUAGES.has(file.language as Language);
     }
 
     const outWeight: number[] = new Array(n).fill(0);
@@ -1880,40 +1885,44 @@ export class RepoMap {
       }
     }
 
-    // Build personalization vector (teleport distribution)
-    // Blend: 70% uniform baseline + 30% context boost for balanced ranking
+    // Build personalization vector (teleport distribution).
+    // Restricted to code files — non-code (JSON, MD, YAML, TOML, …) is tracked
+    // in the file list but excluded from PageRank so config/docs can't outrank
+    // real source modules via dangling-node redistribution.
     const pv = new Float64Array(n);
-    const uniform = 1 / n;
+    let codeCount = 0;
+    for (let i = 0; i < n; i++) if (isCode[i]) codeCount++;
+    const uniform = codeCount > 0 ? 1 / codeCount : 1 / n;
     if (personalization && personalization.size > 0) {
       let boostSum = 0;
       for (const [fileId, boost] of personalization) {
         const idx = idToIdx.get(fileId);
-        if (idx !== undefined) {
+        if (idx !== undefined && isCode[idx]) {
           pv[idx] = boost;
           boostSum += boost;
         }
       }
       if (boostSum > 0) {
         for (let i = 0; i < n; i++) {
-          pv[i] = 0.7 * uniform + 0.3 * ((pv[i] ?? 0) / boostSum);
+          pv[i] = isCode[i] ? 0.7 * uniform + 0.3 * ((pv[i] ?? 0) / boostSum) : 0;
         }
       } else {
-        pv.fill(uniform);
+        for (let i = 0; i < n; i++) pv[i] = isCode[i] ? uniform : 0;
       }
     } else {
-      pv.fill(uniform);
+      for (let i = 0; i < n; i++) pv[i] = isCode[i] ? uniform : 0;
     }
 
     // Warm start: seed with previous PageRank when available. Converges in
     // ~5 iterations instead of PAGERANK_ITERATIONS when the graph barely
     // changed. Falls back to uniform on first scan / missing values.
     let priorSum = 0;
-    for (const f of files) priorSum += f.pagerank || 0;
+    for (let i = 0; i < n; i++) if (isCode[i]) priorSum += files[i]?.pagerank || 0;
     let rank = new Float64Array(n);
     if (priorSum > 0.5 && priorSum < 1.5) {
-      for (let i = 0; i < n; i++) rank[i] = files[i]?.pagerank ?? uniform;
+      for (let i = 0; i < n; i++) rank[i] = isCode[i] ? (files[i]?.pagerank ?? uniform) : 0;
     } else {
-      rank.fill(uniform);
+      for (let i = 0; i < n; i++) rank[i] = isCode[i] ? uniform : 0;
     }
     let next = new Float64Array(n);
 
@@ -1923,7 +1932,7 @@ export class RepoMap {
 
       let danglingSum = 0;
       for (let i = 0; i < n; i++) {
-        if ((outWeight[i] ?? 0) === 0) danglingSum += rank[i] ?? 0;
+        if (isCode[i] && (outWeight[i] ?? 0) === 0) danglingSum += rank[i] ?? 0;
       }
       // Dangling nodes distribute to personalization vector
       for (let j = 0; j < n; j++) {
@@ -1960,16 +1969,21 @@ export class RepoMap {
   /** Sync version for render-time personalized PageRank (small, bounded workload) */
   private computePageRankSync(personalization?: Map<number, number>): void {
     const files = this.db
-      .query<{ id: number; pagerank: number }, []>("SELECT id, pagerank FROM files")
+      .query<{ id: number; pagerank: number; language: string }, []>(
+        "SELECT id, pagerank, language FROM files",
+      )
       .all();
     if (files.length === 0) return;
 
     const n = files.length;
     const idToIdx = new Map<number, number>();
     const ids: number[] = [];
+    const isCode: boolean[] = new Array(n);
     for (const file of files) {
-      idToIdx.set(file.id, ids.length);
+      const idx = ids.length;
+      idToIdx.set(file.id, idx);
       ids.push(file.id);
+      isCode[idx] = !NON_CODE_LANGUAGES.has(file.language as Language);
     }
 
     const outWeight: number[] = new Array(n).fill(0);
@@ -1990,37 +2004,41 @@ export class RepoMap {
       }
     }
 
+    // Non-code files (JSON/MD/YAML/TOML/HTML/CSS/…) excluded from teleport so
+    // they can't accumulate rank via dangling redistribution.
     const pv = new Float64Array(n);
-    const uniform = 1 / n;
+    let codeCount = 0;
+    for (let i = 0; i < n; i++) if (isCode[i]) codeCount++;
+    const uniform = codeCount > 0 ? 1 / codeCount : 1 / n;
     if (personalization && personalization.size > 0) {
       let boostSum = 0;
       for (const [fileId, boost] of personalization) {
         const idx = idToIdx.get(fileId);
-        if (idx !== undefined) {
+        if (idx !== undefined && isCode[idx]) {
           pv[idx] = boost;
           boostSum += boost;
         }
       }
       if (boostSum > 0) {
         for (let i = 0; i < n; i++) {
-          pv[i] = 0.7 * uniform + 0.3 * ((pv[i] ?? 0) / boostSum);
+          pv[i] = isCode[i] ? 0.7 * uniform + 0.3 * ((pv[i] ?? 0) / boostSum) : 0;
         }
       } else {
-        pv.fill(uniform);
+        for (let i = 0; i < n; i++) pv[i] = isCode[i] ? uniform : 0;
       }
     } else {
-      pv.fill(uniform);
+      for (let i = 0; i < n; i++) pv[i] = isCode[i] ? uniform : 0;
     }
 
     // Warm start: seed with persisted PageRank when valid (sum ≈ 1).
     // Personalization-only differences converge in 2-3 iterations.
     let priorSum = 0;
-    for (const f of files) priorSum += f.pagerank || 0;
+    for (let i = 0; i < n; i++) if (isCode[i]) priorSum += files[i]?.pagerank || 0;
     let rank = new Float64Array(n);
     if (priorSum > 0.5 && priorSum < 1.5) {
-      for (let i = 0; i < n; i++) rank[i] = files[i]?.pagerank ?? uniform;
+      for (let i = 0; i < n; i++) rank[i] = isCode[i] ? (files[i]?.pagerank ?? uniform) : 0;
     } else {
-      rank.fill(uniform);
+      for (let i = 0; i < n; i++) rank[i] = isCode[i] ? uniform : 0;
     }
     let next = new Float64Array(n);
 
@@ -2029,7 +2047,7 @@ export class RepoMap {
 
       let danglingSum = 0;
       for (let i = 0; i < n; i++) {
-        if ((outWeight[i] ?? 0) === 0) danglingSum += rank[i] ?? 0;
+        if (isCode[i] && (outWeight[i] ?? 0) === 0) danglingSum += rank[i] ?? 0;
       }
       for (let j = 0; j < n; j++) {
         next[j] = (next[j] ?? 0) + PAGERANK_DAMPING * danglingSum * (pv[j] ?? 0);
