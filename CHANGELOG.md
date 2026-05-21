@@ -2,6 +2,18 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.16.4] — 2026-05-21
+
+### Features
+
+- **memory**: rich hint tails with per-turn dedup
+- **theme**: default to proxysoul-coffee
+### Miscellaneous
+
+- **theme**: sort imports in store
+### Refactor
+
+- **forge**: group set_lockin with flow-control tools
 ## [2.16.3] — 2026-05-20
 
 ### Bug Fixes
