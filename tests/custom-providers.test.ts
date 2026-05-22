@@ -630,7 +630,7 @@ describe("buildCustomProvider.fetchModels", () => {
 		const envKey = "TEST_FETCH_KEY_" + Date.now();
 		process.env[envKey] = "sk-my-secret";
 		let capturedHeaders: Headers | undefined;
-		globalThis.fetch = mock((url: string, init: RequestInit) => {
+		globalThis.fetch = mock((_url: string, init: RequestInit) => {
 			capturedHeaders = new Headers(init.headers);
 			return Promise.resolve(
 				new Response(JSON.stringify({ data: [] }), { status: 200 }),
@@ -653,7 +653,7 @@ describe("buildCustomProvider.fetchModels", () => {
 
 	test("sends no Authorization header during auto-discovery when no envVar", async () => {
 		let capturedHeaders: Headers | undefined;
-		globalThis.fetch = mock((url: string, init: RequestInit) => {
+		globalThis.fetch = mock((_url: string, init: RequestInit) => {
 			capturedHeaders = new Headers(init.headers);
 			return Promise.resolve(
 				new Response(JSON.stringify({ data: [] }), { status: 200 }),
@@ -730,7 +730,7 @@ describe("buildCustomProvider.fetchModels", () => {
 		const envKey = "TEST_FETCH_KEY_" + Date.now();
 		process.env[envKey] = "sk-my-secret";
 		let capturedHeaders: Headers | undefined;
-		globalThis.fetch = mock((url: string, init: RequestInit) => {
+		globalThis.fetch = mock((_url: string, init: RequestInit) => {
 			capturedHeaders = new Headers(init.headers);
 			return Promise.resolve(
 				new Response(JSON.stringify({ data: [] }), { status: 200 }),
@@ -754,7 +754,7 @@ describe("buildCustomProvider.fetchModels", () => {
 
 	test("sends no Authorization header when no envVar with explicit modelsAPI", async () => {
 		let capturedHeaders: Headers | undefined;
-		globalThis.fetch = mock((url: string, init: RequestInit) => {
+		globalThis.fetch = mock((_url: string, init: RequestInit) => {
 			capturedHeaders = new Headers(init.headers);
 			return Promise.resolve(
 				new Response(JSON.stringify({ data: [] }), { status: 200 }),
@@ -849,7 +849,7 @@ describe("buildCustomProvider reasoning config", () => {
 
 	test("fetch wrapper injects reasoning effort into request body", async () => {
 		let capturedBody: string | null = null;
-		globalThis.fetch = mock((url: string, init: RequestInit) => {
+		globalThis.fetch = mock((_url: string, init: RequestInit) => {
 			capturedBody = typeof init.body === "string" ? init.body : null;
 			return Promise.resolve(
 				new Response(
@@ -885,7 +885,7 @@ describe("buildCustomProvider reasoning config", () => {
 
 	test("fetch wrapper forwards effort 'none' to explicitly disable thinking", async () => {
 		let capturedBody: string | null = null;
-		globalThis.fetch = mock((url: string, init: RequestInit) => {
+		globalThis.fetch = mock((_url: string, init: RequestInit) => {
 			capturedBody = typeof init.body === "string" ? init.body : null;
 			return Promise.resolve(
 				new Response(
@@ -920,7 +920,7 @@ describe("buildCustomProvider reasoning config", () => {
 
 	test("fetch wrapper injects DashScope-style thinking params", async () => {
 		let capturedBody: string | null = null;
-		globalThis.fetch = mock((url: string, init: RequestInit) => {
+		globalThis.fetch = mock((_url: string, init: RequestInit) => {
 			capturedBody = typeof init.body === "string" ? init.body : null;
 			return Promise.resolve(
 				new Response(
@@ -956,7 +956,7 @@ describe("buildCustomProvider reasoning config", () => {
 
 	test("fetch wrapper injects extraParams verbatim", async () => {
 		let capturedBody: string | null = null;
-		globalThis.fetch = mock((url: string, init: RequestInit) => {
+		globalThis.fetch = mock((_url: string, init: RequestInit) => {
 			capturedBody = typeof init.body === "string" ? init.body : null;
 			return Promise.resolve(
 				new Response(
@@ -995,7 +995,7 @@ describe("buildCustomProvider reasoning config", () => {
 
 	test("fetch wrapper does not mutate original init object", async () => {
 		let capturedInit: RequestInit | undefined;
-		globalThis.fetch = mock((url: string, init: RequestInit) => {
+		globalThis.fetch = mock((_url: string, init: RequestInit) => {
 			capturedInit = init;
 			return Promise.resolve(
 				new Response(
@@ -1031,7 +1031,7 @@ describe("buildCustomProvider reasoning config", () => {
 
 	test("fetch wrapper skips injection when body is not a string", async () => {
 		let capturedBody: unknown = null;
-		globalThis.fetch = mock((url: string, init: RequestInit) => {
+		globalThis.fetch = mock((_url: string, init: RequestInit) => {
 			capturedBody = init.body;
 			return Promise.resolve(
 				new Response(
