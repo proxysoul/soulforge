@@ -3,11 +3,9 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BackendProbeResult, HealthCheckResult } from "../../core/intelligence/router.js";
 import { type ThemeTokens, useTheme } from "../../core/theme/index.js";
-import { useSpinnerFrameRef } from "../layout/shared.js";
+import { SPINNER_FRAMES, useSpinnerFrameRef } from "../layout/shared.js";
 import { InfoLine, type InfoLineData, PremiumPopup, Section } from "../ui/index.js";
 import { listScrollAccel } from "../ui/scroll.js";
-
-const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 interface Props {
   visible: boolean;
@@ -113,7 +111,7 @@ export function DiagnosePopup({ visible, onClose, runHealthCheck }: Props) {
   const [cursor, setCursor] = useState(0);
   const scrollRef = useRef<ScrollBoxRenderable>(null);
   const spinnerRef = useSpinnerFrameRef();
-  const spinnerCh = SPINNER[spinnerRef.current % SPINNER.length] ?? "⠋";
+  const spinnerCh = SPINNER_FRAMES[spinnerRef.current % SPINNER_FRAMES.length] ?? "⠋";
 
   const popupW = Math.min(80, Math.max(56, Math.floor(tw * 0.65)));
   const popupH = Math.min(30, Math.max(16, th - 4));

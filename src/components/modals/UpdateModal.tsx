@@ -11,6 +11,7 @@ import {
   performUpgrade,
 } from "../../core/version.js";
 import { useVersionStore } from "../../stores/version.js";
+import { SPINNER_FRAMES } from "../layout/shared.js";
 import { Divider, PremiumPopup, Section, VSpacer } from "../ui/index.js";
 
 type Phase = "info" | "upgrading" | "success" | "failed";
@@ -54,7 +55,6 @@ const CHANGELOG_ERROR_QUIPS = [
   "The changelog embers have gone cold — GitHub unreachable",
 ];
 
-const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const MAX_LOG = 50;
 const BOLD = TextAttributes.BOLD;
 const ITALIC = TextAttributes.ITALIC;
@@ -348,7 +348,7 @@ export function UpdateModal({ visible, onClose }: Props) {
 
   // ── Upgrading ───────────────────────────────────────────────────────────
   if (phase === "upgrading") {
-    const spin = SPINNER[spinIdx % SPINNER.length];
+    const spin = SPINNER_FRAMES[spinIdx % SPINNER_FRAMES.length];
     const quip = UPGRADE_QUIPS[quipIdx % UPGRADE_QUIPS.length] ?? "";
     const visibleLog = logLines.slice(-logH);
 
