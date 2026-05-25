@@ -293,4 +293,58 @@ describe("platform shim: cross-OS parity helpers", () => {
     expect(dirs.length).toBeGreaterThan(0);
     expect(dirs[0]).toBe(userFontDir());
   });
+
+  test("windowsPath is a no-op on POSIX", async () => {
+    if (IS_WIN) return;
+    const { windowsPath } = await import("../src/core/platform/index.js");
+    expect(windowsPath("/home/user/file")).toBe("/home/user/file");
+    expect(windowsPath("")).toBe("");
+  });
+
+  test("windowsPath translates Git Bash / Cygwin / WSL prefixes on win32", async () => {
+    if (!IS_WIN) return;
+    const { windowsPath } = await import("../src/core/platform/index.js");
+    expect(windowsPath("/c/Users/me")).toBe("C:/Users/me");
+    expect(windowsPath("/cygdrive/c/Users/me")).toBe("C:/Users/me");
+    expect(windowsPath("/mnt/c/Users/me")).toBe("C:/Users/me");
+    expect(windowsPath("C:/Users/me")).toBe("C:/Users/me");
+  });
+
+  test("matchGlob handles separator differences", async () => {
+    const { matchGlob } = await import("../src/core/platform/index.js");
+    expect(matchGlob("a/b/c.env", "**/*.env")).toBe(true);
+    expect(matchGlob("a\\b\\c.env", "**/*.env")).toBe(true);
+    expect(matchGlob("a/b/c.txt", "**/*.env")).toBe(false);
+    expect(matchGlob("", "**/*.env")).toBe(false);
+  });
+
+  test("matchGlob is case-insensitive on win32, exact on POSIX", async () => {
+    const { matchGlob } = await import("../src/core/platform/index.js");
+    if (IS_WIN) {
+      expect(matchGlob("C:/Users/Me/.ENV", "**/.env")).toBe(true);
+    } else {
+      expect(matchGlob("a/b/.ENV", "**/.env")).toBe(false);
+      expect(matchGlob("a/b/.env", "**/.env")).toBe(true);
+    }
+  });
+
+  test("canonicalPath is a no-op on POSIX", async () => {
+    if (IS_WIN) return;
+    const { canonicalPath } = await import("../src/core/platform/index.js");
+    expect(canonicalPath("/etc/hosts")).toBe("/etc/hosts");
+  });
+});
+
+describe("platform shim: console (Windows TTY only)", () => {
+  test("console helpers are callable + no-op on non-Windows / non-TTY", async () => {
+    const m = await import("../src/core/platform/console-win32.js");
+    expect(typeof m.disableProcessedInput).toBe("function");
+    expect(typeof m.flushInputBuffer).toBe("function");
+    expect(typeof m.installCtrlCGuard).toBe("function");
+    m.disableProcessedInput();
+    m.flushInputBuffer();
+    const unhook = m.installCtrlCGuard();
+    if (!IS_WIN) expect(unhook).toBeUndefined();
+    if (unhook) unhook();
+  });
 });

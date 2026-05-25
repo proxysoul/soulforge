@@ -1,0 +1,192 @@
+---
+title: Windows
+description: Installing, running, and known limits on Windows 10 1809+ and Windows 11.
+---
+
+SoulForge ships first-class support for **Windows 10 1809+ (x64)** and **Windows 11 (x64)**. ARM64 is deferred (upstream native addon dependency). 32-bit Windows is not supported (Bun has no `ia32` target).
+
+## Quick install
+
+The fastest path is the PowerShell one-liner. Open a regular PowerShell or Windows Terminal:
+
+```powershell
+powershell -c "irm https://soulforge.dev/install.ps1 | iex"
+```
+
+What this does, mirroring Bun's installer pattern:
+
+- User-scoped install to `%LOCALAPPDATA%\SoulForge\bin` — no admin needed.
+- Adds the install dir to your User `PATH` (idempotent — rerun = upgrade).
+- Forces TLS 1.2 for older Windows 10 builds.
+- Auto-unblocks the .exe (strips Mark-of-the-Web so SmartScreen quietens).
+
+Override the defaults via env vars before piping:
+
+```powershell
+$env:SOULFORGE_VERSION = "2.16.0"; irm https://soulforge.dev/install.ps1 | iex
+$env:SOULFORGE_INSTALL_DIR = "C:\Tools\SoulForge\bin"; irm https://soulforge.dev/install.ps1 | iex
+$env:SOULFORGE_NO_PATH = "1"; irm https://soulforge.dev/install.ps1 | iex
+```
+
+Open a **new** terminal after install — PATH changes don't apply to the shell that ran the installer.
+
+```powershell
+soulforge --version
+```
+
+## Alternative installers
+
+### NSIS setup wizard
+
+Branded GUI installer with a Start Menu entry and Settings → Apps registration.
+
+1. Grab `soulforge-setup-<version>-x64.exe` from the [releases page](https://github.com/proxysoul/soulforge/releases).
+2. Double-click. Per-user install, no UAC prompt.
+3. SmartScreen will warn on first run (unsigned in v1.2). Click **More info → Run anyway**.
+
+### Portable ZIP
+
+For users who don't want anything written outside one folder:
+
+1. Download `soulforge-<version>-windows-x64.zip` from releases.
+2. Extract anywhere (e.g. `C:\Tools\SoulForge\`).
+3. Add the folder to PATH manually or just call `soulforge.exe` by full path.
+
+The `deps/` folder must stay next to `soulforge.exe`. On first run the binary self-heals — copies `opentui.dll`, the tree-sitter wasm grammars, and the worker into `%LOCALAPPDATA%\SoulForge\` so future launches no longer depend on the bundle directory.
+
+### winget (planned)
+
+The winget manifest in `packaging/winget/` is ready but not yet submitted to `microsoft/winget-pkgs`. Tracked for v1.3.
+
+## SmartScreen warning
+
+Every new code-signing identity earns SmartScreen reputation slowly — usually 2–4 months of downloads. Until Azure Trusted Signing lands in v1.3, expect:
+
+> Windows protected your PC
+> Microsoft Defender SmartScreen prevented an unrecognized app from starting.
+
+Click **More info → Run anyway**. This is normal for unsigned binaries; the file is not malware.
+
+## What works on Windows
+
+Everything in the agent core works identically across platforms:
+
+- Multi-model routing (OpenAI, Anthropic, Google, Mistral, Groq, Fireworks, DeepSeek, xAI, OpenRouter, Bedrock, Copilot, Codex, LMStudio, Ollama, Vercel Gateway, custom providers).
+- Tool calling: `read`, `grep`, `glob`, `ast_edit`, `edit_file`, `multi_edit`, `project`, `navigate`, `git`, `web_search`, `fetch_page`, `memory`, `dispatch`, `plan`, `task_list`, `shell`.
+- Repo map (tree-sitter syntax + PageRank).
+- LSP intelligence (auto-installs from the Mason registry — biome, tsserver, pyright, gopls, rust-analyzer, clangd, lua-language-server, taplo, and 500+ others).
+- Sessions, checkpoints, memory (DPAPI-encrypted on Windows via `bun:ffi` → `crypt32.dll`).
+- Themes, splash, statusbar, MCP servers.
+- Headless `--prompt` and `--chat` modes.
+- Skills, hooks, plan mode, presets.
+
+## What's limited on Windows
+
+| Feature | Status | Why |
+| --- | --- | --- |
+| Embedded floating terminal panel | Disabled | `ghostty-opentui` native addon segfaults in `dlopen` on bun 1.3.x on win32. Override with `SOULFORGE_ENABLE_GHOSTTY=1` if you've patched it locally. |
+| Image preview (Kitty graphics protocol) | Disabled | Windows Terminal + ConPTY don't speak Kitty graphics. Half-block art still works in any terminal. |
+| Hearth daemon UI surfaces | Limited | Daemon runs as a Task Scheduler entry. NSSM is documented as a system-scope fallback. Telegram / Discord / fakechat surfaces work; embedded VSCode surface needs the floating terminal. |
+| `glob` tool fallback | No `find` fallback | `find` doesn't exist on Windows. Install `fd` (`winget install sharkdp.fd`) for the glob tool, or use `grep` with a path filter. |
+| Floating neovim editor panel | Disabled | Depends on the same ghostty native addon. The `nvim` LSP servers and the standalone editor still work — just not the embedded panel. |
+| `open` tool URLs with `&`, `^`, `%`, `|`, `"`, `` ` ``, `<`, `>` | Rejected | `cmd /c start` interprets these as shell metacharacters. Pre-encode the URL or open it manually. |
+| Clipboard image paste | Requires `System.Drawing` | Works on all supported Windows builds via PowerShell + `System.Windows.Forms.Clipboard`. Text clipboard always works via `clip.exe`. |
+
+## Compatibility matrix
+
+| OS | Arch | Status |
+| --- | --- | --- |
+| Windows 11 | x64 | Supported |
+| Windows 10 1809+ | x64 | Supported (minimum — needs `tar.exe`, per-user font dir, PowerShell 5.1) |
+| Windows 10 1607–1803 | x64 | Install runs, but `tar.exe` missing → LSP installer and archive extract break |
+| Windows 10 < 1607 | x64 | Unsupported (no PowerShell 5.1) |
+| Windows 8 / 8.1 | any | Untested, missing required system binaries |
+| Windows 7 | any | Unsupported |
+| Windows | x86 (32-bit) | Unsupported — Bun has no `bun-windows-ia32` target |
+| Windows | ARM64 | Deferred — bundler accepts `-Arch arm64`, Bun supports `--target=bun-windows-arm64`, but the native terminal/editor addon has no win32-arm64 build upstream |
+
+## Path conventions
+
+SoulForge stores config + data under `%LOCALAPPDATA%\SoulForge`:
+
+```
+%LOCALAPPDATA%\SoulForge\
+├── config.json
+├── secrets.dat              # DPAPI-encrypted (crypt32.dll)
+├── hearth.json              # daemon config (if used)
+├── sessions\
+├── memory.db                # SQLite, semantic + FTS
+├── native\win32-x64\        # opentui.dll, ghostty-opentui.node (hydrated on first run)
+├── wasm\                    # tree-sitter grammars
+├── opentui-assets\          # parser.worker.js + glyphs
+├── lsp-servers\             # auto-installed LSPs (npm + go + cargo packages)
+└── bin\                     # vendored fd, rg, lazygit, etc.
+```
+
+Unlike POSIX where `~/.soulforge` is one directory, Windows historically split data between `%APPDATA%` (Roaming) and `%LOCALAPPDATA%` (per-machine). SoulForge collapses both onto `%LOCALAPPDATA%\SoulForge` so the trust-root check and the secrets file stay in one place.
+
+If your Windows profile is redirected (corporate setups often point `LOCALAPPDATA` at a network share), SoulForge honours the redirect — no hardcoded paths.
+
+## Git Bash, Cygwin, WSL paths
+
+SoulForge translates POSIX-style drive prefixes from `git.exe`-shipped-via-Git-Bash at the boundary:
+
+- `/c/Users/...` → `C:/Users/...`
+- `/cygdrive/c/Users/...` → `C:/Users/...`
+- `/mnt/c/Users/...` → `C:/Users/...`
+
+This means you can run SoulForge from any shell on Windows — PowerShell, cmd.exe, Git Bash, MSYS2, Cygwin — and tool output references the same canonical paths.
+
+## Secrets storage
+
+API keys live in `%LOCALAPPDATA%\SoulForge\secrets.dat`, encrypted with DPAPI:
+
+```
+CryptProtectData(key, scope=CRYPTPROTECT_LOCAL_MACHINE)
+```
+
+The key is derived from your Windows login password and is scoped to your user account. Other local users cannot decrypt it. The file is additionally protected by NTFS ACL inheritance (user-only by default).
+
+SoulForge falls back to a JSON file under the same directory if DPAPI fails to load (e.g. `crypt32.dll` missing from a stripped Windows image). In that case the file is plain text — set `SOULFORGE_KEY_PRIORITY=env` to force env-var-only key resolution and avoid disk storage.
+
+## Uninstall
+
+If you installed via `install.ps1`:
+
+```powershell
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\SoulForge"
+[Environment]::SetEnvironmentVariable(
+  "Path",
+  ([Environment]::GetEnvironmentVariable("Path","User") -split ";" |
+    Where-Object { $_ -and $_.TrimEnd("\") -ine "$env:LOCALAPPDATA\SoulForge\bin" }) -join ";",
+  "User"
+)
+```
+
+If you installed via the NSIS setup wizard: **Settings → Apps → SoulForge → Uninstall**.
+
+If you installed via the branded self-extractor (`soulforge-installer.exe`):
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\SoulForge\soulforge-uninstall.exe" --uninstall
+```
+
+All three remove the install dir, clean PATH, and delete the HKCU uninstall registry entry. Your `secrets.dat` and `memory.db` live under `%LOCALAPPDATA%\SoulForge\` — delete that folder manually if you want a fully clean state.
+
+## Troubleshooting
+
+**`soulforge` not found after install.** PATH updates don't apply to the shell that ran the installer. Open a brand-new terminal.
+
+**`Windows protected your PC` on first run.** Unsigned binary. Click **More info → Run anyway**. SmartScreen reputation will build over time, and v1.3 will sign releases with Azure Trusted Signing.
+
+**`The process cannot access the file because it is being used by another process` during upgrade.** Windows holds an exclusive lock on running `.exe`s. The installer auto-kills `soulforge.exe` before overwriting; if it failed, run `taskkill /F /IM soulforge.exe` manually.
+
+**Image paste fails.** Requires PowerShell 5.1+ with `System.Drawing` (ships with Windows 10+). Older or stripped Windows images may lack it.
+
+**LSP server install fails.** Most LSPs are fetched from GitHub releases or installed via `bun add`. If a specific LSP has no Windows asset upstream (e.g. some older Python LSPs), the install gracefully reports the limitation. Use a different LSP for that language.
+
+**Floating terminal / image preview missing.** Expected — see the [What's limited](#whats-limited-on-windows) table above.
+
+## Reporting Windows-specific issues
+
+When opening an issue, please run `soulforge --doctor` and paste the output. It captures the Windows build, PowerShell version, DPAPI availability, vendored binary paths, and LSP install state.

@@ -315,3 +315,63 @@ export function systemFontDirs(): string[] {
   }
   return [userFontDir(), "/usr/share/fonts", "/usr/local/share/fonts"];
 }
+/**
+ * Translate POSIX-style drive-letter prefixes back to native Windows form.
+ *
+ * git.exe shipped via Git Bash / Cygwin / MSYS2 / WSL emits paths like
+ * `/c/Users/...`, `/cygdrive/c/Users/...`, `/mnt/c/Users/...`. Native Windows
+ * APIs (and Bun's filesystem layer) need `C:/Users/...`. Apply this at the
+ * boundary whenever a path crosses from a unix-flavoured subprocess into
+ * Windows-native code.
+ *
+ * No-op on POSIX hosts.
+ */
+export function windowsPath(p: string): string {
+  if (!IS_WIN || !p) return p;
+  return p
+    .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+    .replace(/^\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+    .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+    .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`);
+}
+/**
+ * Resolve a path to its canonical on-disk form. On Windows this also folds
+ * casing — NTFS is case-insensitive, but LSPs / git can echo back paths with
+ * different casing than what we sent, which breaks cache keys + equality
+ * checks. realpathSync.native does the case-fold for us.
+ *
+ * Accepts unix-flavoured input (`/c/Users/...`) via `windowsPath()`.
+ * Returns the input unchanged on POSIX.
+ */
+export function canonicalPath(p: string): string {
+  if (!IS_WIN || !p) return p;
+  const { win32: winPath } = require("node:path") as typeof import("node:path");
+  const { realpathSync: realSync } = require("node:fs") as typeof import("node:fs");
+  const resolved = winPath.normalize(winPath.resolve(windowsPath(p)));
+  try {
+    return realSync.native(resolved);
+  } catch {
+    return resolved;
+  }
+}
+/**
+ * Glob-style match with Windows-aware path normalization.
+ *
+ * Normalises backslashes → forward slashes on both sides, then applies the
+ * standard `*`/`?` regex translation. Case-insensitive on win32, exact on
+ * POSIX. Use this anywhere code matches user-supplied glob patterns against
+ * filesystem paths.
+ */
+export function matchGlob(input: string, pattern: string): boolean {
+  if (!pattern) return false;
+  const str = (input || "").replaceAll("\\", "/");
+  const escaped = pattern
+    .replaceAll("\\", "/")
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, "\u0000DOUBLESTAR\u0000")
+    .replace(/\*/g, "[^/]*")
+    .replaceAll("\u0000DOUBLESTAR\u0000", ".*")
+    .replace(/\?/g, ".");
+  const flags = IS_WIN ? "si" : "s";
+  return new RegExp(`^${escaped}$`, flags).test(str);
+}

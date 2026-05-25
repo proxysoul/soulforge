@@ -28,9 +28,10 @@
             "pages": [
               "introduction",
               "installation",
+              "windows",
               "quickstart",
-              "faq"
-            ]
+                "faq"
+              ]
           },
           {
             "group": "Sponsors",

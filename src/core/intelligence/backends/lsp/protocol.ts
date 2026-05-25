@@ -169,6 +169,7 @@ export function decode(buffer: Buffer): { messages: JsonRpcMessage[]; remainder:
   return { messages, remainder: buffer.subarray(offset) };
 }
 
+import { windowsPath } from "../../../platform/index.js";
 import type { SymbolKind } from "../../types.js";
 
 const LSP_SYMBOL_KIND_MAP: Record<number, SymbolKind> = {
@@ -219,16 +220,17 @@ function encodePathSegment(seg: string): string {
 }
 
 export function filePathToUri(path: string): string {
-  // Use a file-URI-aware encoder that only escapes characters actually invalid
-  // in the path component. encodeURIComponent over-encodes '@', '+', '!' etc.
-  // that are valid in file URI paths, and double-encodes paths containing '%'.
-  const encoded = path.split("/").map(encodePathSegment).join("/");
+  // Normalise unix-flavoured drive prefixes (`/c/Users/...`, `/cygdrive/c/...`,
+  // `/mnt/c/...`) emitted by Git Bash / Cygwin / WSL git.exe back to native
+  // `C:/Users/...` before URI-encoding. No-op on POSIX.
+  const native = windowsPath(path);
+  const encoded = native.split("/").map(encodePathSegment).join("/");
   return `file://${encoded}`;
 }
 
 export function uriToFilePath(uri: string): string {
   if (uri.startsWith("file://")) {
-    return decodeURIComponent(uri.slice(7));
+    return windowsPath(decodeURIComponent(uri.slice(7)));
   }
-  return uri;
+  return windowsPath(uri);
 }
