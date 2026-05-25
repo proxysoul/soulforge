@@ -238,12 +238,12 @@ describe("platform shim: keychain (Windows only)", () => {
 });
 
 describe("platform shim: cross-OS parity helpers", () => {
-  test("localAppData returns a string on win32, null elsewhere", async () => {
+  test("localAppData returns the raw LOCALAPPDATA on win32, null elsewhere", async () => {
     const { localAppData } = await import("../src/core/platform/index.js");
     const r = localAppData();
     if (IS_WIN) {
-      expect(typeof r).toBe("string");
-      expect((r ?? "").toLowerCase()).toContain("appdata");
+      // Redirected/customised profiles can point anywhere — assert against env, not a substring.
+      expect(r).toBe(process.env.LOCALAPPDATA ?? null);
     } else {
       expect(r).toBeNull();
     }
@@ -275,7 +275,8 @@ describe("platform shim: cross-OS parity helpers", () => {
     const { xdgConfigHome } = await import("../src/core/platform/index.js");
     const r = xdgConfigHome();
     if (IS_WIN) {
-      expect(r.toLowerCase()).toContain("appdata");
+      // APPDATA may be redirected; honor the env value verbatim.
+      expect(r).toBe(process.env.APPDATA ?? r);
     } else {
       expect(r.length).toBeGreaterThan(0);
     }

@@ -55,12 +55,9 @@ function runFind(pattern: string, basePath: string): Promise<ToolResult> {
     // (`Get-ChildItem -Recurse`) is slow and has different semantics. Surface
     // a clear, actionable error instead of spawning ENOENT.
     if (IS_WIN) {
-      resolve({
-        success: false,
-        output: "",
-        error:
-          "Glob fallback unavailable on Windows: install `fd` (winget install sharkdp.fd) or use the `grep` tool with a path filter.",
-      });
+      const msg =
+        "Glob fallback unavailable on Windows: install `fd` (winget install sharkdp.fd) or use the `grep` tool with a path filter.";
+      resolve({ success: false, output: msg, error: msg });
       return;
     }
     const proc = spawn("find", [basePath, "-name", pattern, "-maxdepth", "5"], {

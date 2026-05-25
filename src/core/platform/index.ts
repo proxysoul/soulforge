@@ -272,15 +272,12 @@ export function localAppData(): string | null {
   if (!IS_WIN) return null;
   return process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
 }
-/**
- * Cross-platform `~/` (and on Windows `~\\`) prefix expansion to the home dir.
- * Returns the path unchanged when no leading tilde is present.
- */
 export function expandHome(p: string): string {
   if (!p) return p;
-  if (p === "~") return homedir();
+  const home = process.env.HOME ?? homedir();
+  if (p === "~") return home;
   if (p.startsWith("~/") || (IS_WIN && p.startsWith("~\\"))) {
-    return join(homedir(), p.slice(2));
+    return join(home, p.slice(2));
   }
   return p;
 }
@@ -295,19 +292,14 @@ export function xdgConfigHome(): string {
   }
   return process.env.XDG_CONFIG_HOME ?? join(process.env.HOME ?? homedir(), ".config");
 }
-/**
- * Per-user font directory. Drop new fonts here without admin/sudo.
- *   macOS:   ~/Library/Fonts
- *   Windows: %LOCALAPPDATA%/Microsoft/Windows/Fonts  (Win10 1809+)
- *   Linux:   ~/.local/share/fonts
- */
 export function userFontDir(): string {
-  if (IS_DARWIN) return join(homedir(), "Library", "Fonts");
+  const home = process.env.HOME ?? homedir();
+  if (IS_DARWIN) return join(home, "Library", "Fonts");
   if (IS_WIN) {
     const local = localAppData() ?? join(homedir(), "AppData", "Local");
     return join(local, "Microsoft", "Windows", "Fonts");
   }
-  return join(homedir(), ".local", "share", "fonts");
+  return join(home, ".local", "share", "fonts");
 }
 /**
  * All directories worth scanning for installed fonts (per-user first,

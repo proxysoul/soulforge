@@ -51,8 +51,11 @@ export function detectInstallMethod(): InstallMethod {
 
     // Windows: detect winget vs scoop vs raw install.ps1 via install dir.
     if (IS_WIN) {
+      // Narrow to the SoulForge install root — broad LOCALAPPDATA match catches
+      // user-scoped bun/npm too, bypassing package-manager auto-upgrade.
       const local = localAppData() ?? "";
-      if (local && execPath.includes(local)) return "binary";
+      const binaryRoot = local ? join(local, "Programs", "SoulForge").toLowerCase() : "";
+      if (binaryRoot && execPath.toLowerCase().startsWith(binaryRoot)) return "binary";
       // npm/bun/pnpm/yarn lookups below still apply on win32.
     }
 

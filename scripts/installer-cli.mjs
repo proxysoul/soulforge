@@ -225,8 +225,11 @@ async function main() {
         "-Command",
         "param([Parameter(Mandatory)][string]$Dir) " +
           "$existing = [Environment]::GetEnvironmentVariable('Path','User'); " +
-          "$needle = [WildcardPattern]::Escape($Dir); " +
-          "if ($existing -notlike \"*$needle*\") { [Environment]::SetEnvironmentVariable('Path', \"$Dir;$existing\", 'User') }",
+          "if ($null -eq $existing) { $existing = '' }; " +
+          "$norm = $Dir.TrimEnd('\\'); " +
+          "$parts = $existing -split ';' | Where-Object { $_ -and $_.Trim() -ne '' }; " +
+          "$present = $parts | Where-Object { $_.TrimEnd('\\') -ieq $norm }; " +
+          "if (-not $present) { $newPath = if ($existing) { \"$Dir;$existing\" } else { $Dir }; [Environment]::SetEnvironmentVariable('Path', $newPath, 'User') }",
         "-Dir", INSTALL_DIR,
       ],
       { stdio: "ignore" },

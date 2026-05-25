@@ -75,10 +75,7 @@ Workaround: use the x64 build under Windows-on-ARM emulation (set
     }
 }
 
-# Asset is a zip bundle: soulforge.exe + deps/ tree (native dll, workers, wasm).
-# A raw .exe would launch and immediately fail with "native runtime missing"
-# because bun --compile cannot embed .dll / .node addons.
-$assetName = "soulforge-$Version-windows-$assetArch.zip"
+# Raw .exe name (legacy fallback, pre-v1.1).
 $rawExeName = "soulforge-windows-$assetArch.exe"
 
 # ── Defaults ────────────────────────────────────────────────────────
@@ -112,6 +109,11 @@ if (-not $Version) {
 Write-Host "  version    : $Version"
 Write-Host ""
 
+# Asset is a zip bundle: soulforge.exe + deps/ tree (native dll, workers, wasm).
+# A raw .exe would launch and immediately fail with "native runtime missing"
+# because bun --compile cannot embed .dll / .node addons.
+# Built AFTER $Version resolves — otherwise unset SOULFORGE_VERSION → stale name.
+$assetName = "soulforge-$Version-windows-$assetArch.zip"
 $downloadUrl = "https://github.com/$repo/releases/download/v$Version/$assetName"
 
 # ── Download ────────────────────────────────────────────────────────
