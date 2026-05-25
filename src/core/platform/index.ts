@@ -260,7 +260,10 @@ export function localAppData(): string | null {
 }
 export function expandHome(p: string): string {
   if (!p) return p;
-  const home = process.env.HOME ?? homedir();
+  // Git Bash / MSYS export HOME=/c/Users/...; route through windowsPath() on
+  // win32 so join() gets a native drive-letter path.
+  const rawHome = process.env.HOME ?? homedir();
+  const home = IS_WIN ? windowsPath(rawHome) : rawHome;
   if (p === "~") return home;
   if (p.startsWith("~/") || (IS_WIN && p.startsWith("~\\"))) {
     return join(home, p.slice(2));
@@ -279,7 +282,8 @@ export function xdgConfigHome(): string {
   return process.env.XDG_CONFIG_HOME ?? join(process.env.HOME ?? homedir(), ".config");
 }
 export function userFontDir(): string {
-  const home = process.env.HOME ?? homedir();
+  const rawHome = process.env.HOME ?? homedir();
+  const home = IS_WIN ? windowsPath(rawHome) : rawHome;
   if (IS_DARWIN) return join(home, "Library", "Fonts");
   if (IS_WIN) {
     const local = localAppData() ?? join(homedir(), "AppData", "Local");
@@ -340,24 +344,19 @@ export function canonicalPath(p: string): string {
     return resolved;
   }
 }
-/**
- * Glob-style match with Windows-aware path normalization.
- *
- * Normalises backslashes → forward slashes on both sides, then applies the
- * standard `*`/`?` regex translation. Case-insensitive on win32, exact on
- * POSIX. Use this anywhere code matches user-supplied glob patterns against
- * filesystem paths.
- */
 export function matchGlob(input: string, pattern: string): boolean {
   if (!pattern) return false;
   const str = (input || "").replaceAll("\\", "/");
+  // `?` must stay segment-scoped: with the `s` flag plain `.` crosses `/`, so
+  // `src/?/index.ts` would over-match `src/a/b/index.ts`. Use a forward-slash-
+  // free char class instead.
   const escaped = pattern
     .replaceAll("\\", "/")
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
     .replace(/\*\*/g, "\u0000DOUBLESTAR\u0000")
     .replace(/\*/g, "[^/]*")
     .replaceAll("\u0000DOUBLESTAR\u0000", ".*")
-    .replace(/\?/g, ".");
+    .replace(/\?/g, "[^/]");
   const flags = IS_WIN ? "si" : "s";
   return new RegExp(`^${escaped}$`, flags).test(str);
 }

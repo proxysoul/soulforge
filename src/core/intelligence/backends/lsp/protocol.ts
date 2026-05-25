@@ -222,8 +222,9 @@ function encodePathSegment(seg: string): string {
 export function filePathToUri(path: string): string {
   // Normalise unix-flavoured drive prefixes (`/c/Users/...`, `/cygdrive/c/...`,
   // `/mnt/c/...`) emitted by Git Bash / Cygwin / WSL git.exe back to native
-  // `C:/Users/...` before URI-encoding. No-op on POSIX.
-  const native = windowsPath(path);
+  // `C:/Users/...`, then fold `\` → `/` so file:// segments don't carry %5C
+  // escapes from native Windows paths. No-op on POSIX.
+  const native = windowsPath(path).replaceAll("\\", "/");
   const encoded = native.split("/").map(encodePathSegment).join("/");
   return `file://${encoded}`;
 }

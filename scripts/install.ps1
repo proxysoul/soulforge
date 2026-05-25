@@ -106,6 +106,9 @@ if (-not $Version) {
     }
 }
 
+# Strip a leading "v" — env override accepts both `2.16.0` and `v2.16.0`.
+$Version = $Version -replace '^v', ''
+
 Write-Host "  version    : $Version"
 Write-Host ""
 
