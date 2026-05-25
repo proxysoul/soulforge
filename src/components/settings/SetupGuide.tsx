@@ -1,7 +1,7 @@
-import { spawn } from "node:child_process";
 import { platform } from "node:os";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useState } from "react";
+import { spawnShell } from "../../core/platform/index.js";
 import {
   detectInstalledFonts,
   installFont,
@@ -75,10 +75,10 @@ export function SetupGuide({ visible, onClose, onSystemMessage }: Props) {
     setInstalling(item.prerequisite.name);
     onSystemMessage(`Installing ${item.prerequisite.name}...`);
 
-    const proc = spawn("sh", ["-c", cmd], { stdio: "pipe" });
+    const proc = spawnShell(cmd, { stdio: "pipe" });
     const chunks: string[] = [];
-    proc.stdout.on("data", (d: Buffer) => chunks.push(d.toString()));
-    proc.stderr.on("data", (d: Buffer) => chunks.push(d.toString()));
+    proc.stdout?.on("data", (d: Buffer) => chunks.push(d.toString()));
+    proc.stderr?.on("data", (d: Buffer) => chunks.push(d.toString()));
     proc.on("close", (code) => {
       setInstalling(null);
       if (code === 0) {
@@ -182,7 +182,7 @@ export function SetupGuide({ visible, onClose, onSystemMessage }: Props) {
         setInstalling("all");
         onSystemMessage(`Installing ${String(cmds.length)} prerequisites...`);
         const fullCmd = cmds.join(" && ");
-        const proc = spawn("sh", ["-c", fullCmd], { stdio: "pipe" });
+        const proc = spawnShell(fullCmd, { stdio: "pipe" });
         proc.on("close", (code) => {
           setInstalling(null);
           onSystemMessage(

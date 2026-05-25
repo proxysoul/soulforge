@@ -1,8 +1,8 @@
 import { mkdir, readdir, unlink, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { userDataDir } from "../platform/index.js";
 
-const TEE_DIR = join(homedir(), ".local", "share", "soulforge", "tee");
+const TEE_DIR = join(userDataDir(), "tee");
 const MAX_TEE_FILES = 20;
 const MAX_TEE_BYTES = 512_000; // 512KB per file — anything bigger is truncated to head+tail
 

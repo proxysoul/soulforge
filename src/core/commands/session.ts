@@ -1,6 +1,8 @@
 import { confirm } from "../../components/ui/dialogs/index.js";
+import { IS_LINUX } from "../platform/index.js";
 import { emitCacheReset } from "../tools/file-events.js";
 import { clearTasks } from "../tools/task-list.js";
+import { openPath } from "../utils/open-path.js";
 import type { CommandContext, CommandHandler } from "./types.js";
 import { sysMsg } from "./utils.js";
 
@@ -75,7 +77,7 @@ async function handleExportAll(ctx: CommandContext): Promise<void> {
     `Diagnostic export → \`${relPath}\` (system prompt: ${String(Math.round(systemPrompt.length / 4))} tokens, ${String(coreMessages.length)} core messages, ${String(chatMessages.length)} chat messages)`,
   );
   const { dirname } = await import("node:path");
-  Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", dirname(outPath)]);
+  openPath(dirname(outPath));
 }
 
 async function handleExport(input: string, ctx: CommandContext): Promise<void> {
@@ -114,10 +116,7 @@ async function handleExport(input: string, ctx: CommandContext): Promise<void> {
     const tabLabel = ctx.tabMgr.activeTab?.label ?? "chat";
     const result = exportToClipboard(ctx.chat.messages, tabLabel);
     if (!result.ok) {
-      const hint =
-        process.platform === "linux"
-          ? " — install `wl-clipboard` (Wayland) or `xclip`/`xsel` (X11)"
-          : "";
+      const hint = IS_LINUX ? " — install `wl-clipboard` (Wayland) or `xclip`/`xsel` (X11)" : "";
       sysMsg(ctx, `Clipboard backend unavailable${hint}`);
       return;
     }
@@ -136,9 +135,7 @@ async function handleExport(input: string, ctx: CommandContext): Promise<void> {
   sysMsg(ctx, `Exported ${String(result.messageCount)} messages → \`${relPath}\``);
   const { dirname } = await import("node:path");
   const dir = dirname(result.path);
-  const opener =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-  Bun.spawn([opener, dir]);
+  openPath(dir);
 }
 
 function handlePlan(input: string, ctx: CommandContext): void {

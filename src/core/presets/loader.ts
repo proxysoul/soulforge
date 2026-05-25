@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { expandHome } from "../platform/index.js";
 import { fetchRegistry, getCacheDir } from "./registry.js";
 
 const NETWORK_TIMEOUT_MS = 10_000;
@@ -98,7 +98,7 @@ async function fetchPresetFromUrl(url: string): Promise<Preset> {
 }
 
 function resolveLocalPath(spec: string): string {
-  const expanded = spec.startsWith("~") ? join(homedir(), spec.slice(1)) : spec;
+  const expanded = expandHome(spec);
   const abs = resolve(expanded);
   if (!existsSync(abs)) throw new Error(`Preset file not found: ${abs}`);
   const stat = lstatSync(abs);

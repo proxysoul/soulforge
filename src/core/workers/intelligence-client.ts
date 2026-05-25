@@ -1,4 +1,3 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { logBackgroundError } from "../../stores/errors.js";
 import { useWorkerStore } from "../../stores/workers.js";
@@ -20,12 +19,14 @@ import type {
   TypeInfo,
   UnusedItem,
 } from "../intelligence/types.js";
+import { dataDir, isCompiledBinary } from "../platform/index.js";
 import { WorkerClient } from "./rpc.js";
 
 export type TrackedResult<T> = { value: T; backend: string } | null;
 
-const IS_COMPILED = import.meta.url.includes("$bunfs");
-const IS_DIST = !IS_COMPILED && import.meta.dir.includes("/dist");
+const IS_COMPILED = isCompiledBinary(import.meta.url);
+const IS_DIST =
+  !IS_COMPILED && (import.meta.dir.includes("/dist") || import.meta.dir.includes("\\dist"));
 
 type SummaryGenerator = (
   batch: SymbolForSummary[],
@@ -79,7 +80,7 @@ export class IntelligenceClient extends WorkerClient {
 
   constructor(cwd: string) {
     const workerPath = IS_COMPILED
-      ? join(homedir(), ".soulforge", "workers", "intelligence.worker.js")
+      ? join(dataDir(), "workers", "intelligence.worker.js")
       : IS_DIST
         ? join(import.meta.dir, "workers", "intelligence.worker.js")
         : join(import.meta.dir, "intelligence.worker.ts");

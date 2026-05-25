@@ -1,0 +1,296 @@
+# Windows release pipeline — builds soulforge-windows-x64.exe and (v1.1) signs
+# it with Azure Trusted Signing.
+#
+# Trigger: tag push (v*) or manual dispatch. Outputs the .exe as a release
+# asset on the matching GitHub Release.
+#
+# Phases:
+#   1. Cross-compile from a Linux runner via `bun build --compile --target=bun-windows-x64`.
+#      This is faster than spinning up a windows-latest runner just for the bundler.
+#   2. Run smoke checks on a real windows-latest runner (install + --version).
+#   3. (v1.1, currently commented) Sign with Azure Trusted Signing.
+#   4. Upload to the GitHub Release.
+#
+# Why not windows-latest for the build itself?
+#   Bun's compile step is fully cross-platform; macOS/Linux runners are faster
+#   and cheaper. We only need windows-latest for the post-build smoke test.
+
+name: release-windows
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or commit to release"
+        required: false
+        default: ""
+
+permissions: {}
+
+jobs:
+  build:
+    name: build (cross-compile to win-x64)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact-name: ${{ steps.version.outputs.artifact-name }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ">=1.3.13"  # Windows ARM64 GA'd in 1.3.10; pin 1.3.13 matches engines.bun
+
+      # Bun's lockfile omits optional deps that don't match the host platform.
+      # We need the win32-x64 optional dep on the linux build runner so the
+      # bundle script can copy opentui.dll. `--include=optional` forces it.
+      - name: Install deps (include optional cross-platform)
+        run: bun install --frozen-lockfile
+
+      - name: Force-install win32 optional deps
+        run: |
+          # bun install on linux skips win32 optionals even with --include=optional;
+          # explicitly add them so node_modules/@opentui/core-win32-x64/opentui.dll exists.
+          bun add --optional @opentui/core-win32-x64@0.2.0 || true
+
+      - name: Read version
+        id: version
+        run: |
+          version=$(jq -r .version package.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "artifact-name=soulforge-$version-windows-x64.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Cross-compile
+        env:
+          NODE_ENV: production
+        run: bun run build:binary:windows
+
+      - name: Sanity check (PE header)
+        run: |
+          file bin/soulforge-windows-x64.exe
+          # PE32+ for x64; abort if header doesn't look right.
+          file bin/soulforge-windows-x64.exe | grep -q "PE32+ executable"
+
+      - name: Install PowerShell Core
+        run: |
+          # ubuntu-latest ships pwsh preinstalled (verify), else fall back.
+          which pwsh || sudo apt-get install -y powershell
+
+      - name: Bundle (zip with deps/)
+        run: |
+          # Re-use the pre-built exe — bundle script accepts -NoExe to skip recompile.
+          mkdir -p bin
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/bundle-windows.ps1 -Arch x64 -NoExe
+
+      - name: Locate bundle
+        id: bundle
+        run: |
+          zip=$(ls dist/bundle/soulforge-*-windows-x64.zip | head -n1)
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+          ls -la "$zip"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: soulforge-windows-x64-unsigned
+          path: ${{ steps.bundle.outputs.zip }}
+          retention-days: 7
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: soulforge-windows-x64-staged
+          path: dist/bundle/soulforge-*-windows-x64/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ── v1.1 signing job (commented until certificate is provisioned) ───────
+  # Uncomment when the following secrets are set in repo settings:
+  #   AZURE_TENANT_ID        — federated identity tenant
+  #   AZURE_CLIENT_ID        — federated identity app
+  #   AZURE_SUBSCRIPTION_ID  — Trusted Signing account subscription
+  #   ACS_ACCOUNT_NAME       — Trusted Signing account name
+  #   ACS_PROFILE_NAME       — certificate profile under the account
+  #   ACS_ENDPOINT           — regional endpoint (e.g. https://eus.codesigning.azure.net)
+  #
+  # Pricing (2026): ~$10/month + $0.005/signature. SmartScreen reputation
+  # builds over 2–4 months. Doc: https://learn.microsoft.com/en-us/azure/trusted-signing/
+  #
+  # sign:
+  #   name: sign (Azure Trusted Signing)
+  #   needs: build
+  #   runs-on: windows-latest
+  #   steps:
+  #     - uses: actions/download-artifact@v4
+  #       with:
+  #         name: soulforge-windows-x64-unsigned
+  #         path: bin
+  #
+  #     - uses: azure/login@v2
+  #       with:
+  #         client-id: ${{ secrets.AZURE_CLIENT_ID }}
+  #         tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+  #         subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  #
+  #     - name: Sign with Trusted Signing
+  #       uses: azure/trusted-signing-action@v0.5.1
+  #       with:
+  #         endpoint: ${{ secrets.ACS_ENDPOINT }}
+  #         trusted-signing-account-name: ${{ secrets.ACS_ACCOUNT_NAME }}
+  #         certificate-profile-name: ${{ secrets.ACS_PROFILE_NAME }}
+  #         files-folder: bin
+  #         files-folder-filter: exe
+  #         file-digest: SHA256
+  #         timestamp-rfc3161: http://timestamp.acs.microsoft.com
+  #         timestamp-digest: SHA256
+  #
+  #     - name: Verify signature
+  #       shell: pwsh
+  #       run: |
+  #         $sig = Get-AuthenticodeSignature bin\soulforge-windows-x64.exe
+  #         Write-Host "Status     : $($sig.Status)"
+  #         Write-Host "SignerCert : $($sig.SignerCertificate.Subject)"
+  #         if ($sig.Status -ne 'Valid') { throw "Signature invalid: $($sig.StatusMessage)" }
+  #
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: soulforge-windows-x64-signed
+  #         path: bin/soulforge-windows-x64.exe
+  #         retention-days: 7
+
+  smoke:
+    name: smoke (windows-latest)
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          # Swap to `soulforge-windows-x64-signed` after enabling the sign job.
+          name: soulforge-windows-x64-unsigned
+          path: bundle
+
+      - name: Extract bundle
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem bundle/*.zip | Select-Object -First 1
+          Write-Host "Extracting $($zip.Name)..."
+          Expand-Archive -Path $zip.FullName -DestinationPath extracted -Force
+          Get-ChildItem extracted -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: Show exe metadata
+        shell: pwsh
+        run: |
+          $exe = "extracted\soulforge.exe"
+          Get-Item $exe | Format-List Name,Length,VersionInfo
+          $sig = Get-AuthenticodeSignature $exe
+          Write-Host "Signature status: $($sig.Status)"
+
+      - name: Verify native runtime present
+        shell: pwsh
+        run: |
+          $dll = "extracted\deps\native\win32-x64\opentui.dll"
+          if (-not (Test-Path $dll)) { throw "opentui.dll missing from bundle: $dll" }
+          Write-Host "opentui.dll OK: $((Get-Item $dll).Length) bytes"
+
+      - name: Run --version
+        shell: pwsh
+        run: |
+          Unblock-File extracted\soulforge.exe
+          extracted\soulforge.exe --version
+
+      - name: Run --help
+        shell: pwsh
+        run: |
+          extracted\soulforge.exe --help
+
+  installer:
+    name: installer (NSIS setup.exe)
+    needs: build
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: soulforge-windows-x64-staged
+          path: dist/bundle/
+
+      - name: Restore staged layout
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $target = "dist/bundle/soulforge-$version-windows-x64"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          if (Test-Path "dist/bundle/soulforge.exe") {
+            Move-Item "dist/bundle/soulforge.exe" $target
+            if (Test-Path "dist/bundle/deps") { Move-Item "dist/bundle/deps" $target }
+            if (Test-Path "dist/bundle/LICENSE") { Move-Item "dist/bundle/LICENSE" $target }
+            if (Test-Path "dist/bundle/README.txt") { Move-Item "dist/bundle/README.txt" $target }
+          }
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $nsisPath = "C:\Program Files (x86)\NSIS"
+          echo "$nsisPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build setup.exe
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -Arch x64 -SkipBundle
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: soulforge-windows-setup-exe
+          path: dist/bundle/soulforge-setup-*-x64.exe
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
+    name: upload to GitHub Release
+    needs: [build, smoke, installer]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write   # uploads release assets
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: soulforge-windows-x64-unsigned
+          path: bin
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: soulforge-windows-setup-exe
+          path: bin
+
+      - name: Compute SHA-256 for every artifact
+        run: |
+          cd bin
+          for f in *.zip *.exe; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" > "$f.sha256"
+            cat "$f.sha256"
+          done
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: |
+            bin/*.zip
+            bin/*.exe
+            bin/*.sha256
+          fail_on_unmatched_files: true

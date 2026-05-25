@@ -8,9 +8,13 @@ import { reapOrphanedLspProcesses } from "./core/intelligence/backends/lsp/pid-t
 // Replace Bun's native fetch with undici before any provider/module loads.
 // See src/core/llm/http-agent.ts for rationale.
 import { installGlobalFetch } from "./core/llm/http-agent.js";
+// Self-heal the per-user data dir from `deps/` sibling to the .exe.
+// No-op when running from source or as `dist/index.js` under bun.
+import { hydrateCompiledRuntime } from "./core/utils/hydrate-runtime.js";
 
 installGlobalFetch();
 reapOrphanedLspProcesses();
+hydrateCompiledRuntime();
 
 const cliArgs = process.argv.slice(2);
 const hasCli =
@@ -84,12 +88,12 @@ if (cliArgs.includes("--presets") || cliArgs[0] === "presets") {
 }
 
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { configDir, dataDir, isCompiledBinary } from "./core/platform/index.js";
 
-const isCompiledBinary = import.meta.url.includes("$bunfs");
-if (isCompiledBinary) {
-  const bundledWorker = join(homedir(), ".soulforge", "opentui-assets", "parser.worker.js");
+const IS_COMPILED = isCompiledBinary(import.meta.url);
+if (IS_COMPILED) {
+  const bundledWorker = join(dataDir(), "opentui-assets", "parser.worker.js");
   if (!process.env.OTUI_TREE_SITTER_WORKER_PATH && existsSync(bundledWorker)) {
     process.env.OTUI_TREE_SITTER_WORKER_PATH = bundledWorker;
   }
@@ -101,7 +105,7 @@ import { logBackgroundError } from "./stores/errors.js";
 
 // Sync-load theme name from config before React mounts
 try {
-  const raw = readFileSync(join(homedir(), ".soulforge", "config.json"), "utf-8");
+  const raw = readFileSync(join(configDir(), "config.json"), "utf-8");
   const cfg = JSON.parse(raw);
   if (cfg.theme?.name)
     applyTheme(cfg.theme.name, cfg.theme?.transparent, {
@@ -320,7 +324,13 @@ setInterval(() => {
 }, 100);
 `,
   ],
-  { stdin: "pipe", stdout: "inherit", stderr: "ignore", env: { ...process.env, BUN_BE_BUN: "1" } },
+  {
+    stdin: "pipe",
+    stdout: "inherit",
+    stderr: "ignore",
+    env: { ...process.env, BUN_BE_BUN: "1" },
+    windowsHide: true,
+  },
 );
 
 function status(...msgs: string[]): void {

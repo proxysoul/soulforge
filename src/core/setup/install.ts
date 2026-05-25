@@ -1,9 +1,9 @@
-import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, symlinkSync, unlinkSync } from "node:fs";
-import { homedir, platform } from "node:os";
+import { chmodSync, existsSync, mkdirSync, readdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { extractArchive, extractTarXz } from "../platform/archive.js";
+import { dataDir, EXE, IS_DARWIN, IS_WIN, systemFontDirs, userFontDir } from "../platform/index.js";
 
-const SOULFORGE_DIR = join(homedir(), ".soulforge");
+const SOULFORGE_DIR = dataDir();
 const BIN_DIR = join(SOULFORGE_DIR, "bin");
 const INSTALLS_DIR = join(SOULFORGE_DIR, "installs");
 const FONTS_DIR = join(SOULFORGE_DIR, "fonts");
@@ -114,7 +114,7 @@ interface PlatformAsset {
   binPath: string;
 }
 
-type PlatformKey = "darwin-arm64" | "darwin-x64" | "linux-x64" | "linux-arm64";
+type PlatformKey = "darwin-arm64" | "darwin-x64" | "linux-x64" | "linux-arm64" | "win32-x64";
 
 function getPlatformKey(): PlatformKey {
   const key = `${process.platform}-${process.arch}` as PlatformKey;
@@ -122,7 +122,8 @@ function getPlatformKey(): PlatformKey {
     key !== "darwin-arm64" &&
     key !== "darwin-x64" &&
     key !== "linux-x64" &&
-    key !== "linux-arm64"
+    key !== "linux-arm64" &&
+    key !== "win32-x64"
   ) {
     throw new Error(`Unsupported platform: ${process.platform}-${process.arch}`);
   }
@@ -149,9 +150,14 @@ async function installBinary(config: BinaryConfig): Promise<string> {
     throw new Error(`${config.name} binary not found after extraction at ${asset.binPath}`);
   }
 
-  execSync(`chmod +x "${asset.binPath}"`, { stdio: "ignore" });
-  createSymlink(asset.binPath, join(BIN_DIR, config.binName));
-  return join(BIN_DIR, config.binName);
+  // NTFS has no POSIX execute bit; downloaded .exe is already runnable.
+  if (!IS_WIN) {
+    try {
+      chmodSync(asset.binPath, 0o755);
+    } catch {}
+  }
+  createSymlink(asset.binPath, join(BIN_DIR, config.binName + EXE));
+  return join(BIN_DIR, config.binName + EXE);
 }
 
 const NVIM_ASSETS: Record<PlatformKey, string> = {
@@ -159,6 +165,7 @@ const NVIM_ASSETS: Record<PlatformKey, string> = {
   "darwin-x64": "nvim-macos-x86_64.tar.gz",
   "linux-x64": "nvim-linux-x86_64.tar.gz",
   "linux-arm64": "nvim-linux-arm64.tar.gz",
+  "win32-x64": "nvim-win64.zip",
 };
 
 const RUST_TRIPLETS: Record<PlatformKey, string> = {
@@ -166,6 +173,7 @@ const RUST_TRIPLETS: Record<PlatformKey, string> = {
   "darwin-x64": "x86_64-apple-darwin",
   "linux-x64": "x86_64-unknown-linux-musl",
   "linux-arm64": "aarch64-unknown-linux-gnu",
+  "win32-x64": "x86_64-pc-windows-msvc",
 };
 
 const FD_TRIPLETS: Record<PlatformKey, string> = {
@@ -173,6 +181,7 @@ const FD_TRIPLETS: Record<PlatformKey, string> = {
   "darwin-x64": "x86_64-apple-darwin",
   "linux-x64": "x86_64-unknown-linux-gnu",
   "linux-arm64": "aarch64-unknown-linux-gnu",
+  "win32-x64": "x86_64-pc-windows-msvc",
 };
 
 const PROXY_SUFFIXES: Record<PlatformKey, string> = {
@@ -180,6 +189,7 @@ const PROXY_SUFFIXES: Record<PlatformKey, string> = {
   "darwin-x64": "darwin_amd64",
   "linux-x64": "linux_amd64",
   "linux-arm64": "linux_aarch64",
+  "win32-x64": "windows_amd64",
 };
 
 // Pre-v6.10 releases used `arm64` instead of `aarch64`. Used as a fallback
@@ -189,6 +199,7 @@ const PROXY_SUFFIXES_LEGACY: Record<PlatformKey, string> = {
   "darwin-x64": "darwin_amd64",
   "linux-x64": "linux_amd64",
   "linux-arm64": "linux_arm64",
+  "win32-x64": "windows_amd64",
 };
 
 const LAZYGIT_SUFFIXES: Record<PlatformKey, string> = {
@@ -196,12 +207,13 @@ const LAZYGIT_SUFFIXES: Record<PlatformKey, string> = {
   "darwin-x64": "Darwin_x86_64",
   "linux-x64": "Linux_x86_64",
   "linux-arm64": "Linux_arm64",
+  "win32-x64": "Windows_x86_64",
 };
 
 export function getVendoredPath(
   binary: "nvim" | "rg" | "fd" | "lazygit" | "cli-proxy-api",
 ): string | null {
-  const binLink = join(BIN_DIR, binary);
+  const binLink = join(BIN_DIR, binary + EXE);
   return existsSync(binLink) ? binLink : null;
 }
 
@@ -218,17 +230,32 @@ async function downloadAndExtract(url: string, extractDir: string): Promise<void
     throw new Error(`Download failed: ${response.status} ${response.statusText} (${url})`);
   }
 
-  const tmpFile = join(extractDir, "download.tar.gz");
+  // Pick filename + extractor from URL extension. Windows nvim ships as .zip;
+  // every other asset is .tar.gz. tar.exe on Win10 1803+ handles both formats.
+  const lower = url.toLowerCase();
+  const ext = lower.endsWith(".zip") ? ".zip" : ".tar.gz";
+  const tmpFile = join(extractDir, `download${ext}`);
   const buffer = await response.arrayBuffer();
   await Bun.write(tmpFile, buffer);
 
-  execSync(`tar xzf "${tmpFile}" -C "${extractDir}"`, { stdio: "ignore" });
+  const result = extractArchive(tmpFile, extractDir);
+  if (!result.success) {
+    throw new Error(`Extract failed: ${result.error}`);
+  }
   unlinkSync(tmpFile);
 }
 
 function createSymlink(target: string, link: string): void {
   if (existsSync(link)) {
     unlinkSync(link);
+  }
+  // Windows: symlinks need Developer Mode or admin token. Copy instead — bin
+  // dir lives under %LOCALAPPDATA% (user-writable), and the wasted disk is
+  // a few MB per tool.
+  if (IS_WIN) {
+    const { copyFileSync } = require("node:fs") as typeof import("node:fs");
+    copyFileSync(target, link);
+    return;
   }
   symlinkSync(target, link);
 }
@@ -240,6 +267,15 @@ export async function installNeovim(): Promise<string> {
     version: NVIM_VERSION,
     getAsset: (key) => {
       const asset = NVIM_ASSETS[key];
+      // Windows nvim release: nvim-win64.zip extracts to "nvim-win64/" with
+      // bin/nvim.exe inside. All other platforms extract to a directory
+      // named after the tarball stem.
+      if (key === "win32-x64") {
+        return {
+          url: `https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${asset}`,
+          binPath: join(INSTALLS_DIR, `nvim-${NVIM_VERSION}`, "nvim-win64", "bin", "nvim.exe"),
+        };
+      }
       const dirName = asset.replace(".tar.gz", "");
       return {
         url: `https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${asset}`,
@@ -257,6 +293,13 @@ export async function installRipgrep(): Promise<string> {
     getAsset: (key) => {
       const triplet = RUST_TRIPLETS[key];
       const dirName = `ripgrep-${RG_VERSION}-${triplet}`;
+      // Windows ripgrep release ships as a .zip with rg.exe at the top level.
+      if (key === "win32-x64") {
+        return {
+          url: `https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${dirName}.zip`,
+          binPath: join(INSTALLS_DIR, `ripgrep-${RG_VERSION}`, dirName, "rg.exe"),
+        };
+      }
       return {
         url: `https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/${dirName}.tar.gz`,
         binPath: join(INSTALLS_DIR, `ripgrep-${RG_VERSION}`, dirName, "rg"),
@@ -273,6 +316,13 @@ export async function installFd(): Promise<string> {
     getAsset: (key) => {
       const triplet = FD_TRIPLETS[key];
       const dirName = `fd-v${FD_VERSION}-${triplet}`;
+      // Windows fd release ships as a .zip with fd.exe at the top level.
+      if (key === "win32-x64") {
+        return {
+          url: `https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${dirName}.zip`,
+          binPath: join(INSTALLS_DIR, `fd-${FD_VERSION}`, dirName, "fd.exe"),
+        };
+      }
       return {
         url: `https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/${dirName}.tar.gz`,
         binPath: join(INSTALLS_DIR, `fd-${FD_VERSION}`, dirName, "fd"),
@@ -288,9 +338,13 @@ export async function installLazygit(): Promise<string> {
     version: LAZYGIT_VERSION,
     getAsset: (key) => {
       const suffix = LAZYGIT_SUFFIXES[key];
+      // Windows lazygit ships as .zip; everything else is .tar.gz. The archive
+      // unpacks lazygit(.exe) directly into the extract dir on both.
+      const ext = key === "win32-x64" ? "zip" : "tar.gz";
+      const binName = key === "win32-x64" ? "lazygit.exe" : "lazygit";
       return {
-        url: `https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_${suffix}.tar.gz`,
-        binPath: join(INSTALLS_DIR, `lazygit-${LAZYGIT_VERSION}`, "lazygit"),
+        url: `https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_${suffix}.${ext}`,
+        binPath: join(INSTALLS_DIR, `lazygit-${LAZYGIT_VERSION}`, binName),
       };
     },
   });
@@ -298,10 +352,15 @@ export async function installLazygit(): Promise<string> {
 
 export async function installProxy(version?: string): Promise<{ path: string; version: string }> {
   const v = version ?? (await resolveProxyVersion());
-  const buildAsset = (suffix: string): PlatformAsset => ({
-    url: `https://github.com/router-for-me/CLIProxyAPI/releases/download/v${v}/CLIProxyAPI_${v}_${suffix}.tar.gz`,
-    binPath: join(INSTALLS_DIR, `cliproxyapi-${v}`, "cli-proxy-api"),
-  });
+  const buildAsset = (suffix: string): PlatformAsset => {
+    const isWin = getPlatformKey() === "win32-x64";
+    const ext = isWin ? "zip" : "tar.gz";
+    const binName = isWin ? "cli-proxy-api.exe" : "cli-proxy-api";
+    return {
+      url: `https://github.com/router-for-me/CLIProxyAPI/releases/download/v${v}/CLIProxyAPI_${v}_${suffix}.${ext}`,
+      binPath: join(INSTALLS_DIR, `cliproxyapi-${v}`, binName),
+    };
+  };
   try {
     const path = await installBinary({
       name: "cliproxyapi",
@@ -328,30 +387,11 @@ export async function installProxy(version?: string): Promise<{ path: string; ve
 }
 
 function getUserFontDir(): string {
-  const os = platform();
-  if (os === "darwin") {
-    return join(homedir(), "Library", "Fonts");
-  }
-  // Linux / fallback
-  return join(homedir(), ".local", "share", "fonts");
+  return userFontDir();
 }
 
-/**
- * Get all font directories to scan (user + system).
- */
 function getFontDirs(): string[] {
-  const dirs: string[] = [];
-  const os = platform();
-  if (os === "darwin") {
-    dirs.push(join(homedir(), "Library", "Fonts"));
-    dirs.push("/Library/Fonts");
-    dirs.push("/System/Library/Fonts");
-  } else {
-    dirs.push(join(homedir(), ".local", "share", "fonts"));
-    dirs.push("/usr/share/fonts");
-    dirs.push("/usr/local/share/fonts");
-  }
-  return dirs;
+  return systemFontDirs();
 }
 
 /**
@@ -435,7 +475,10 @@ export async function installFont(fontId: string): Promise<string> {
     const buffer = await response.arrayBuffer();
     await Bun.write(tmpFile, buffer);
 
-    execSync(`tar xJf "${tmpFile}" -C "${fontDir}"`, { stdio: "ignore" });
+    const result = extractTarXz(tmpFile, fontDir);
+    if (!result.success) {
+      throw new Error(`Font extract failed: ${result.error}`);
+    }
     unlinkSync(tmpFile);
 
     // Remove non-font files (LICENSE, README)
@@ -465,10 +508,14 @@ export async function installFont(fontId: string): Promise<string> {
     }
   }
 
-  // Refresh font cache on Linux
-  if (platform() === "linux") {
+  // Refresh font cache on Linux. macOS picks up new fonts automatically.
+  // Windows: per-user fonts in %LOCALAPPDATA%\Microsoft\Windows\Fonts are
+  // picked up on the next process launch — no admin / cache refresh required
+  // on Win10 1809+.
+  if (!IS_WIN && !IS_DARWIN) {
     try {
-      execSync("fc-cache -f", { stdio: "ignore", timeout: 10_000 });
+      const { spawnSync } = await import("node:child_process");
+      spawnSync("fc-cache", ["-f"], { stdio: "ignore", timeout: 10_000 });
     } catch {
       // non-fatal
     }

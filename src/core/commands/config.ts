@@ -445,7 +445,7 @@ function handleTimeouts(_input: string, ctx: CommandContext): void {
       {
         value: "tool-timeout",
         label: "Tool Timeout",
-        description: `${currentToolTimeout === 0 ? "none" : `${currentToolTimeout}m`}`,
+        description: currentToolTimeout === 0 ? "none" : `${currentToolTimeout}m`,
       },
       { value: "watchdog-toggle", label: "Watchdog", description: watchdogEnabled ? "On" : "Off" },
       { value: "wd-first", label: "First Chunk Timeout", description: `${wdFirstSec}s` },

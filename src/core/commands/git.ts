@@ -98,7 +98,9 @@ function handleDiff(_input: string, ctx: CommandContext): void {
       sysMsg(ctx, "No unstaged changes.");
       return;
     }
-    const tmpPath = `/tmp/soulforge-diff-${Date.now()}.diff`;
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const tmpPath = join(tmpdir(), `soulforge-diff-${Date.now()}.diff`);
     const { writeFileSync } = await import("node:fs");
     writeFileSync(tmpPath, diff);
     ctx.openEditorWithFile(tmpPath);

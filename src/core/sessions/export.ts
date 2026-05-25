@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ChatMessage, ToolCall } from "../../types/index.js";
-import { writeLinuxClipboard } from "../../utils/clipboard.js";
+import { copyToClipboard } from "../platform/clipboard.js";
 
 function formatTimestamp(ts: number): string {
   const d = new Date(ts);
@@ -166,19 +166,7 @@ interface ClipboardResult {
 export function exportToClipboard(messages: ChatMessage[], title?: string): ClipboardResult {
   const label = title ?? "Chat Export";
   const content = exportToMarkdown(messages, label);
-
-  const platform = process.platform;
-  let ok = false;
-  if (platform === "darwin") {
-    const proc = Bun.spawnSync(["pbcopy"], { stdin: new TextEncoder().encode(content) });
-    ok = proc.exitCode === 0;
-  } else if (platform === "win32") {
-    const proc = Bun.spawnSync(["clip"], { stdin: new TextEncoder().encode(content) });
-    ok = proc.exitCode === 0;
-  } else {
-    ok = writeLinuxClipboard(content);
-  }
-
+  const ok = copyToClipboard(content);
   const visible = messages.filter((m) => m.role !== "system" || m.showInChat).length;
   return { messageCount: visible, format: "markdown", ok };
 }

@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: ProxySoul.SoulForge
+PackageVersion: 2.15.3
+InstallerType: nullsoft
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+Commands:
+  - soulforge
+  - sf
+FileExtensions: []
+Protocols: []
+ReleaseDate: 2026-05-12
+ReleaseNotesUrl: https://github.com/proxysoul/soulforge/releases/tag/v2.15.3
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/proxysoul/soulforge/releases/download/v2.15.3/soulforge-setup-2.15.3-x64.exe
+    # InstallerSha256 is filled in by the release pipeline / submitter via:
+    #   (Get-FileHash <file> -Algorithm SHA256).Hash
+    InstallerSha256: REPLACE_WITH_SHA256
+    # NSIS per-user install respects /S for silent + custom dir via /D=<path>
+    # (must be the LAST argument when using NSIS silent mode).
+    InstallerSwitches:
+      Silent: /S
+      SilentWithProgress: /S
+ManifestType: installer
+ManifestVersion: 1.6.0

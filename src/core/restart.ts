@@ -1,3 +1,5 @@
+import { isCompiledBinary } from "./platform/index.js";
+
 export interface RestartSpec {
   command: string;
   args: string[];
@@ -15,11 +17,15 @@ export function getRestartSpec(options: RestartSpecOptions = {}): RestartSpec {
   const moduleUrl = options.moduleUrl ?? import.meta.url;
   const entrypoint = argv[1] ?? "";
   const userArgs = argv.slice(2);
-  const isCompiledBinary = moduleUrl.includes("$bunfs") || entrypoint.startsWith("/$bunfs/");
+  const isCompiled =
+    isCompiledBinary(moduleUrl) ||
+    entrypoint.startsWith("/$bunfs/") ||
+    entrypoint.includes("B:~BUN") ||
+    entrypoint.includes("B:\\~BUN");
 
   // Compiled Bun binaries expose an internal /$bunfs entry in argv[1].
   // Relaunch the real executable and only forward the user-facing args.
-  if (isCompiledBinary) {
+  if (isCompiled) {
     return { command: execPath || argv[0] || "soulforge", args: userArgs };
   }
 

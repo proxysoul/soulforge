@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: ProxySoul.SoulForge
+PackageVersion: 2.15.3
+PackageLocale: en-US
+Publisher: proxySoul
+PublisherUrl: https://github.com/proxysoul
+PublisherSupportUrl: https://github.com/proxysoul/soulforge/issues
+Author: proxySoul
+PackageName: SoulForge
+PackageUrl: https://github.com/proxysoul/soulforge
+License: BUSL-1.1
+LicenseUrl: https://github.com/proxysoul/soulforge/blob/main/LICENSE
+Copyright: Copyright (c) proxySoul
+ShortDescription: Graph-powered code intelligence — multi-agent coding with codebase-aware AI.
+Description: |-
+  SoulForge is an interactive TUI agent for software engineering tasks. It pairs
+  a graph-powered repo map (PageRank file ranking, AST-aware symbol search,
+  cochange-based blast radius) with multi-model orchestration so you can hand
+  off precise edits, refactors, and audits to LLMs without losing your
+  understanding of the codebase.
+Moniker: soulforge
+Tags:
+  - ai
+  - cli
+  - tui
+  - coding-assistant
+  - agents
+  - llm
+  - code-intelligence
+ReleaseNotes: |-
+  See https://github.com/proxysoul/soulforge/releases/tag/v2.15.3
+ReleaseNotesUrl: https://github.com/proxysoul/soulforge/releases/tag/v2.15.3
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

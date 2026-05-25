@@ -16,15 +16,22 @@
   "license": "BUSL-1.1",
   "author": "proxySoul",
   "bin": {
-    "soulforge": "./dist/bin.sh",
-    "sf": "./dist/bin.sh",
+    "soulforge": "./scripts/launcher.mjs",
+    "sf": "./scripts/launcher.mjs",
     "soulforge-remote": "./dist/soulforge-remote.sh"
   },
   "engines": {
     "bun": ">=1.3.13"
   },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
   "files": [
     "dist",
+    "scripts/postinstall.mjs",
+    "scripts/launcher.mjs",
     "THIRD_PARTY_LICENSES.md"
   ],
   "scripts": {
@@ -36,6 +43,13 @@
     "bundle:x64": "bash scripts/bundle.sh x64 darwin",
     "bundle:linux": "bash scripts/bundle.sh x64 linux",
     "bundle:linux-arm64": "bash scripts/bundle.sh arm64 linux",
+    "build:binary:windows": "bun scripts/build.ts --compile --target=bun-windows-x64 --outfile=bin/soulforge-windows-x64.exe",
+    "bundle:windows": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/bundle-windows.ps1 -Arch x64",
+    "bundle:windows-arm64": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/bundle-windows.ps1 -Arch arm64",
+    "installer:windows": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -Arch x64",
+    "installer:windows-arm64": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-installer.ps1 -Arch arm64",
+    "selfextract:windows": "bun build --compile --target=bun-windows-x64 --minify --outfile=bin/soulforge-installer-x64.exe scripts/installer-cli.mjs",
+    "selfextract:windows-arm64": "bun build --compile --target=bun-windows-arm64 --minify --outfile=bin/soulforge-installer-arm64.exe scripts/installer-cli.mjs",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
@@ -48,7 +62,8 @@
     "release:patch": "bash scripts/release.sh patch",
     "release:minor": "bash scripts/release.sh minor",
     "release:major": "bash scripts/release.sh major",
-    "release:dry": "bash scripts/release.sh patch --dry-run"
+    "release:dry": "bash scripts/release.sh patch --dry-run",
+    "postinstall": "bun scripts/postinstall.mjs"
   },
   "devDependencies": {
     "@babel/core": "7.29.0",
@@ -99,5 +114,13 @@
     "web-tree-sitter": "0.25.10",
     "zod": "4.4.3",
     "zustand": "5.0.13"
+  },
+  "optionalDependencies": {
+    "@opentui/core-darwin-arm64": "0.2.0",
+    "@opentui/core-darwin-x64": "0.2.0",
+    "@opentui/core-linux-arm64": "0.2.0",
+    "@opentui/core-linux-x64": "0.2.0",
+    "@opentui/core-win32-arm64": "0.2.0",
+    "@opentui/core-win32-x64": "0.2.0"
   }
 }

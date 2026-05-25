@@ -1,7 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { configDir, IS_DARWIN, IS_LINUX, IS_WIN } from "./platform/index.js";
+import {
+  windowsKeychainAvailable,
+  windowsKeychainDelete,
+  windowsKeychainGet,
+  windowsKeychainSet,
+} from "./platform/keychain.js";
 
 // Cache for keychain probes — sync `security` exec is ~50-200ms each. Without
 // caching, opening the API key popup blocks the UI for seconds while probing
@@ -12,7 +18,7 @@ function _invalidateKeychainCache(key?: string) {
   else _keychainHasCache.clear();
 }
 
-const SECRETS_DIR = join(homedir(), ".soulforge");
+const SECRETS_DIR = configDir();
 const SECRETS_FILE = join(SECRETS_DIR, "secrets.json");
 const KEYCHAIN_SERVICE = "soulforge";
 
@@ -57,8 +63,9 @@ export function registerProviderSecrets(entries: { secretKey: string; envVar: st
 }
 
 function keychainAvailable(): boolean {
-  if (process.platform === "darwin") return true;
-  if (process.platform === "linux") {
+  if (IS_DARWIN) return true;
+  if (IS_WIN) return windowsKeychainAvailable();
+  if (IS_LINUX) {
     const result = spawnSync("which", ["secret-tool"], { timeout: 2000 });
     return result.status === 0;
   }
@@ -67,7 +74,7 @@ function keychainAvailable(): boolean {
 
 function keychainGet(key: SecretKey): string | null {
   try {
-    if (process.platform === "darwin") {
+    if (IS_DARWIN) {
       const result = spawnSync(
         "security",
         ["find-generic-password", "-a", KEYCHAIN_SERVICE, "-s", key, "-w"],
@@ -79,7 +86,11 @@ function keychainGet(key: SecretKey): string | null {
       return null;
     }
 
-    if (process.platform === "linux") {
+    if (IS_WIN) {
+      return windowsKeychainGet(key);
+    }
+
+    if (IS_LINUX) {
       const result = spawnSync("secret-tool", ["lookup", "service", KEYCHAIN_SERVICE, "key", key], {
         timeout: 5000,
         encoding: "utf-8",
@@ -97,7 +108,7 @@ function keychainGet(key: SecretKey): string | null {
 function keychainSet(key: SecretKey, value: string): boolean {
   try {
     if (!value) return false;
-    if (process.platform === "darwin") {
+    if (IS_DARWIN) {
       // We pass the secret via `-w <value>` on argv. The stdin alternative
       // (`-w` with no value, password piped via stdin) does NOT work when the
       // parent has a controlling TTY: `security` opens /dev/tty directly,
@@ -117,7 +128,11 @@ function keychainSet(key: SecretKey, value: string): boolean {
       return result.status === 0;
     }
 
-    if (process.platform === "linux") {
+    if (IS_WIN) {
+      return windowsKeychainSet(key, value);
+    }
+
+    if (IS_LINUX) {
       const result = spawnSync(
         "secret-tool",
         ["store", "--label", `SoulForge ${key}`, "service", KEYCHAIN_SERVICE, "key", key],
@@ -136,7 +151,7 @@ function keychainSet(key: SecretKey, value: string): boolean {
 
 function keychainDelete(key: SecretKey): boolean {
   try {
-    if (process.platform === "darwin") {
+    if (IS_DARWIN) {
       const result = spawnSync(
         "security",
         ["delete-generic-password", "-a", KEYCHAIN_SERVICE, "-s", key],
@@ -145,7 +160,11 @@ function keychainDelete(key: SecretKey): boolean {
       return result.status === 0;
     }
 
-    if (process.platform === "linux") {
+    if (IS_WIN) {
+      return windowsKeychainDelete(key);
+    }
+
+    if (IS_LINUX) {
       const result = spawnSync("secret-tool", ["clear", "service", KEYCHAIN_SERVICE, "key", key], {
         timeout: 5000,
         stdio: ["ignore", "ignore", "ignore"],
@@ -170,7 +189,10 @@ function fileWrite(data: Record<string, string>): void {
     mkdirSync(SECRETS_DIR, { recursive: true, mode: 0o700 });
   }
   writeFileSync(SECRETS_FILE, JSON.stringify(data, null, 2));
-  chmodSync(SECRETS_FILE, 0o600);
+  // NTFS has no POSIX perms — %APPDATA% is user-only by default ACL inheritance.
+  if (!IS_WIN) {
+    chmodSync(SECRETS_FILE, 0o600);
+  }
 }
 
 export type KeyPriority = "env" | "app";

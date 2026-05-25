@@ -17,14 +17,15 @@
  * auto-scrolls, severity-colours each line, and supports a live filter.
  */
 
-import { type ChildProcess, execSync, spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { appendFileSync, existsSync, type FSWatcher, readFileSync, statSync, watch } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { decodePasteBytes, type PasteEvent, TextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { icon } from "../../core/icons.js";
+import { configDir, findOnPath, IS_WIN } from "../../core/platform/index.js";
 import { hasSecret, setSecret } from "../../core/secrets.js";
 import { useTheme } from "../../core/theme/index.js";
 import {
@@ -583,21 +584,32 @@ export function HearthSettings({ visible, onClose }: Props) {
           `# cmd: ${launcher.cmd} ${launcher.args.join(" ")}\n\n`,
         { mode: 0o600 },
       );
-      const escaped = [launcher.cmd, ...launcher.args].map(shellEscape).join(" ");
-      const cmd = `nohup ${escaped} hearth start >>${shellEscape(bootLog)} 2>&1 &`;
-      const proc = spawn("/bin/sh", ["-c", cmd], {
-        detached: true,
-        stdio: "ignore",
-        env: {
-          ...process.env,
-          SOULFORGE_HEARTH_BOOT_LOG: bootLog,
-          // Keep the child out of our interactive terminal so it never paints TUI frames
-          TERM: "dumb",
-          FORCE_COLOR: "0",
-          NO_COLOR: "1",
-          SOULFORGE_NO_TTY: "1",
-        },
-      });
+      // Windows: spawn directly with detached + windowsHide; the OS handles
+      // process detachment, no shell wrapper. POSIX: use `nohup … &` so the
+      // daemon survives parent exit and doesn't claim the controlling TTY.
+      const env = {
+        ...process.env,
+        SOULFORGE_HEARTH_BOOT_LOG: bootLog,
+        TERM: "dumb",
+        FORCE_COLOR: "0",
+        NO_COLOR: "1",
+        SOULFORGE_NO_TTY: "1",
+      };
+      const proc = IS_WIN
+        ? spawn(launcher.cmd, [...launcher.args, "hearth", "start"], {
+            detached: true,
+            stdio: "ignore",
+            windowsHide: true,
+            env,
+          })
+        : spawn(
+            "/bin/sh",
+            [
+              "-c",
+              `nohup ${[launcher.cmd, ...launcher.args].map(shellEscape).join(" ")} hearth start >>${shellEscape(bootLog)} 2>&1 &`,
+            ],
+            { detached: true, stdio: "ignore", env },
+          );
       proc.unref();
       daemonProcRef.current = proc;
       bootLogRef.current = bootLog;
@@ -639,7 +651,7 @@ export function HearthSettings({ visible, onClose }: Props) {
       }
 
       // Read the pidfile the daemon writes on start — direct kill, no pattern matching.
-      const pidPath = join(homedir(), ".soulforge", "hearth.pid");
+      const pidPath = join(configDir(), "hearth.pid");
       let pid: number | null = null;
       if (existsSync(pidPath)) {
         const raw = readFileSync(pidPath, "utf-8").trim();
@@ -2964,24 +2976,29 @@ function findSourceCheckout(startPath: string): string | null {
 function isExecutable(p: string): boolean {
   try {
     const st = statSync(p);
-    return st.isFile() && (st.mode & 0o111) !== 0;
+    if (!st.isFile()) return false;
+    // POSIX exec bits aren't reliable on Windows (libuv reports 0 here).
+    // PATHEXT matching in findBinaryOnPath already gates by suffix.
+    if (IS_WIN) return true;
+    return (st.mode & 0o111) !== 0;
   } catch {
     return false;
   }
 }
 
 function findBinaryOnPath(name: string): string | null {
-  try {
-    const which = execSync(`command -v ${shellEscape(name)} 2>/dev/null || true`, {
-      shell: "/bin/sh",
-      encoding: "utf-8",
-      timeout: 2000,
-    }).trim();
-    if (which && existsSync(which)) return which;
-  } catch {}
+  // First try the canonical shim helper (handles Windows PATHEXT + POSIX exec).
+  const resolved = findOnPath(name);
+  if (resolved && existsSync(resolved) && isExecutable(resolved)) return resolved;
+  // Fallback PATH walk for paranoia — covers shims with non-default exts.
+  const exts = IS_WIN
+    ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)
+    : [""];
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
-    const candidate = join(dir, name);
-    if (existsSync(candidate) && isExecutable(candidate)) return candidate;
+    for (const ext of exts) {
+      const candidate = join(dir, name + ext);
+      if (existsSync(candidate) && isExecutable(candidate)) return candidate;
+    }
   }
   return null;
 }

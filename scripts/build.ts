@@ -19,6 +19,22 @@ import { type BunPlugin } from "bun";
 import { chmodSync, copyFileSync, cpSync, renameSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+// Inlined into every native-lookup plugin so the runtime resolution honours
+// %LOCALAPPDATA% on Windows and ~/.soulforge on POSIX. Single source of truth
+// — mirrors src/core/platform/index.ts:configDir() at runtime. Update both
+// together if the canonical path moves.
+const APPDATA_DIR_JS = `
+function appDataDir() {
+  const { homedir } = require("os");
+  const { join } = require("path");
+  if (process.platform === "win32") {
+    const local = process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local");
+    return join(local, "SoulForge");
+  }
+  return join(process.env.HOME || homedir(), ".soulforge");
+}
+`;
+
 // ── Stub plugin for react-devtools-core (optional peer dep of @opentui/react) ──
 // In compiled binaries there's no node_modules, so we replace the import with a no-op.
 const devtoolsStubPlugin: BunPlugin = {
@@ -45,14 +61,15 @@ const nativeAddonPlugin: BunPlugin = {
       contents: `
 const { platform, arch } = require("os");
 const { join } = require("path");
-const { homedir } = require("os");
+${APPDATA_DIR_JS}
 function loadNativeModule() {
   const p = platform();
   const a = arch();
   const name = "ghostty-opentui.node";
+  const base = appDataDir();
   const paths = [
-    join(homedir(), ".soulforge", "native", p + "-" + a, name),
-    join(homedir(), ".soulforge", "bin", name),
+    join(base, "native", p + "-" + a, name),
+    join(base, "bin", name),
   ];
   for (const path of paths) {
     try { return require(path); } catch {}
@@ -74,17 +91,20 @@ module.exports = { native };
 const opentuiNativePlugin: BunPlugin = {
   name: "opentui-native",
   setup(build) {
-    build.onResolve({ filter: /^@opentui\/core-[a-z]+-[a-z0-9]+\/index\.ts$/ }, (args) => ({
+    // Match both shapes — older OpenTUI used `/index.ts`, current builds use
+    // bare specifier (`@opentui/core-${platform}-${arch}`).
+    build.onResolve({ filter: /^@opentui\/core-[a-z]+-[a-z0-9]+(\/index\.ts)?$/ }, (args) => ({
       path: args.path,
       namespace: "opentui-native",
     }));
     build.onLoad({ filter: /.*/, namespace: "opentui-native" }, () => ({
       contents: `
-import { homedir } from "os";
 import { platform, arch } from "process";
 import { join } from "path";
-const ext = platform === "darwin" ? "dylib" : "so";
-const libPath = join(homedir(), ".soulforge", "native", platform + "-" + arch, "libopentui." + ext);
+${APPDATA_DIR_JS}
+const ext = platform === "win32" ? "dll" : platform === "darwin" ? "dylib" : "so";
+const prefix = platform === "win32" ? "" : "lib";
+const libPath = join(appDataDir(), "native", platform + "-" + arch, prefix + "opentui." + ext);
 export default libPath;
 `,
       loader: "js",
@@ -117,7 +137,8 @@ const stripAbsPathsPlugin: BunPlugin = {
   name: "strip-abs-paths",
   setup(build) {
     const cwd = process.cwd();
-    const home = process.env.HOME ?? "";
+    // POSIX uses $HOME; Windows uses $USERPROFILE. Strip whichever is set.
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
     build.onLoad({ filter: /\.(ts|tsx|js|jsx)$/ }, async ({ path, loader }) => {
       let src = await Bun.file(path).text();
       if (cwd && src.includes(cwd)) src = src.split(cwd).join("");
@@ -174,16 +195,21 @@ if (isCompile) {
   {
     const bundlePath = `${tmpDir}/soulforge.js`;
     let src = await Bun.file(bundlePath).text();
+    // OpenTUI's compiled bundle uses either:
+    //   `await import(\`@opentui/core-${process.platform}-${process.arch}\`)`           (current)
+    //   `await import(\`@opentui/core-${process.platform}-${process.arch}/index.ts\`)`  (older)
+    // Match both forms — followed by an optional `<var> = <var>.default;` extract.
     src = src.replace(
-      /\w+ = await import\(`@opentui\/core-\$\{process\.platform\}-\$\{process\.arch\}\/index\.ts`\);\s*\w+ = \w+\.default;/,
+      /(?:var |let |const )?\w+\s*=\s*await import\(`@opentui\/core-\$\{process\.platform\}-\$\{process\.arch\}(?:\/index\.ts)?`\);?\s*(?:\w+\s*=\s*\w+\.default;?)?/,
       `targetLibPath = (() => {
-  const os = require("os");
   const path = require("path");
   const fs = require("fs");
-  const ext = process.platform === "darwin" ? "dylib" : "so";
+  ${APPDATA_DIR_JS}
+  const ext = process.platform === "win32" ? "dll" : process.platform === "darwin" ? "dylib" : "so";
+  const prefix = process.platform === "win32" ? "" : "lib";
   const triplet = process.platform + "-" + process.arch;
-  const file = "libopentui." + ext;
-  const home = path.join(os.homedir(), ".soulforge", "native", triplet, file);
+  const file = prefix + "opentui." + ext;
+  const home = path.join(appDataDir(), "native", triplet, file);
   if (fs.existsSync(home)) return home;
   const candidates = [];
   try { candidates.push(path.resolve(path.dirname(process.execPath), "..", "deps", "native", triplet, file)); } catch {}
@@ -193,14 +219,14 @@ if (isCompile) {
       if (fs.existsSync(src)) {
         fs.mkdirSync(path.dirname(home), { recursive: true });
         fs.copyFileSync(src, home);
-        try { fs.chmodSync(home, 0o755); } catch {}
+        try { if (process.platform !== "win32") fs.chmodSync(home, 0o755); } catch {}
         return home;
       }
     } catch {}
   }
   const msg = "SoulForge native runtime missing: " + home + "\\n" +
     "  platform: " + triplet + "\\n" +
-    "  fix: reinstall via 'brew reinstall soulforge' or rerun the install.sh from the release tarball.\\n" +
+    "  fix: reinstall SoulForge or rerun the installer from the release tarball.\\n" +
     "  if the problem persists, file an issue at https://github.com/proxysoul/soulforge/issues with this output.";
   throw new Error(msg);
 })();`,
@@ -211,11 +237,19 @@ if (isCompile) {
   // Phase 2: Compile the pre-built JS into a native binary.
   // Bun.build() compile mode ignores outfile — it derives the binary name from
   // the entrypoint basename ("soulforge.js" → "./soulforge") and places it in cwd.
+  //
+  // `__SOULFORGE_COMPILED__` is the single source of truth for "are we the
+  // standalone .exe?" — every isCompiledBinary() call collapses to a literal
+  // `true` after Bun's tree-shake. Survives any future change to
+  // import.meta.url or process.execPath formatting on any platform.
   const phase2 = await Bun.build({
     entrypoints: [`${tmpDir}/soulforge.js`],
     target: "bun",
     plugins: [devtoolsStubPlugin],
     compile: (compileTarget ?? true) as true,
+    define: {
+      __SOULFORGE_COMPILED__: "true",
+    },
   });
 
   if (!phase2.success) {
@@ -226,16 +260,26 @@ if (isCompile) {
 
   rmSync(tmpDir, { recursive: true, force: true });
 
-  // Binary lands at ./soulforge in cwd — move to outfile if specified
-  const defaultBinary = resolve("soulforge");
+  // Binary lands at ./soulforge in cwd. Bun compile auto-appends .exe when
+  // --target=bun-windows-*; detect that and rebase the source path so the
+  // rename below works.
+  const isWindowsTarget = (compileTarget ?? "").startsWith("bun-windows");
+  const defaultBinary = resolve(isWindowsTarget ? "soulforge.exe" : "soulforge");
   if (outfile) {
-    const dest = resolve(outfile);
+    let dest = resolve(outfile);
+    if (isWindowsTarget && !dest.toLowerCase().endsWith(".exe")) {
+      dest = `${dest}.exe`;
+    }
     mkdirSync(dirname(dest), { recursive: true });
     renameSync(defaultBinary, dest);
   }
 
   const elapsed = (performance.now() - start).toFixed(0);
-  const finalPath = outfile ? resolve(outfile) : defaultBinary;
+  const finalPath = outfile
+    ? isWindowsTarget && !outfile.toLowerCase().endsWith(".exe")
+      ? resolve(`${outfile}.exe`)
+      : resolve(outfile)
+    : defaultBinary;
   console.log(`✓ Compiled binary with React Compiler in ${elapsed}ms → ${finalPath}`);
 } else {
   // Production hardening: when NODE_ENV=production or --prod is passed, the
@@ -318,6 +362,24 @@ if (isCompile) {
   );
   chmodSync("dist/bin.sh", 0o755);
 
+  // Windows batch wrapper — npm's cmd-shim picks .cmd over .sh on win32.
+  // CRLF line endings; cmd.exe is line-ending sensitive.
+  await Bun.write(
+    "dist/bin.cmd",
+    "@echo off\r\n" +
+      "where bun >NUL 2>NUL\r\n" +
+      "if errorlevel 1 (\r\n" +
+      '  echo SoulForge requires Bun ^(https://bun.sh^) 1>&2\r\n' +
+      "  echo. 1>&2\r\n" +
+      "  echo Install Bun: 1>&2\r\n" +
+      '  echo   powershell -c "irm bun.sh/install.ps1 ^| iex" 1>&2\r\n' +
+      "  echo. 1>&2\r\n" +
+      "  echo Then run: soulforge 1>&2\r\n" +
+      "  exit /b 1\r\n" +
+      ")\r\n" +
+      'bun "%~dp0index.js" %*\r\n',
+  );
+
   // Production guards: assert no inline sourcemaps and no source-form sentinel
   // class declarations leak into the bundle. Bun preserves export NAMES even
   // with identifier mangling — the *class body* is what we protect.
@@ -343,7 +405,7 @@ if (isCompile) {
     // source; pre-bundled CJS deps inline absolute __dirname/__filename paths
     // that survive into dist/index.js. Replace them.
     const cwd = process.cwd();
-    const home = process.env.HOME ?? "";
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
     let raw = bundle;
     for (const needle of [cwd, home].filter(Boolean)) {
       if (raw.includes(needle)) raw = raw.split(needle).join("");

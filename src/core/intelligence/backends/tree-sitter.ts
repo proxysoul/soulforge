@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-const BUNDLED_WASM_DIR = join(homedir(), ".soulforge", "wasm");
+const BUNDLED_WASM_DIR = join(configDir(), "wasm");
 
+import { configDir, isCompiledBinary } from "../../platform/index.js";
 import type { FileCache } from "../cache.js";
 import {
   type CodeBlock,
@@ -1369,10 +1369,12 @@ export class TreeSitterBackend implements IntelligenceBackend {
     }
   }
 
-  private static readonly IS_BUNDLED = import.meta.url.includes("$bunfs");
+  private static readonly IS_BUNDLED = isCompiledBinary(import.meta.url);
 
   private resolveWasm(filename: string): string {
-    const basename = filename.split("/").pop() ?? filename;
+    // Handle both POSIX `/` and Windows `\\` separators — filename may arrive
+    // from readdir which returns native separators.
+    const basename = filename.split(/[/\\]/).pop() ?? filename;
     if (TreeSitterBackend.IS_BUNDLED) {
       return join(BUNDLED_WASM_DIR, basename);
     }

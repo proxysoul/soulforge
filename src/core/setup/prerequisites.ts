@@ -1,7 +1,7 @@
-import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { homedir, platform } from "node:os";
+import { platform } from "node:os";
 import { join } from "node:path";
+import { CMD_EXT, commandExists, EXE, IS_WIN, masonBinDir } from "../platform/index.js";
 import { getVendoredPath, hasAnyNerdFont } from "./install.js";
 
 interface Prerequisite {
@@ -14,26 +14,24 @@ interface Prerequisite {
   platforms?: string[];
 }
 
-function commandExists(cmd: string): boolean {
-  try {
-    execSync(`command -v ${cmd}`, { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function fontInstalled(): boolean {
-  if (platform() === "win32") return true;
+  // hasAnyNerdFont scans the platform-appropriate font dirs (including
+  // %LOCALAPPDATA%\Microsoft\Windows\Fonts on Windows after install.ts is migrated).
   return hasAnyNerdFont();
 }
 
-const MASON_BIN = join(homedir(), ".local", "share", "nvim", "mason", "bin");
+const MASON_BIN = masonBinDir();
 
 function lspExists(...cmds: string[]): boolean {
   for (const cmd of cmds) {
     if (commandExists(cmd)) return true;
+    // Bare name
     if (existsSync(join(MASON_BIN, cmd))) return true;
+    // Windows: Mason installs .cmd shims pointing at the real .exe / interpreter.
+    if (IS_WIN) {
+      if (existsSync(join(MASON_BIN, cmd + CMD_EXT))) return true;
+      if (existsSync(join(MASON_BIN, cmd + EXE))) return true;
+    }
   }
   return false;
 }

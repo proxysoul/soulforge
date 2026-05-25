@@ -4,8 +4,14 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import {
+  configDir,
+  IS_WIN,
+  expandHome as platformExpandHome,
+  safeRename,
+} from "../core/platform/index.js";
+import { makeIpcSocketPath } from "../core/platform/socket.js";
 import type {
   ChatBinding,
   ExternalChatId,
@@ -14,10 +20,14 @@ import type {
   SurfaceId,
 } from "./types.js";
 
-export const DEFAULT_SOCKET_PATH = join(homedir(), ".soulforge", "hearth.sock");
-export const DEFAULT_STATE_PATH = join(homedir(), ".soulforge", "hearth-state.json");
-export const DEFAULT_LOG_PATH = join(homedir(), ".soulforge", "hearth.log");
-export const GLOBAL_CONFIG_PATH = join(homedir(), ".soulforge", "hearth.json");
+// All hearth paths live under configDir() (the trust root used by containPath).
+// On POSIX that's ~/.soulforge; on Windows it's %APPDATA%\SoulForge.
+export const DEFAULT_SOCKET_PATH = IS_WIN
+  ? makeIpcSocketPath(`soulforge-hearth-${process.env.USERNAME ?? "user"}`)
+  : join(configDir(), "hearth.sock");
+export const DEFAULT_STATE_PATH = join(configDir(), "hearth-state.json");
+export const DEFAULT_LOG_PATH = join(configDir(), "hearth.log");
+export const GLOBAL_CONFIG_PATH = join(configDir(), "hearth.json");
 
 const DEFAULT_AUTO_APPROVE = [
   "read",
@@ -84,17 +94,28 @@ function readJsonFile<T>(path: string): Partial<T> | null {
   }
 }
 
-/** H7: every daemon-managed path must stay inside ~/.soulforge. A compromised
- *  config cannot redirect the log file to /etc/passwd or the socket to
- *  /tmp/shared.sock. */
 export function containPath(p: string, label: string): string {
-  const home = homedir();
-  const trustRoot = resolve(home, ".soulforge");
+  // Hearth's trust root: ~/.soulforge on POSIX, %APPDATA%\SoulForge on Windows.
+  // A compromised config cannot redirect the log file or socket to an
+  // arbitrary location outside this dir.
+  //
+  // Exception: named pipes on Windows (\\.\pipe\*) are kernel objects, not
+  // filesystem paths — let them through but constrain the leaf-name charset so
+  // a config-injected pipe path can't smuggle path-traversal or whitespace.
+  if (IS_WIN && p.startsWith("\\\\.\\pipe\\")) {
+    const leaf = p.slice(9);
+    if (/^[A-Za-z0-9._-]+$/.test(leaf)) return p;
+    process.stderr.write(
+      `hearth config: ${label}=${p} pipe name contains invalid chars; falling back to default\n`,
+    );
+    return "";
+  }
+  const trustRoot = resolve(configDir());
   const abs = resolve(expandHome(p));
   if (abs === trustRoot) return abs;
   if (!abs.startsWith(`${trustRoot}/`) && !abs.startsWith(`${trustRoot}\\`)) {
     process.stderr.write(
-      `hearth config: ${label}=${p} escapes ~/.soulforge; falling back to default\n`,
+      `hearth config: ${label}=${p} escapes ${trustRoot}; falling back to default\n`,
     );
     return "";
   }
@@ -187,8 +208,7 @@ export function loadHearthConfig(cwd?: string): HearthConfig {
 }
 
 function expandHome(p: string): string {
-  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
-  return p;
+  return platformExpandHome(p);
 }
 
 /** Resolve a chat binding with surface+global defaults applied. */
@@ -226,9 +246,8 @@ export function writeGlobalHearthConfig(config: HearthConfig): void {
   // H9: atomic write via tmp+rename so a crash mid-write can't truncate
   // hearth.json (which would silently drop every pairing on next boot).
   const tmp = `${GLOBAL_CONFIG_PATH}.tmp.${String(process.pid)}.${String(Date.now())}`;
-  const { renameSync } = require("node:fs") as typeof import("node:fs");
   writeFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 });
-  renameSync(tmp, GLOBAL_CONFIG_PATH);
+  safeRename(tmp, GLOBAL_CONFIG_PATH);
 }
 
 /** Persist a freshly paired chat into the global config. Idempotent. */
@@ -249,4 +268,4 @@ export function upsertChatBinding(
     },
   };
 }
-export const DEFAULT_PID_PATH = join(homedir(), ".soulforge", "hearth.pid");
+export const DEFAULT_PID_PATH = join(configDir(), "hearth.pid");

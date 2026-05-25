@@ -1,6 +1,7 @@
 import { access, readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { bunShellArgs } from "../platform/index.js";
 import { compressShellOutputFull } from "./shell-compress.js";
 import { saveTee, truncateWithTee } from "./tee.js";
 import { getToolTimeoutMs } from "./tool-timeout.js";
@@ -861,7 +862,7 @@ export const projectTool = {
     }
 
     const runCommand = async (cmd: string) => {
-      const proc = Bun.spawn(["sh", "-c", cmd], {
+      const proc = Bun.spawn(bunShellArgs(cmd), {
         cwd,
         stdin: "ignore",
         stdout: "pipe",
@@ -1032,7 +1033,7 @@ export async function formatFile(filePath: string, cwd?: string): Promise<boolea
 
   const command = `${profile.format} ${shellQuote(filePath)}`;
   try {
-    const proc = Bun.spawn(["sh", "-c", command], {
+    const proc = Bun.spawn(bunShellArgs(command), {
       cwd: effectiveCwd,
       stdin: "ignore",
       stdout: "pipe",

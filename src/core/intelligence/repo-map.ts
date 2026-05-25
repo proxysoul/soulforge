@@ -1,5 +1,4 @@
 import { Database } from "bun:sqlite";
-import { execSync } from "node:child_process";
 import { chmodSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { stat as statAsync } from "node:fs/promises";
 import { dirname, extname, join, relative, resolve } from "node:path";
@@ -631,7 +630,7 @@ export class RepoMap {
           execFile(
             "git",
             ["log", "--all", "--name-only", "--format=", "-n", "1000"],
-            { cwd: this.cwd, timeout: 10_000, maxBuffer: 5_000_000 },
+            { cwd: this.cwd, timeout: 10_000, maxBuffer: 5_000_000, windowsHide: true },
             (err, stdout) => resolve(err ? "" : stdout),
           );
         });
@@ -1787,8 +1786,9 @@ export class RepoMap {
         if (this.db.query("SELECT 1 FROM files WHERE path = ?").get(candidate)) return candidate;
       }
     }
-    // Last resort: basename match
-    const base = stripped.split("/").pop();
+    // Last resort: basename match. Use both separators — POSIX paths and
+    // Windows readdir output both flow into this map.
+    const base = stripped.split(/[/\\]/).pop();
     if (base) {
       const row = this.db
         .query<{ path: string }, [string]>(
@@ -2081,7 +2081,13 @@ export class RepoMap {
   private detectGit(): boolean {
     if (this.hasGit !== null) return this.hasGit;
     try {
-      execSync("git rev-parse --git-dir", { cwd: this.cwd, stdio: "pipe", timeout: 3000 });
+      const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+      execFileSync("git", ["rev-parse", "--git-dir"], {
+        cwd: this.cwd,
+        stdio: "pipe",
+        timeout: 3000,
+        windowsHide: true,
+      });
       this.hasGit = true;
     } catch {
       this.hasGit = false;
@@ -2109,7 +2115,7 @@ export class RepoMap {
         execFile(
           "git",
           ["log", "--pretty=format:---COMMIT---", "--name-only", "-n", String(GIT_LOG_COMMITS)],
-          { cwd: this.cwd, timeout: 10_000, maxBuffer: 5_000_000 },
+          { cwd: this.cwd, timeout: 10_000, maxBuffer: 5_000_000, windowsHide: true },
           (err, stdout) => (err ? reject(err) : resolve(stdout)),
         );
       });
@@ -5126,10 +5132,15 @@ export class RepoMap {
     try {
       const { execFile } = await import("node:child_process");
       return await new Promise<string | null>((resolve) => {
-        execFile("git", ["rev-parse", "HEAD"], { cwd: this.cwd, timeout: 2_000 }, (err, stdout) => {
-          if (err) resolve(null);
-          else resolve(stdout.trim() || null);
-        });
+        execFile(
+          "git",
+          ["rev-parse", "HEAD"],
+          { cwd: this.cwd, timeout: 2_000, windowsHide: true },
+          (err, stdout) => {
+            if (err) resolve(null);
+            else resolve(stdout.trim() || null);
+          },
+        );
       });
     } catch {
       return null;

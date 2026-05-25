@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { configDir, IS_WIN } from "../platform/index.js";
 
 /**
  * Effective API key soulforge uses to authenticate to CLIProxyAPI.
@@ -30,17 +31,23 @@ const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
 
 /** Paths checked, in order. First file found wins; others aren't read. */
 export function candidateConfigPaths(): string[] {
+  const programData = process.env.ProgramData ?? "C:\\ProgramData";
   const paths: (string | undefined)[] = [
     process.env.PROXY_CONFIG_PATH,
-    join(homedir(), ".soulforge", "proxy", "config.yaml"),
-    "/opt/homebrew/etc/cliproxyapi.conf",
-    "/opt/homebrew/etc/cliproxyapi/config.yaml",
-    "/usr/local/etc/cliproxyapi.conf",
-    "/usr/local/etc/cliproxyapi/config.yaml",
-    "/etc/cliproxyapi.conf",
-    "/etc/cliproxyapi/config.yaml",
-    join(homedir(), ".config", "cliproxyapi", "config.yaml"),
-    join(homedir(), ".cli-proxy-api", "config.yaml"),
+    join(configDir(), "proxy", "config.yaml"),
+    ...(IS_WIN
+      ? [join(programData, "cliproxyapi", "config.yaml"), join(programData, "cliproxyapi.conf")]
+      : [
+          "/opt/homebrew/etc/cliproxyapi.conf",
+          "/opt/homebrew/etc/cliproxyapi/config.yaml",
+          "/usr/local/etc/cliproxyapi.conf",
+          "/usr/local/etc/cliproxyapi/config.yaml",
+          "/etc/cliproxyapi.conf",
+          "/etc/cliproxyapi/config.yaml",
+          // POSIX-only home-dir fallbacks — silently skipped on Windows.
+          join(homedir(), ".config", "cliproxyapi", "config.yaml"),
+          join(homedir(), ".cli-proxy-api", "config.yaml"),
+        ]),
   ];
   return paths.filter((p): p is string => typeof p === "string" && p.length > 0);
 }

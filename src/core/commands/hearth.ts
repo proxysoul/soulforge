@@ -7,7 +7,6 @@
  */
 
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { hasSecret, setSecret } from "../../core/secrets.js";
 import { loadHearthConfig } from "../../hearth/config.js";
@@ -20,6 +19,7 @@ import {
   type SurfaceId,
 } from "../../hearth/types.js";
 import { icon } from "../icons.js";
+import { configDir } from "../platform/index.js";
 import { getThemeTokens } from "../theme/index.js";
 import type { CommandContext, CommandHandler } from "./types.js";
 import { sysMsg } from "./utils.js";
@@ -306,7 +306,7 @@ function handleHearthDocs(_input: string, ctx: CommandContext): void {
       },
       {
         type: "text",
-        label: `${join(homedir(), ".soulforge", "hearth.log")} — daemon log`,
+        label: `${join(configDir(), "hearth.log")} — daemon log`,
         color: getThemeTokens().textMuted,
       },
     ],

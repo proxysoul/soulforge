@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CustomProviderConfig } from "../core/llm/providers/types.js";
+import { configDir } from "../core/platform/index.js";
 import { ensureSoulforgeDir } from "../core/utils/ensure-soulforge-dir.js";
 import { logBackgroundError } from "../stores/errors.js";
 import type { AppConfig, MCPServerConfig } from "../types";
@@ -33,7 +33,7 @@ function mergeMCPServers(
 }
 
 function getConfigDir(): string {
-  return join(process.env.HOME ?? homedir(), ".soulforge");
+  return configDir();
 }
 function getConfigFile(): string {
   return join(getConfigDir(), "config.json");

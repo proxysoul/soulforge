@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { IS_DARWIN } from "../core/platform/index.js";
 
 /**
  * Anthropic (and most providers) reject base64 images > 5 MB.
@@ -34,14 +35,18 @@ export async function compressImageForApi(
   try {
     writeFileSync(srcPath, data);
 
-    // Try progressively lower quality until we fit
+    // Try progressively lower quality until we fit.
+    // Backends per platform:
+    //   macOS:  sips (built-in)
+    //   Linux:  ffmpeg, then ImageMagick (`magick`/`convert`)
+    //   Win32:  ImageMagick (`magick`/`convert`), then ffmpeg — both optional;
+    //          users without either get the original buffer back (caller surfaces).
     const qualities = [85, 70, 50, 30];
-    const isDarwin = process.platform === "darwin";
 
     for (const q of qualities) {
       safeUnlink(dstPath);
 
-      const ok = isDarwin
+      const ok = IS_DARWIN
         ? await trySips(srcPath, dstPath, q)
         : await tryFfmpegOrMagick(srcPath, dstPath, q);
 
@@ -56,7 +61,7 @@ export async function compressImageForApi(
 
     // Last resort: resize to 50% + low quality
     safeUnlink(dstPath);
-    const ok = isDarwin
+    const ok = IS_DARWIN
       ? await trySipsResize(srcPath, dstPath, 50, 30)
       : await tryFfmpegOrMagickResize(srcPath, dstPath, 50, 30);
 
@@ -201,7 +206,11 @@ async function tryFfmpegOrMagickResize(
 
 function spawnQuiet(cmd: string, args: string[]): Promise<number> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { stdio: ["ignore", "ignore", "ignore"], timeout: 15_000 });
+    const proc = spawn(cmd, args, {
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 15_000,
+      windowsHide: true,
+    });
     proc.on("error", reject);
     proc.on("close", (code) => resolve(code ?? 1));
   });
@@ -209,7 +218,11 @@ function spawnQuiet(cmd: string, args: string[]): Promise<number> {
 
 function spawnStdout(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "ignore"], timeout: 5_000 });
+    const proc = spawn(cmd, args, {
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
+      windowsHide: true,
+    });
     let out = "";
     proc.stdout.on("data", (chunk: Buffer) => {
       out += chunk.toString();

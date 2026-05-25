@@ -2,6 +2,7 @@ import { TextAttributes } from "@opentui/core";
 import type { GhosttyTerminalRenderable } from "ghostty-opentui/terminal-buffer";
 import { memo, useEffect, useRef, useState } from "react";
 import { UI_ICONS } from "../../core/icons.js";
+import { ghosttyDisabled } from "../../core/platform/index.js";
 import { useTheme } from "../../core/theme/index.js";
 
 interface Props {
@@ -96,6 +97,35 @@ export const EditorPanel = memo(function EditorPanel({
   }
 
   const borderColor = focused ? t.borderFocused : t.border;
+
+  // Windows: embedded neovim renders through ghostty-opentui native addon,
+  // which is currently skipped on win32. Show an explanatory splash so users
+  // know to use external $EDITOR / nvim in a separate window instead.
+  if (ghosttyDisabled()) {
+    return (
+      <box
+        flexDirection="column"
+        width={`${split}%` as `${number}%`}
+        borderStyle="rounded"
+        border={true}
+        borderColor={borderColor}
+        alignItems="center"
+        justifyContent="center"
+        paddingX={2}
+      >
+        <text fg={t.textSecondary} attributes={TextAttributes.BOLD}>
+          Embedded editor not supported on Windows
+        </text>
+        <text> </text>
+        <text fg={t.textDim}>The neovim panel requires the ghostty-opentui native addon,</text>
+        <text fg={t.textDim}>which doesn&apos;t have a Windows build yet.</text>
+        <text> </text>
+        <text fg={t.textFaint}>
+          Open files in an external editor (nvim, VS Code, etc.) instead.
+        </text>
+      </box>
+    );
+  }
 
   if (direction === "opening") {
     return (

@@ -129,6 +129,7 @@ export function hardRestart(): void {
   const child = Bun.spawn([restart.command, ...restart.args], {
     stdio: ["inherit", "inherit", "inherit"],
     env: process.env,
+    windowsHide: false,
   });
   // Detach: let the child own the terminal, then exit this process.
   // unref() ensures our event loop doesn't wait for the child.
@@ -386,12 +387,20 @@ export async function start(opts: StartOptions): Promise<void> {
     const { TextTableRenderable } = await import("@opentui/core");
     extend({ "text-table": TextTableRenderable });
 
-    // Native .node addon can't be embedded in compiled binaries — graceful fallback
-    try {
-      const { GhosttyTerminalRenderable } = await import("ghostty-opentui/terminal-buffer");
-      // biome-ignore lint/suspicious/noExplicitAny: ghostty-opentui may resolve a different @opentui/core version
-      extend({ "ghostty-terminal": GhosttyTerminalRenderable as any });
-    } catch {}
+    // Native .node addon can't be embedded in compiled binaries — graceful fallback.
+    // Windows: ghostty-opentui currently segfaults during dlopen on bun 1.3.x
+    // (native addon ABI mismatch), crashing the whole process before any
+    // JS catch can fire. Skip entirely unless the user opts in with
+    // SOULFORGE_ENABLE_GHOSTTY=1 so floating terminal can be tested
+    // once upstream ships a compatible build.
+    const { ghosttyDisabled } = await import("./core/platform/index.js");
+    if (!ghosttyDisabled()) {
+      try {
+        const { GhosttyTerminalRenderable } = await import("ghostty-opentui/terminal-buffer");
+        // biome-ignore lint/suspicious/noExplicitAny: ghostty-opentui may resolve a different @opentui/core version
+        extend({ "ghostty-terminal": GhosttyTerminalRenderable as any });
+      } catch {}
+    }
   }
 
   opts.createRoot(r).render(<AppRoot opts={opts} />);

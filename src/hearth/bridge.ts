@@ -26,13 +26,13 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { configDir, safeRename } from "../core/platform/index.js";
 import type { HeadlessEvent } from "../headless/types.js";
 import type { ExternalChatId, SurfaceId } from "./types.js";
 
 /** Where the live bridge bindings persist between TUI restarts. */
-export const BRIDGE_STATE_PATH = join(homedir(), ".soulforge", "hearth-bridge.json");
+export const BRIDGE_STATE_PATH = join(configDir(), "hearth-bridge.json");
 
 export interface TabHandle {
   tabId: string;
@@ -435,8 +435,7 @@ class HearthBridgeImpl {
       // bindings file and lose every chat->tab mapping on next boot.
       const tmp = `${BRIDGE_STATE_PATH}.tmp.${String(process.pid)}.${String(Date.now())}`;
       writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
-      const { renameSync } = require("node:fs") as typeof import("node:fs");
-      renameSync(tmp, BRIDGE_STATE_PATH);
+      safeRename(tmp, BRIDGE_STATE_PATH);
     } catch {
       // Persistence failure is non-fatal — bridge keeps working in memory.
     }
@@ -596,7 +595,7 @@ export type HearthBridge = HearthBridgeImpl;
 // bind to `/proc/<pid>/stat` start-time on Linux, but that's platform-specific
 // and a wall-clock sanity check is sufficient to break pid-reuse shadows.
 
-export const BRIDGE_LOCK_PATH = join(homedir(), ".soulforge", "hearth-bridge.lock");
+export const BRIDGE_LOCK_PATH = join(configDir(), "hearth-bridge.lock");
 
 interface BridgeLock {
   pid: number;

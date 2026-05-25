@@ -6,6 +6,7 @@ import type { FileEdit } from "../intelligence/types.js";
 import { isForbidden } from "../security/forbidden.js";
 import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
+import { rgBin } from "./util.js";
 
 async function applyEdits(edits: FileEdit[], tabId?: string): Promise<void> {
   for (const edit of edits) {
@@ -381,7 +382,7 @@ async function locateSymbol(
     const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const proc = Bun.spawn(
       [
-        "rg",
+        rgBin(),
         "--files-with-matches",
         "--type-add",
         "src:*.{ts,tsx,js,jsx,py,go,rs}",
@@ -390,7 +391,7 @@ async function locateSymbol(
         `\\b(interface|type|class|function|enum|struct|trait|def|func)\\s+${escaped}\\b`,
         ".",
       ],
-      { cwd: process.cwd(), stdout: "pipe", stderr: "ignore" },
+      { cwd: process.cwd(), stdout: "pipe", stderr: "ignore", windowsHide: true },
     );
     const text = await new Response(proc.stdout).text();
     const matches = text.trim().split("\n").filter(Boolean);
@@ -436,7 +437,7 @@ async function findRemainingReferences(symbol: string, definitionFile: string): 
     const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const proc = Bun.spawn(
       [
-        "rg",
+        rgBin(),
         "--files-with-matches",
         "--type-add",
         "src:*.{ts,tsx,js,jsx,py,go,rs}",

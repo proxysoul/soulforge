@@ -256,12 +256,12 @@ function detectNerdFont(): boolean {
   // 1. Check if Symbols Only font is installed (our installer puts it here)
   try {
     const { existsSync } = require("node:fs") as typeof import("node:fs");
-    const { homedir } = require("node:os") as typeof import("node:os");
     const { join } = require("node:path") as typeof import("node:path");
-    const fontDir = join(homedir(), "Library", "Fonts");
-    if (existsSync(join(fontDir, "SymbolsNerdFont-Regular.ttf"))) return true;
-    const linuxFontDir = join(homedir(), ".local", "share", "fonts");
-    if (existsSync(join(linuxFontDir, "SymbolsNerdFont-Regular.ttf"))) return true;
+    const { systemFontDirs } =
+      require("./platform/index.js") as typeof import("./platform/index.js");
+    for (const dir of systemFontDirs()) {
+      if (existsSync(join(dir, "SymbolsNerdFont-Regular.ttf"))) return true;
+    }
   } catch {}
 
   // 2. Known nerd-font-friendly terminals
@@ -278,10 +278,6 @@ function detectNerdFont(): boolean {
   ) {
     return true;
   }
-
-  // 3. Check KITTY_WINDOW_ID or WEZTERM_PANE (set by those terminals)
-  if (process.env.KITTY_WINDOW_ID || process.env.WEZTERM_PANE) return true;
-
   return false;
 }
 

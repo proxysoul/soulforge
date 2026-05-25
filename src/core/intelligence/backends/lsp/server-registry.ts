@@ -1,8 +1,7 @@
-import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadConfig, loadProjectConfig } from "../../../../config/index.js";
+import { commandExists, configDir, IS_WIN, userDataDir } from "../../../platform/index.js";
 import type { Language } from "../../types.js";
 
 export interface LspServerConfig {
@@ -76,34 +75,36 @@ const SERVER_CANDIDATES: Record<string, ServerCandidate[]> = {
 };
 
 /** Mason installs LSP servers here (NVIM_APPNAME=soulforge isolates the data dir) */
-const MASON_BIN_DIR = join(homedir(), ".local", "share", "soulforge", "mason", "bin");
+const MASON_BIN_DIR = join(userDataDir(), "mason", "bin");
 
 /** SoulForge installs LSP servers here via /lsp-install */
-const SOULFORGE_BIN_DIR = join(homedir(), ".soulforge", "lsp-servers");
+const SOULFORGE_BIN_DIR = join(configDir(), "lsp-servers");
 
-function commandExists(cmd: string): boolean {
-  try {
-    execSync(`command -v ${cmd}`, { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
+/** Suffixes to probe when looking up a server binary. Windows installs as
+ * `.cmd` shims (npm) or `.exe` (native), so we must try those before giving up. */
+const BIN_SUFFIXES = IS_WIN ? [".exe", ".cmd", ""] : [""];
+
+function firstExisting(dir: string, cmd: string): string | null {
+  for (const sfx of BIN_SUFFIXES) {
+    const p = join(dir, cmd + sfx);
+    if (existsSync(p)) return p;
   }
+  return null;
 }
 
 /** Check if a command exists in Mason's bin directory */
 function commandExistsInMason(cmd: string): string | null {
-  const fullPath = join(MASON_BIN_DIR, cmd);
-  return existsSync(fullPath) ? fullPath : null;
+  return firstExisting(MASON_BIN_DIR, cmd);
 }
 
 /** Check SoulForge's own install directory */
 function findInSoulforge(cmd: string): string | null {
   // npm-installed servers go to node_modules/.bin/
-  const npmBin = join(SOULFORGE_BIN_DIR, "node_modules", ".bin", cmd);
-  if (existsSync(npmBin)) return npmBin;
+  const npmBin = firstExisting(join(SOULFORGE_BIN_DIR, "node_modules", ".bin"), cmd);
+  if (npmBin) return npmBin;
   // pip/go/cargo-installed servers go to bin/
-  const directBin = join(SOULFORGE_BIN_DIR, "bin", cmd);
-  if (existsSync(directBin)) return directBin;
+  const directBin = firstExisting(join(SOULFORGE_BIN_DIR, "bin"), cmd);
+  if (directBin) return directBin;
   return null;
 }
 

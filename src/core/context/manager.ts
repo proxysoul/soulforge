@@ -1296,7 +1296,12 @@ export class ContextManager {
   buildSystemPrompt(modelIdOverride?: string): string {
     if (this.hasGhCli === null) {
       try {
-        this.hasGhCli = Bun.spawnSync(["gh", "--version"]).exitCode === 0;
+        this.hasGhCli =
+          Bun.spawnSync(["gh", "--version"], {
+            stdout: "ignore",
+            stderr: "ignore",
+            windowsHide: true,
+          }).exitCode === 0;
       } catch {
         this.hasGhCli = false;
       }

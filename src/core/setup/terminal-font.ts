@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { commandExists, IS_WIN } from "../platform/index.js";
 
 interface TerminalInfo {
   id: string;
@@ -108,11 +109,12 @@ export function detectTerminal(): TerminalInfo {
     };
   }
 
-  // Linux: try to detect GNOME Terminal / other VTE terminals
-  if (env.VTE_VERSION || env.COLORTERM === "truecolor") {
+  // Linux: try to detect GNOME Terminal / other VTE terminals.
+  // Skip on Windows — gsettings/VTE doesn't exist there.
+  if (!IS_WIN && (env.VTE_VERSION || env.COLORTERM === "truecolor")) {
     // Check if gsettings is available (GNOME Terminal)
     try {
-      execSync("command -v gsettings", { stdio: "ignore" });
+      if (!commandExists("gsettings")) throw new Error("no gsettings");
       const profileList = execSync(
         "gsettings get org.gnome.Terminal.ProfilesList default 2>/dev/null",
         { encoding: "utf-8" },
@@ -203,6 +205,15 @@ export function getCurrentFont(): string | null {
 export function setTerminalFont(fontFamily: string, fontSize?: number): SetFontResult {
   const term = detectTerminal();
   const size = fontSize ?? 13;
+
+  if (IS_WIN) {
+    return {
+      success: false,
+      message:
+        "[Unavailable on Windows] Set the terminal font in your terminal's settings " +
+        "(Windows Terminal: Settings → Profiles → Appearance → Font face).",
+    };
+  }
 
   switch (term.id) {
     case "kitty":

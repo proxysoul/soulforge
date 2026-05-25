@@ -1,9 +1,9 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ModelMessage } from "ai";
 import { useWorkerStore } from "../../stores/workers.js";
 import type { ChatMessage } from "../../types/index.js";
 import type { WorkingState } from "../compaction/types.js";
+import { dataDir, isCompiledBinary } from "../platform/index.js";
 import type { SessionListEntry } from "../sessions/manager.js";
 import type { SessionMeta } from "../sessions/types.js";
 import { WorkerClient } from "./rpc.js";
@@ -17,8 +17,9 @@ export interface FetchModelsWorkerResult {
   error?: string;
 }
 
-const IS_COMPILED = import.meta.url.includes("$bunfs");
-const IS_DIST = !IS_COMPILED && import.meta.dir.includes("/dist");
+const IS_COMPILED = isCompiledBinary(import.meta.url);
+const IS_DIST =
+  !IS_COMPILED && (import.meta.dir.includes("/dist") || import.meta.dir.includes("\\dist"));
 
 interface CompressResult {
   text: string;
@@ -59,7 +60,7 @@ export function disposeIOClient(): void {
 export class IOClient extends WorkerClient {
   constructor() {
     const workerPath = IS_COMPILED
-      ? join(homedir(), ".soulforge", "workers", "io.worker.js")
+      ? join(dataDir(), "workers", "io.worker.js")
       : IS_DIST
         ? join(import.meta.dir, "workers", "io.worker.js")
         : join(import.meta.dir, "io.worker.ts");

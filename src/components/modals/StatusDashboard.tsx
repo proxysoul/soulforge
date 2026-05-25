@@ -85,7 +85,7 @@ interface HearthStatusSummary {
   persistence: {
     installed: boolean;
     active?: boolean;
-    platform: "darwin" | "linux" | "unsupported";
+    platform: "darwin" | "linux" | "windows" | "unsupported";
     unitLabel?: string;
   };
 }

@@ -29,7 +29,14 @@ bun install -g @proxysoul/soulforge
 # or download a prebuilt binary from https://github.com/ProxySoul/soulforge/releases/latest
 ```
 
-macOS and Linux. Windows via [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) (tracked in [#57](https://github.com/proxysoul/soulforge/issues/57)).
+macOS, Linux, and Windows 10 1809+ / Windows 11.
+
+```powershell
+# Windows
+powershell -c "irm https://soulforge.dev/install.ps1 | iex"
+```
+
+Or grab `soulforge-setup-<version>-x64.exe` from the [latest release](https://github.com/proxysoul/soulforge/releases/latest). ARM64 not yet supported (tracked upstream).
 
 ## Quick start
 

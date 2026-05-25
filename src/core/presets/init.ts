@@ -1,14 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_CONFIG, setPresetOverlay } from "../../config/index.js";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { AppConfig } from "../../types/index.js";
+import { configDir } from "../platform/index.js";
 import { type ResolvePresetsResult, resolvePresets } from "./loader.js";
 import { mergePresetsIntoConfig } from "./merge.js";
 
 function getGlobalConfigFile(): string {
-  return join(process.env.HOME ?? homedir(), ".soulforge", "config.json");
+  return join(configDir(), "config.json");
 }
 
 export interface PresetsInitOptions {

@@ -16,6 +16,8 @@
 
 import { spawn } from "node:child_process";
 import { logBackgroundError } from "../../stores/errors.js";
+import { shellInvocation } from "../platform/index.js";
+import { buildSafeEnv } from "../spawn.js";
 import { getHooks } from "./loader.js";
 import { matchesToolName, toClaudeToolName } from "./tool-names.js";
 import type {
@@ -104,9 +106,10 @@ function matchesIfCondition(
   }
 }
 
-/** Resolve the shell binary. */
+/** Resolve the shell binary. Windows: cmd.exe. POSIX: /bin/sh. */
 function getShell(): { cmd: string; args: string[] } {
-  return { cmd: "/bin/sh", args: ["-c"] };
+  const inv = shellInvocation();
+  return { cmd: inv.cmd, args: inv.flag.split(" ") };
 }
 
 /** Parse hook JSON output into a HookResult. */
@@ -209,7 +212,7 @@ function runCommandHook(
         cwd,
         stdio: ["pipe", "pipe", "pipe"],
         env: {
-          ...process.env,
+          ...buildSafeEnv(),
           SOULFORGE_PROJECT_DIR: cwd,
           CLAUDE_PROJECT_DIR: cwd, // Claude Code compat
         },

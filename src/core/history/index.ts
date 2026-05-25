@@ -8,8 +8,8 @@
  * all share one connection per process.
  */
 
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { configDir } from "../platform/index.js";
 import { HistoryDB } from "./db.js";
 import { FrecencyDB, type FrecencyKind, frecencyScore } from "./frecency.js";
 import { StashDB } from "./stash.js";
@@ -38,7 +38,7 @@ export { HistoryDB } from "./db.js";
 export { FrecencyDB, type FrecencyKind, type FrecencyRow, frecencyScore } from "./frecency.js";
 export { StashDB, type StashEntry } from "./stash.js";
 
-const DB_PATH = join(homedir(), ".soulforge", "history.db");
+const DB_PATH = join(configDir(), "history.db");
 
 let _history: HistoryDB | null = null;
 let _stash: StashDB | null = null;

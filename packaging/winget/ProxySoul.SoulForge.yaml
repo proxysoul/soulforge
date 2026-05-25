@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.6.0.schema.json
+# Top-level "version" manifest pointing at the package's installer + locale files.
+# Submit this trio (+ installer + defaultLocale) under
+# manifests/p/ProxySoul/SoulForge/<version>/ in microsoft/winget-pkgs.
+PackageIdentifier: ProxySoul.SoulForge
+PackageVersion: 2.15.3
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0

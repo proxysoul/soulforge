@@ -19,8 +19,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { configDir } from "../../core/platform/index.js";
 import { getSecret } from "../../core/secrets.js";
 import type { HeadlessEvent } from "../../headless/types.js";
 import { redact } from "../redact.js";
@@ -138,7 +138,7 @@ export class TelegramSurface extends BaseSurface {
   // ── lastCallbackByChat persistence (~/.soulforge/hearth-callbacks.json) ──
 
   private callbackStatePath(): string {
-    return join(homedir(), ".soulforge", `hearth-callbacks-${this.botId}.json`);
+    return join(configDir(), `hearth-callbacks-${this.botId}.json`);
   }
 
   private loadCallbackState(): void {

@@ -298,7 +298,7 @@ export function getDirGroup(filePath: string): string | null {
 // crawl millions of files. Git repos at these paths are fine (git ls-files
 // scopes the listing), so this only blocks the non-git fallback walk.
 const DANGEROUS_ROOTS = new Set([
-  resolve(homedir()),
+  resolve(process.env.HOME ?? homedir()),
   "/",
   "/tmp",
   "/var",
@@ -306,10 +306,20 @@ const DANGEROUS_ROOTS = new Set([
   "/opt",
   "/home",
   "/Users",
+  // Windows: only the per-user/system roots that are NOT drive-letter dependent.
+  // Drive roots (C:\, D:\, etc.) are matched dynamically below.
+  "C:\\Users",
+  "C:\\ProgramData",
 ]);
 
+/** Matches any Windows drive root: C:\, D:\, e:\, etc. */
+const WINDOWS_DRIVE_ROOT_RE = /^[A-Za-z]:\\?$/;
+
 export function isDangerousRoot(dir: string): boolean {
-  return DANGEROUS_ROOTS.has(resolve(dir));
+  const resolved = resolve(dir);
+  if (DANGEROUS_ROOTS.has(resolved)) return true;
+  if (WINDOWS_DRIVE_ROOT_RE.test(resolved)) return true;
+  return false;
 }
 
 export interface CollectResult {
@@ -358,6 +368,7 @@ async function collectFilesViaGit(dir: string): Promise<CollectedFile[] | null> 
       cwd: dir,
       stdout: "pipe",
       stderr: "ignore",
+      windowsHide: true,
     });
     const code = await Promise.race([
       proc.exited,

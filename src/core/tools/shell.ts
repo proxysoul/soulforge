@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
 import stripAnsi from "strip-ansi";
 import type { ToolResult } from "../../types";
+import { spawnShell } from "../platform/index.js";
 import { isForbidden } from "../security/forbidden.js";
 // TODO(beta): inline image rendering — disabled until suspend/resume bridge is stable
 // import { canRenderImages, renderImages } from "../terminal/image.js";
@@ -9,7 +9,6 @@ import { getIOClient } from "../workers/io-client.js";
 import { checkShellBinaryRead } from "./binary-detect.js";
 import { compressShellOutputFull as compressLocal } from "./shell-compress.js";
 import { saveTee, truncateWithTee } from "./tee.js";
-
 import { getToolTimeoutMs } from "./tool-timeout.js";
 
 // Intercept `git commit -m "..."` to:
@@ -48,7 +47,7 @@ async function runPreCommitChecks(cwd: string): Promise<string | null> {
       const chunks: string[] = [];
       const errChunks: string[] = [];
       let lintBytes = 0;
-      const proc = spawn("sh", ["-c", lintCmd], {
+      const proc = spawnShell(lintCmd, {
         cwd,
         timeout: 15_000,
         env: buildSafeEnv(),
@@ -321,7 +320,7 @@ export const shellTool = {
       let stdoutBytes = 0;
       let stderrBytes = 0;
 
-      const proc = spawn("sh", ["-c", command], {
+      const proc = spawnShell(command, {
         cwd,
         timeout,
         env: buildSafeEnv(),

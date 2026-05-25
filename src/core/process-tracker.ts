@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { IS_WIN, killTree } from "./platform/index.js";
 
 const tracked = new Set<ChildProcess>();
 
@@ -8,14 +9,11 @@ export function trackProcess(proc: ChildProcess): void {
   proc.on("exit", () => tracked.delete(proc));
 }
 
-/**
- * Bun.spawn returns a Subprocess, not a ChildProcess.
- * We track its PID so we can kill it during cleanup.
- */
 interface BunSubprocess {
   readonly pid: number;
   readonly exited: Promise<unknown>;
-  kill(signal?: number): void;
+  /** Bun.Subprocess.kill accepts a signal name string OR numeric signal. */
+  kill(signal?: NodeJS.Signals | number): void;
 }
 
 const trackedBun = new Set<BunSubprocess>();
@@ -26,14 +24,18 @@ export function trackBunProcess(proc: BunSubprocess): void {
   proc.exited.then(() => trackedBun.delete(proc)).catch(() => trackedBun.delete(proc));
 }
 
-/** Kill all tracked processes (node + Bun). SIGTERM first, then synchronous SIGKILL. */
 export function killAllTracked(): void {
   // SIGTERM all node child processes — kill process group when possible
-  // to catch grandchildren (e.g. biome's spawnSync wrapper → native binary)
+  // to catch grandchildren (e.g. biome's spawnSync wrapper → native binary).
+  // Windows: route through taskkill /F /T which handles the process tree.
   for (const proc of tracked) {
     try {
       if (proc.pid) {
-        process.kill(-proc.pid, "SIGTERM");
+        if (IS_WIN) {
+          killTree(proc.pid, "SIGTERM");
+        } else {
+          process.kill(-proc.pid, "SIGTERM");
+        }
       } else {
         proc.kill("SIGTERM");
       }
@@ -43,11 +45,16 @@ export function killAllTracked(): void {
       } catch {}
     }
   }
-  // SIGTERM all Bun subprocesses
+  // SIGTERM all Bun subprocesses. Bun.spawn accepts a signal name or number.
+  // On Windows every signal funnels to TerminateProcess — the value is symbolic.
   for (const proc of trackedBun) {
     try {
-      proc.kill(2); // SIGINT — Bun.kill uses signal numbers
-    } catch {}
+      proc.kill("SIGTERM");
+    } catch {
+      try {
+        proc.kill(2);
+      } catch {}
+    }
   }
 
   // Synchronous SIGKILL fallback — setTimeout won't fire during process.exit()
@@ -55,7 +62,11 @@ export function killAllTracked(): void {
   for (const proc of tracked) {
     try {
       if (proc.pid) {
-        process.kill(-proc.pid, "SIGKILL");
+        if (IS_WIN) {
+          killTree(proc.pid, "SIGKILL");
+        } else {
+          process.kill(-proc.pid, "SIGKILL");
+        }
       } else {
         proc.kill("SIGKILL");
       }
@@ -75,14 +86,13 @@ export function killAllTracked(): void {
   trackedBun.clear();
 }
 
-/**
- * Nuclear fallback: kill our entire process group.
- * This catches any child that escaped individual tracking (e.g. grandchildren).
- * Called as the very last cleanup step.
- */
 export function killProcessGroup(): void {
+  // POSIX: kill our own process group to catch any child that escaped tracking.
+  // Windows: no process-group concept — Job Objects would be needed, but Bun.spawn
+  // doesn't expose them. Children we tracked were already taskkill'd above; any
+  // grandchildren that escaped are out of reach here. No-op on Windows.
+  if (IS_WIN) return;
   try {
-    // process.pid's group — negative PID targets the group
     process.kill(-process.pid, "SIGTERM");
   } catch {
     // ESRCH = no such process group (already dead), EPERM = not allowed — both fine

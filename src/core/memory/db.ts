@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, renameSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { safeRename } from "../platform/index.js";
 import {
   bufferToVector,
   cosine,
@@ -1412,11 +1413,11 @@ function rotateLegacyDb(dbPath: string): string | null {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backup = `${dbPath}.legacy-${stamp}`;
   try {
-    renameSync(dbPath, backup);
+    safeRename(dbPath, backup);
     for (const suffix of ["-wal", "-shm"]) {
       if (existsSync(dbPath + suffix)) {
         try {
-          renameSync(dbPath + suffix, backup + suffix);
+          safeRename(dbPath + suffix, backup + suffix);
         } catch {}
       }
     }

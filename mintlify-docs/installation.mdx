@@ -1,33 +1,48 @@
 ---
 title: "Installation"
-description: "Install SoulForge on macOS or Linux."
+description: "Install SoulForge on macOS, Linux, or Windows."
 icon: "download"
 ---
 
 ## Install
 
-```bash
-brew tap proxysoul/tap && brew install soulforge
-```
+<Tabs>
+  <Tab title="macOS / Linux">
+    ```bash
+    brew tap proxysoul/tap && brew install soulforge
+    ```
+    Neovim and a Nerd Font are auto-installed on first launch.
+  </Tab>
+  <Tab title="Windows">
+    ```powershell
+    powershell -c "irm https://soulforge.dev/install.ps1 | iex"
+    ```
+    Installs to `%LOCALAPPDATA%\SoulForge\bin` (no admin needed) and adds it to your User PATH. Open a new terminal after install.
 
-That's it. macOS and Linux. Neovim and a Nerd Font are auto-installed on first launch.
+    Prefer a setup wizard? Download `soulforge-setup-<version>-x64.exe` from the [latest release](https://github.com/proxysoul/soulforge/releases/latest).
 
-<Note>
-  **Windows is not natively supported.** Run SoulForge inside [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) for now. Progress tracked in [issue #57](https://github.com/proxysoul/soulforge/issues/57).
-</Note>
+    Requires Windows 10 1809+ or Windows 11. ARM64 is not supported yet (tracked upstream — see release notes). SmartScreen may warn on first run — click **More info → Run anyway**.
+  </Tab>
+</Tabs>
 
 <Accordion title="Other install methods">
   <Tabs>
     <Tab title="Prebuilt binary">
       ```bash
-      # download from https://github.com/proxysoul/soulforge/releases/latest
+      # macOS / Linux
       tar xzf soulforge-*.tar.gz && cd soulforge-*/ && ./install.sh
       ```
+      Windows: download `soulforge-<version>-windows-x64.zip`, unzip anywhere, run `soulforge.exe`.
     </Tab>
     <Tab title="Bun">
-      Requires [Bun](https://bun.sh) >= 1.2.
+      Requires [Bun](https://bun.sh) >= 1.3.13.
       ```bash
       bun install -g @proxysoul/soulforge
+      ```
+    </Tab>
+    <Tab title="WinGet (Windows)">
+      ```powershell
+      winget install ProxySoul.SoulForge
       ```
     </Tab>
     <Tab title="Source">

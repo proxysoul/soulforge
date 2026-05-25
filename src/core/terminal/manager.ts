@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { MAX_TERMINALS, useTerminalStore } from "../../stores/terminals.js";
 import { useUIStore } from "../../stores/ui.js";
+import { IS_WIN } from "../platform/index.js";
 import { trackBunProcess } from "../process-tracker.js";
 
 interface TerminalSpawnResult {
@@ -48,7 +49,9 @@ export function spawnTerminal(cwd?: string, cols = 80, rows = 24): TerminalSpawn
   }
 
   const effectiveCwd = cwd ?? process.cwd();
-  const shell = process.env.SHELL ?? "/bin/bash";
+  // Windows has no $SHELL; honour $COMSPEC then fall back to cmd.exe.
+  // POSIX honours $SHELL then /bin/bash.
+  const shell = IS_WIN ? (process.env.COMSPEC ?? "cmd.exe") : (process.env.SHELL ?? "/bin/bash");
 
   const handle: PtyHandle = {
     proc: null as unknown as PtyHandle["proc"],

@@ -5,6 +5,7 @@ import type { CompactionStrategy } from "../core/compaction/types.js";
 import { getNvimPid } from "../core/editor/instance.js";
 import { getIntelligenceChildPids } from "../core/intelligence/index.js";
 import { getOpenRouterModelPricing } from "../core/llm/models.js";
+import { IS_WIN } from "../core/platform/index.js";
 import { getProxyPid } from "../core/proxy/lifecycle.js";
 
 interface PerModelUsage {
@@ -555,7 +556,7 @@ async function collectPidGroups(): Promise<PidGroup> {
 function getPerPidRssKB(pids: number[]): Promise<Map<number, number>> {
   const result = new Map<number, number>();
   if (pids.length === 0) return Promise.resolve(result);
-  if (process.platform === "win32") {
+  if (IS_WIN) {
     return new Promise((resolve) => {
       execFile(
         "wmic",

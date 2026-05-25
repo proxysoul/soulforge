@@ -10,6 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { basename, extname, resolve } from "node:path";
 import type { ChatMessage, ToolResult } from "../../types/index.js";
+import { IS_DARWIN, IS_WIN } from "../platform/index.js";
+import { buildSafeEnv, SAFE_SPAWN_OPTS } from "../spawn.js";
 import {
   canRenderImages,
   isKittyGraphicsTerminal,
@@ -133,8 +135,13 @@ const _toolCache: Record<string, boolean> = {};
 function hasTool(name: string): boolean {
   if (name in _toolCache) return _toolCache[name] ?? false;
   try {
-    const cmd = process.platform === "win32" ? "where" : "which";
-    const result = spawnSync(cmd, [name], { stdio: "pipe", timeout: 5000 });
+    const cmd = IS_WIN ? "where" : "which";
+    const result = spawnSync(cmd, [name], {
+      ...SAFE_SPAWN_OPTS,
+      stdio: "pipe",
+      timeout: 5000,
+      env: buildSafeEnv(),
+    });
     _toolCache[name] = result.status === 0;
   } catch {
     _toolCache[name] = false;
@@ -149,7 +156,7 @@ export function hasFfmpeg(): boolean {
   return hasTool("ffmpeg");
 }
 function hasSips(): boolean {
-  return process.platform === "darwin" && hasTool("sips");
+  return IS_DARWIN && hasTool("sips");
 }
 
 /**

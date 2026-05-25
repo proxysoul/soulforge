@@ -1,5 +1,4 @@
 import { existsSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   addDefaultParsers,
@@ -8,10 +7,11 @@ import {
   SyntaxStyle,
   type ThemeTokenStyle,
 } from "@opentui/core";
+import { dataDir, isCompiledBinary } from "../platform/index.js";
 
-const IS_COMPILED = import.meta.url.includes("$bunfs");
+const IS_COMPILED = isCompiledBinary(import.meta.url);
 const IS_DIST = !IS_COMPILED && import.meta.dir.includes("/dist");
-const bundledAssets = join(homedir(), ".soulforge", "opentui-assets");
+const bundledAssets = join(dataDir(), "opentui-assets");
 const distAssets = join(import.meta.dir, "opentui-assets");
 let coreAssetsDir: string;
 if (IS_COMPILED) {
@@ -120,12 +120,7 @@ addDefaultParsers(discoverParsers());
 // fails in bundled contexts. Point it to the original node_modules copy (npm) or
 // our pre-bundled worker (compiled binary) via the env var override.
 if (IS_COMPILED) {
-  process.env.OTUI_TREE_SITTER_WORKER_PATH = join(
-    homedir(),
-    ".soulforge",
-    "opentui-assets",
-    "parser.worker.js",
-  );
+  process.env.OTUI_TREE_SITTER_WORKER_PATH = join(dataDir(), "opentui-assets", "parser.worker.js");
 } else if (IS_DIST) {
   try {
     const coreWorker = resolve(dirname(require.resolve("@opentui/core")), "parser.worker.js");

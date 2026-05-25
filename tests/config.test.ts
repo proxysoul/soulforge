@@ -74,23 +74,59 @@ describe("config retry deep-merge", () => {
   });
 
   describe("saveGlobalConfig", () => {
-    const configDir = join(tmpdir(), "soulforge-config-test-global");
-    const configFile = join(configDir, "config.json");
-    
+    // saveGlobalConfig resolves $HOME/.soulforge/config.json on POSIX and
+    // %LOCALAPPDATA%/SoulForge/config.json on Windows. Override both to a
+    // throwaway dir so the real user config can't be touched.
     test("deep-merges retry into global config", () => {
-      mkdirSync(configDir, { recursive: true });
-      
-      // Write initial config
-      const initial = { ...DEFAULT_CONFIG, retry: { maxRetries: 3, baseDelayMs: 1000 } };
-      writeFileSync(configFile, JSON.stringify(initial));
+      const sandbox = join(tmpdir(), `sf-global-${process.pid}-${Date.now()}`);
+      const origHome = process.env.HOME;
+      const origLocal = process.env.LOCALAPPDATA;
+      process.env.HOME = sandbox;
+      process.env.LOCALAPPDATA = sandbox;
+      try {
+        const cfgDir = process.platform === "win32"
+          ? join(sandbox, "SoulForge")
+          : join(sandbox, ".soulforge");
+        const cfgFile = join(cfgDir, "config.json");
+        mkdirSync(cfgDir, { recursive: true });
+        writeFileSync(
+          cfgFile,
+          JSON.stringify({ retry: { maxRetries: 3, baseDelayMs: 1000 } }),
+        );
 
-      // Patch with new retry settings - need to call saveGlobalConfig
-      // but it writes to ~/.soulforge/config.json. Let me mock it.
-      // For now, just test that the function doesn't crash
-      expect(true).toBe(true);
-      
-      // Cleanup
-      rmSync(configDir, { recursive: true, force: true });
+        saveGlobalConfig({ retry: { maxRetries: 5 } });
+
+        const saved = JSON.parse(readFileSync(cfgFile, "utf-8"));
+        expect(saved.retry).toEqual({ maxRetries: 5, baseDelayMs: 1000 });
+      } finally {
+        if (origHome !== undefined) process.env.HOME = origHome;
+        else delete process.env.HOME;
+        if (origLocal !== undefined) process.env.LOCALAPPDATA = origLocal;
+        else delete process.env.LOCALAPPDATA;
+        rmSync(sandbox, { recursive: true, force: true });
+      }
+    });
+
+    test("creates new global config when none exists", () => {
+      const sandbox = join(tmpdir(), `sf-global-new-${process.pid}-${Date.now()}`);
+      const origHome = process.env.HOME;
+      const origLocal = process.env.LOCALAPPDATA;
+      process.env.HOME = sandbox;
+      process.env.LOCALAPPDATA = sandbox;
+      try {
+        saveGlobalConfig({ retry: { maxRetries: 9 } });
+        const cfgFile = process.platform === "win32"
+          ? join(sandbox, "SoulForge", "config.json")
+          : join(sandbox, ".soulforge", "config.json");
+        const saved = JSON.parse(readFileSync(cfgFile, "utf-8"));
+        expect(saved.retry?.maxRetries).toBe(9);
+      } finally {
+        if (origHome !== undefined) process.env.HOME = origHome;
+        else delete process.env.HOME;
+        if (origLocal !== undefined) process.env.LOCALAPPDATA = origLocal;
+        else delete process.env.LOCALAPPDATA;
+        rmSync(sandbox, { recursive: true, force: true });
+      }
     });
   });
 });

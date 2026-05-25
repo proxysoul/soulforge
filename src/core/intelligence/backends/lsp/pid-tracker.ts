@@ -17,7 +17,7 @@
  * The reaper calls BOTH layers. Layer 2 is the load-bearing one — layer
  * 1 is kept as a fast-path for the common case.
  */
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import {
   appendFileSync,
   existsSync,
@@ -26,10 +26,17 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, userInfo } from "node:os";
+import { userInfo } from "node:os";
 import { join } from "node:path";
+import {
+  configDir,
+  dataDir,
+  IS_WIN,
+  killTree as platformKillTree,
+  userDataDir,
+} from "../../../platform/index.js";
 
-const SOULFORGE_DIR = join(homedir(), ".soulforge");
+const SOULFORGE_DIR = configDir();
 const PID_LOG = join(SOULFORGE_DIR, "lsp-pids.log");
 
 /** In-memory set of PIDs this thread has spawned */
@@ -85,16 +92,15 @@ function readLoggedPids(): Set<number> {
 const LSP_COMMAND_REGEX =
   /\b(?:biome[^/\s]*(?:\s+lsp-proxy|\s+__run_server)|typescript-language-server|tsserver\.js|vtsls|pyright|pylsp|gopls|rust-analyzer|clangd|lua-language-server|taplo|solargraph|intelephense|zls|jdtls|metals|sourcekit-lsp|dart\s+language-server|elixir-ls|ocamllsp|yaml-language-server|bash-language-server|vscode-eslint-language-server|vscode-json-language-server|vscode-css-language-server|vscode-html-language-server|tailwindcss-language-server|emmet-language-server|deno\s+lsp|vue-language-server|csharp-ls|OmniSharp|kotlin-language-server|docker-langserver|expert)\b/i;
 
-/**
- * Directory signatures that identify an LSP spawned by SoulForge
- * (vs nvim's own mason, vscode, etc). We only kill processes whose
- * command path contains one of these, so foreign LSPs from other
- * tools are never touched.
- */
 const SOULFORGE_PATH_MARKERS = [
-  join(homedir(), ".local", "share", "soulforge", "mason"),
-  join(homedir(), ".soulforge", "lsp-servers"),
-  join(homedir(), ".soulforge", "bin"),
+  // POSIX layout
+  join(userDataDir(), "mason"),
+  join(configDir(), "lsp-servers"),
+  join(configDir(), "bin"),
+  // Windows layout: %LOCALAPPDATA%\SoulForge\{lsp-servers,bin,mason}
+  join(dataDir(), "lsp-servers"),
+  join(dataDir(), "bin"),
+  join(dataDir(), "mason"),
   // node_modules LSPs — project-local typescript/biome/eslint installs
   // that SoulForge spawned. The orphan leak lives here for biome.
   "node_modules/.bin/biome",
@@ -102,6 +108,12 @@ const SOULFORGE_PATH_MARKERS = [
   "node_modules/.bin/typescript-language-server",
   "node_modules/typescript/lib/tsserver",
   "node_modules/.bin/vtsls",
+  // Windows path-separator variants of the node_modules markers
+  "node_modules\\.bin\\biome",
+  "node_modules\\@biomejs\\",
+  "node_modules\\.bin\\typescript-language-server",
+  "node_modules\\typescript\\lib\\tsserver",
+  "node_modules\\.bin\\vtsls",
 ];
 
 interface PsRow {
@@ -114,6 +126,46 @@ interface PsRow {
 
 function scanProcessTree(): PsRow[] {
   try {
+    if (IS_WIN) {
+      // PowerShell over WMIC: WMIC is deprecated since Win10 21H1 but ships
+      // through Win11. Get-CimInstance is the modern path and works on every
+      // build we target. CSV output is line-stable across locales.
+      const ps =
+        "Get-CimInstance Win32_Process | " +
+        "Select-Object ProcessId,ParentProcessId,@{N='User';E={(Invoke-CimMethod -InputObject $_ -MethodName GetOwner).User}},CommandLine | " +
+        "ConvertTo-Csv -NoTypeInformation";
+      const out = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 5000,
+        maxBuffer: 16 * 1024 * 1024,
+        windowsHide: true,
+      });
+      const rows: PsRow[] = [];
+      const lines = out.split(/\r?\n/);
+      // Skip header line (first non-empty)
+      let started = false;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        if (!started) {
+          started = true;
+          continue;
+        }
+        // Simple CSV split — fields are quoted; commands rarely contain quotes,
+        // but if they do PowerShell escapes them as "". Strip outer quotes per field.
+        const fields = line
+          .match(/("([^"]|"")*"|[^,]*)(,|$)/g)
+          ?.map((f) => f.replace(/,$/, "").trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
+        if (!fields || fields.length < 4) continue;
+        const pid = Number.parseInt(fields[0] ?? "0", 10);
+        const ppid = Number.parseInt(fields[1] ?? "0", 10);
+        const user = fields[2] ?? "";
+        const command = fields[3] ?? "";
+        if (!pid) continue;
+        rows.push({ pid, ppid, pgid: 0, user, command });
+      }
+      return rows;
+    }
     const out = execSync("ps -axo pid=,ppid=,pgid=,user=,command=", {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -148,7 +200,11 @@ function isSoulforgeLspCommand(cmd: string): boolean {
 }
 
 function killTree(pid: number): boolean {
-  // Kill the process group first (catches grandchildren like biome's
+  // Windows: taskkill /F /T handles the descendant tree.
+  if (IS_WIN) {
+    return platformKillTree(pid, "SIGKILL");
+  }
+  // POSIX: kill the process group first (catches grandchildren like biome's
   // native binary launched via spawnSync). Fall through to plain pid
   // kill if the group kill fails (e.g. no pgrp set).
   let ok = false;
@@ -240,6 +296,20 @@ function safeUser(): string {
 
 function pidLooksLikeLsp(pid: number): boolean {
   try {
+    if (IS_WIN) {
+      // tasklist /FI "PID eq <pid>" /FO CSV returns one CSV line; the image
+      // name is in the first field. CommandLine is not exposed by tasklist,
+      // so we resort to Get-CimInstance for the full path.
+      const ps = `(Get-CimInstance Win32_Process -Filter "ProcessId=${String(pid)}").CommandLine`;
+      const cmd = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 2000,
+        windowsHide: true,
+      }).trim();
+      if (!cmd) return false;
+      return isSoulforgeLspCommand(cmd) || LSP_COMMAND_REGEX.test(cmd);
+    }
     const cmd = execSync(`ps -o command= -p ${String(pid)}`, {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],

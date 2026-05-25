@@ -1,9 +1,10 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { attach } from "neovim";
 import type { NvimConfigMode } from "../../types/index.js";
+import { configDir, isCompiledBinary, userDataDir } from "../platform/index.js";
+import { makeIpcSocketPath, shouldCleanupSocketFile } from "../platform/socket.js";
 import { trackBunProcess, trackProcess } from "../process-tracker.js";
 
 export interface NvimInstance {
@@ -29,10 +30,12 @@ export function killAllNvimProcesses(): void {
     } catch {}
   }
   _activePtyProcs.clear();
-  for (const socketPath of _activeSocketPaths) {
-    try {
-      rmSync(socketPath, { force: true });
-    } catch {}
+  if (shouldCleanupSocketFile()) {
+    for (const socketPath of _activeSocketPaths) {
+      try {
+        rmSync(socketPath, { force: true });
+      } catch {}
+    }
   }
   _activeSocketPaths.clear();
 }
@@ -58,11 +61,11 @@ export async function launchNeovim(
   killBootstrap();
 
   let effectivePath = nvimPath;
-  const socketPath = `/tmp/sf-nvim-${process.pid}-${Date.now()}.sock`;
+  const socketPath = makeIpcSocketPath(`sf-nvim-${process.pid}-${Date.now()}`);
   const args = ["-i", "NONE", "--listen", socketPath];
 
-  const isBundled = import.meta.url.includes("$bunfs");
-  const bundledInit = join(homedir(), ".soulforge", "init.lua");
+  const isBundled = isCompiledBinary(import.meta.url);
+  const bundledInit = join(configDir(), "init.lua");
   const devInit = join(import.meta.dir, "init.lua");
   const shippedInit = isBundled ? bundledInit : existsSync(devInit) ? devInit : bundledInit;
 
@@ -248,7 +251,7 @@ function killBootstrap(): void {
       _bootstrapProc.kill();
     } catch {}
     _bootstrapProc = null;
-    const lazyDir = join(homedir(), ".local", "share", "soulforge", "lazy");
+    const lazyDir = join(userDataDir(), "lazy");
     try {
       rmSync(lazyDir, { recursive: true, force: true });
     } catch {}
@@ -262,15 +265,14 @@ function killBootstrap(): void {
  * If user opens the editor before this finishes, it's killed (launchNeovim calls killBootstrap).
  */
 export function bootstrapNeovimPlugins(nvimPath: string): void {
-  const isBundled = import.meta.url.includes("$bunfs");
-  const bundledInit = join(homedir(), ".soulforge", "init.lua");
+  const isBundled = isCompiledBinary(import.meta.url);
+  const bundledInit = join(configDir(), "init.lua");
   const devInit = join(import.meta.dir, "init.lua");
   const shippedInit = isBundled ? bundledInit : existsSync(devInit) ? devInit : bundledInit;
 
   if (!existsSync(shippedInit)) return;
 
-  const dataDir = join(homedir(), ".local", "share", "soulforge");
-  const lazyDir = join(dataDir, "lazy");
+  const lazyDir = join(userDataDir(), "lazy");
   if (existsSync(lazyDir)) return;
 
   const proc = spawn(

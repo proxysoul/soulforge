@@ -3,9 +3,13 @@
  * Avoids re-detecting the project profile on every edit.
  */
 
+import { bunShellArgs, IS_WIN } from "../platform/index.js";
+
 let cachedFormatCmd: string | null | undefined; // undefined = not yet detected
 
 function shellQuote(s: string): string {
+  // POSIX: single-quote wrap; Windows cmd.exe: double-quote wrap (no special chars allowed in path-only args).
+  if (IS_WIN) return `"${s.replace(/"/g, '\\"')}"`;
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
@@ -33,7 +37,7 @@ export async function autoFormatAfterEdit(filePath: string, cwd?: string): Promi
 
   const command = `${cmd} ${shellQuote(filePath)}`;
   try {
-    const proc = Bun.spawn(["sh", "-c", command], {
+    const proc = Bun.spawn(bunShellArgs(command), {
       cwd: effectiveCwd,
       stdin: "ignore",
       stdout: "pipe",

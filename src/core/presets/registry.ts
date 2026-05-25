@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { configDir } from "../platform/index.js";
 
 const REGISTRY_URL =
   "https://raw.githubusercontent.com/proxysoul/soulforge-presets/main/registry.json";
 
 function getCacheDirInternal(): string {
-  return join(process.env.HOME ?? homedir(), ".soulforge", "presets");
+  return join(configDir(), "presets");
 }
 function getRegistryCacheFile(): string {
   return join(getCacheDirInternal(), "registry.json");

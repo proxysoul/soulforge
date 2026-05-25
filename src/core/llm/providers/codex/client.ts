@@ -66,7 +66,13 @@ export function parseCodexModelListResult(result: unknown): ProviderModelInfo[] 
 
 export function isCodexInstalled(): boolean {
   try {
-    return spawnSync("codex", ["--version"], { stdio: "ignore", timeout: 5_000 }).status === 0;
+    return (
+      spawnSync("codex", ["--version"], {
+        stdio: "ignore",
+        timeout: 5_000,
+        windowsHide: true,
+      }).status === 0
+    );
   } catch {
     return false;
   }

@@ -1,10 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 const PKG_NAME = "@proxysoul/soulforge";
-const CONFIG_DIR = join(homedir(), ".soulforge");
+const CONFIG_DIR = configDir();
 const VERSION_CACHE_FILE = join(CONFIG_DIR, "version-cache.json");
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 const DISMISSED_FILE = join(CONFIG_DIR, "update-dismissed.json");
@@ -16,6 +15,7 @@ const DISMISSED_FILE = join(CONFIG_DIR, "update-dismissed.json");
 // Static import — bundler inlines this at build time.
 // Works in dev (bun resolves from src/core/), dist bundle, and compiled binary.
 import pkgJson from "../../package.json";
+import { configDir, IS_WIN, isCompiledBinary, localAppData } from "./platform/index.js";
 
 const _currentVersion: string = pkgJson.version ?? "0.0.0";
 
@@ -36,12 +36,25 @@ export function detectInstallMethod(): InstallMethod {
     //   1. `which soulforge` contains homebrew/Cellar (works when not shadowed)
     //   2. argv[0]/execPath directly contains a Cellar/homebrew path
     //   3. $HOMEBREW_PREFIX/bin/soulforge exists as a symlink (bypasses PATH)
-    try {
-      const which = execFileSync("which", ["soulforge"], { encoding: "utf8" }).trim();
-      if (which.includes("homebrew") || which.includes("Cellar")) return "brew";
-    } catch {}
+    // Skip POSIX-only `which` / homebrew probes on Windows entirely.
+    if (!IS_WIN) {
+      try {
+        const which = execFileSync("which", ["soulforge"], {
+          encoding: "utf8",
+          timeout: 2000,
+        }).trim();
+        if (which.includes("homebrew") || which.includes("Cellar")) return "brew";
+      } catch {}
 
-    if (execPath.includes("/Cellar/") || execPath.includes("/homebrew/")) return "brew";
+      if (execPath.includes("/Cellar/") || execPath.includes("/homebrew/")) return "brew";
+    }
+
+    // Windows: detect winget vs scoop vs raw install.ps1 via install dir.
+    if (IS_WIN) {
+      const local = localAppData() ?? "";
+      if (local && execPath.includes(local)) return "binary";
+      // npm/bun/pnpm/yarn lookups below still apply on win32.
+    }
 
     // ~/.soulforge/bin/ can shadow the brew symlink in PATH. Check directly
     // whether brew owns a `soulforge` symlink — this works regardless of PATH.
@@ -54,7 +67,7 @@ export function detectInstallMethod(): InstallMethod {
     }
 
     // Compiled binary (bun --compile)
-    if (moduleUrl.includes("$bunfs")) return "binary";
+    if (isCompiledBinary(moduleUrl)) return "binary";
 
     // Check if running from a global node_modules
     const dir = import.meta.dir;

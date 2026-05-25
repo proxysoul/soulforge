@@ -1,4 +1,4 @@
-import { execSync, type SpawnSyncReturns } from "node:child_process";
+import { execFileSync, type SpawnSyncReturns } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -59,7 +59,12 @@ function ensureGitignore(cwd: string): void {
  */
 function gitCheckIgnoreStatus(cwd: string): number {
   try {
-    execSync("git check-ignore -q .soulforge", { cwd, stdio: "pipe", timeout: 3000 });
+    execFileSync("git", ["check-ignore", "-q", ".soulforge"], {
+      cwd,
+      stdio: "pipe",
+      timeout: 3000,
+      windowsHide: true,
+    });
     return 0;
   } catch (err) {
     return (err as SpawnSyncReturns<Buffer>).status ?? 128;

@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { configDir } from "../platform/index.js";
 import { ensureSoulforgeDir } from "../utils/ensure-soulforge-dir.js";
 
 export type PresetScope = "global" | "project";
 
 function getGlobalDir(): string {
-  return join(process.env.HOME ?? homedir(), ".soulforge");
+  return configDir();
 }
 function getGlobalFile(): string {
   return join(getGlobalDir(), "config.json");

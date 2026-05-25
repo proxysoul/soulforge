@@ -1,4 +1,4 @@
-import { type ChildProcess, execFileSync, execSync, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { logBackgroundError } from "../../stores/errors.js";
 import { toErrorMessage } from "../../utils/errors.js";
+import { commandExists, configDir, IS_WIN } from "../platform/index.js";
 import { trackProcess } from "../process-tracker.js";
 import { getVendoredPath, installProxy } from "../setup/install.js";
 import {
@@ -24,7 +25,7 @@ import {
 let proxyProcess: ChildProcess | null = null;
 
 const PROXY_URL = process.env.PROXY_API_URL || "http://127.0.0.1:8317/v1";
-const PROXY_CONFIG_DIR = join(homedir(), ".soulforge", "proxy");
+const PROXY_CONFIG_DIR = join(configDir(), "proxy");
 const PROXY_CONFIG_PATH = join(PROXY_CONFIG_DIR, "config.yaml");
 const HEALTH_TIMEOUT_MS = 2000;
 const STARTUP_POLL_MS = 500;
@@ -131,15 +132,6 @@ function ensureConfig(): void {
   }
 }
 
-function commandExists(cmd: string): boolean {
-  try {
-    execSync(`command -v ${cmd}`, { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Run `<binary> -help` and extract the version string. CLIProxyAPI prints
  * "CLIProxyAPI Version: X.Y.Z, ..." as the first line. `-help` exits non-
@@ -214,13 +206,44 @@ function portIsOccupied(): boolean {
   const portMatch = PROXY_URL.match(/:([0-9]+)/);
   if (!portMatch) return false;
   const port = portMatch[1];
+  if (!port) return false;
   try {
-    const out = execFileSync("lsof", ["-ti", `tcp:${port}`], {
-      encoding: "utf-8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    return out.length > 0;
+    if (IS_WIN) {
+      // netstat -ano lists LISTENING state with PID in the last column.
+      // findstr filters by port. Any match means the port is occupied.
+      const out = execFileSync(
+        "cmd.exe",
+        ["/c", `netstat -ano | findstr LISTENING | findstr :${port}`],
+        {
+          encoding: "utf-8",
+          timeout: 3000,
+          stdio: ["ignore", "pipe", "ignore"],
+          windowsHide: true,
+        },
+      ).trim();
+      return out.length > 0;
+    }
+    try {
+      const out = execFileSync("lsof", ["-ti", `tcp:${port}`], {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      if (out.length > 0) return true;
+    } catch {
+      // lsof not installed on this host — fall through to fuser.
+    }
+    // fuser fallback: prints PIDs on stdout when the TCP port is bound.
+    try {
+      const out = execFileSync("fuser", [`${port}/tcp`], {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      return out.length > 0;
+    } catch {
+      return false;
+    }
   } catch {
     return false;
   }
@@ -453,6 +476,48 @@ function killProxyOnPort(force = false): void {
   const portMatch = PROXY_URL.match(/:([0-9]+)/);
   if (!portMatch) return;
   const port = portMatch[1];
+  if (!port) return;
+
+  const pids: number[] = [];
+
+  if (IS_WIN) {
+    try {
+      // netstat -ano LISTENING line: "  TCP    0.0.0.0:5555    0.0.0.0:0   LISTENING   1234"
+      // Capture the trailing PID column.
+      const out = execFileSync(
+        "cmd.exe",
+        ["/c", `netstat -ano | findstr LISTENING | findstr :${port}`],
+        {
+          encoding: "utf-8",
+          timeout: 3000,
+          stdio: ["ignore", "pipe", "ignore"],
+          windowsHide: true,
+        },
+      );
+      for (const line of out.split(/\r?\n/)) {
+        const cols = line.trim().split(/\s+/);
+        const pid = Number.parseInt(cols[cols.length - 1] ?? "0", 10);
+        if (pid > 0 && pid !== process.pid) pids.push(pid);
+      }
+    } catch {
+      return;
+    }
+    for (const pid of pids) {
+      // taskkill /F forces termination; /T kills the descendant tree too.
+      try {
+        execFileSync(
+          "taskkill",
+          force ? ["/PID", String(pid), "/F", "/T"] : ["/PID", String(pid), "/T"],
+          {
+            stdio: ["ignore", "ignore", "ignore"],
+            timeout: 3000,
+            windowsHide: true,
+          },
+        );
+      } catch {}
+    }
+    return;
+  }
 
   let out = "";
   try {
@@ -474,7 +539,6 @@ function killProxyOnPort(force = false): void {
         stdio: ["ignore", "pipe", "ignore"],
       }).trim();
     } catch {
-      // Neither available — nothing we can do
       return;
     }
   }

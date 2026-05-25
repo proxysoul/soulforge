@@ -2,6 +2,7 @@ import type { InfoPopupLine } from "../../../../components/modals/InfoPopup.js";
 import { useUIStore } from "../../../../stores/ui.js";
 import { providerIcon } from "../../../icons.js";
 import { getThemeTokens } from "../../../theme/index.js";
+import { openPath } from "../../../utils/open-path.js";
 import { checkProviders } from "../../provider.js";
 import {
   type CodexAppServerClient,
@@ -57,17 +58,7 @@ export async function performCodexBrowserLogin(
 }
 
 function openUrlInBrowser(url: string): boolean {
-  try {
-    const command =
-      process.platform === "darwin"
-        ? "open"
-        : process.platform === "win32"
-          ? "explorer"
-          : "xdg-open";
-    return Bun.spawnSync([command, url], { stdout: "ignore", stderr: "ignore" }).exitCode === 0;
-  } catch {
-    return false;
-  }
+  return openPath(url);
 }
 
 export function runCodexBrowserLogin(onEvent?: (message: string) => void): {

@@ -3,6 +3,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { icon } from "../../core/icons.js";
 import { type ThemeTokens, useTheme } from "../../core/theme/index.js";
+import { openPath } from "../../core/utils/open-path.js";
 import {
   type ChangelogCommit,
   type ChangelogRelease,
@@ -293,10 +294,7 @@ export function UpdateModal({ visible, onClose }: Props) {
       const url = tag
         ? `https://github.com/ProxySoul/soulforge/releases/tag/v${tag}`
         : "https://github.com/ProxySoul/soulforge/releases";
-      try {
-        const cmd = process.platform === "darwin" ? "open" : "xdg-open";
-        Bun.spawn([cmd, url], { stdio: ["ignore", "ignore", "ignore"] });
-      } catch {}
+      openPath(url);
       evt.preventDefault();
       return;
     }

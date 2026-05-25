@@ -1,6 +1,6 @@
 import { existsSync, type FSWatcher, readFileSync, watch } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { configDir } from "../platform/index.js";
 import { useThemeStore } from "./store.js";
 import {
   BUILTIN_THEMES,
@@ -10,8 +10,8 @@ import {
   type ThemeTokens,
 } from "./tokens.js";
 
-const THEMES_DIR = join(homedir(), ".soulforge", "themes");
-const THEMES_FILE = join(homedir(), ".soulforge", "themes.json");
+const THEMES_DIR = join(configDir(), "themes");
+const THEMES_FILE = join(configDir(), "themes.json");
 
 const VALID_KEYS = new Set<string>(Object.keys(DARK_THEME));
 

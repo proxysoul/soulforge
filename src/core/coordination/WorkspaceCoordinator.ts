@@ -1,4 +1,5 @@
 import { resolve, sep } from "node:path";
+import { IS_DARWIN, IS_WIN } from "../platform/index.js";
 import type {
   ClaimResult,
   ConflictInfo,
@@ -22,7 +23,7 @@ const MAX_AGENT_AGE_MS = 15 * 60_000;
  * - Normalizes separators to forward slashes (Windows compat)
  * - Lowercases on case-insensitive filesystems (Windows/macOS)
  */
-const IS_CASE_INSENSITIVE = process.platform === "win32" || process.platform === "darwin";
+const IS_CASE_INSENSITIVE = IS_WIN || IS_DARWIN;
 
 function normalizePath(p: string): string {
   let abs = resolve(p);

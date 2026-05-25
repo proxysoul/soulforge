@@ -6,6 +6,7 @@ import type { Language } from "../intelligence/types.js";
 import { isForbidden } from "../security/forbidden.js";
 import { pushEdit } from "./edit-stack.js";
 import { emitFileEdited } from "./file-events.js";
+import { rgBin } from "./util.js";
 
 interface PendingWrite {
   path: string;
@@ -515,7 +516,7 @@ async function grepSymbol(symbol: string, root: string): Promise<string[]> {
   try {
     const proc = Bun.spawn(
       [
-        "rg",
+        rgBin(),
         "--files-with-matches",
         "--glob",
         "!node_modules",
@@ -526,7 +527,7 @@ async function grepSymbol(symbol: string, root: string): Promise<string[]> {
         `\\b${esc(symbol)}\\b`,
         root,
       ],
-      { cwd: process.cwd(), stdout: "pipe", stderr: "ignore" },
+      { cwd: process.cwd(), stdout: "pipe", stderr: "ignore", windowsHide: true },
     );
     const text = await new Response(proc.stdout).text();
     return text

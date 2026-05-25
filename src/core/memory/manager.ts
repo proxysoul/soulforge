@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { configDir } from "../platform/index.js";
 import {
   MemoryDB,
   type MemoryListOpts,
@@ -66,7 +66,7 @@ export class MemoryManager {
 
   constructor(cwd: string, globalDir?: string) {
     this.cwd = cwd;
-    this._globalDir = globalDir ?? join(homedir(), ".soulforge");
+    this._globalDir = globalDir ?? configDir();
 
     const globalPath = join(this._globalDir, "memory.db");
     const projectPath = join(cwd, ".soulforge", "memory.db");

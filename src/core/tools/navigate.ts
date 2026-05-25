@@ -6,6 +6,7 @@ import type { CallHierarchyItem, SourceLocation, SymbolInfo } from "../intellige
 import { isForbidden } from "../security/forbidden.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
 import { fallbackTracked } from "./intelligence-helpers.js";
+import { rgBin } from "./util.js";
 
 type NavigateAction =
   | "definition"
@@ -152,11 +153,15 @@ async function autoResolveFile(
   // Tier 3: ripgrep with multi-language definition patterns (~50-200ms)
   try {
     const pattern = buildDefinitionPattern(symbol);
-    const proc = Bun.spawn(["rg", "--files-with-matches", "--glob", RG_FILE_TYPES, pattern, "."], {
-      cwd: process.cwd(),
-      stdout: "pipe",
-      stderr: "ignore",
-    });
+    const proc = Bun.spawn(
+      [rgBin(), "--files-with-matches", "--glob", RG_FILE_TYPES, pattern, "."],
+      {
+        cwd: process.cwd(),
+        stdout: "pipe",
+        stderr: "ignore",
+        windowsHide: true,
+      },
+    );
     const text = await new Response(proc.stdout).text();
     const grepMatches = text
       .trim()
@@ -177,11 +182,12 @@ async function autoResolveFile(
     const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const importPattern = `\\b${escaped}\\b`;
     const proc = Bun.spawn(
-      ["rg", "--files-with-matches", "--glob", RG_FILE_TYPES, importPattern, "."],
+      [rgBin(), "--files-with-matches", "--glob", RG_FILE_TYPES, importPattern, "."],
       {
         cwd: process.cwd(),
         stdout: "pipe",
         stderr: "ignore",
+        windowsHide: true,
       },
     );
     const text = await new Response(proc.stdout).text();

@@ -4,6 +4,7 @@ import { useTerminalStore } from "../../stores/terminals.js";
 import { useUIStore } from "../../stores/ui.js";
 import { emitDraftRestore, getStashDB } from "../history/index.js";
 import { icon } from "../icons.js";
+import { ghosttyDisabled, IS_WIN } from "../platform/index.js";
 import { closeTerminal, spawnTerminal } from "../terminal/manager.js";
 import { getThemeTokens } from "../theme/index.js";
 import type { CommandContext, CommandHandler } from "./types.js";
@@ -136,6 +137,17 @@ function resolveTerminalByPosition(posStr: string): number | null {
 }
 
 function handleTerminals(input: string, ctx: CommandContext): void {
+  // Floating terminal renders via ghostty-opentui native addon, which is
+  // skipped on Windows (dlopen segfault on bun 1.3.x). Disable the whole
+  // /terminals command surface there until upstream ships a compatible build.
+  if (ghosttyDisabled()) {
+    const msg = IS_WIN
+      ? "Floating terminal not supported on Windows yet (native addon pending). Use a separate PowerShell/cmd window."
+      : "Floating terminal is disabled in this build. Use an external terminal window.";
+    sysMsg(ctx, msg);
+    return;
+  }
+
   const firstSpace = input.indexOf(" ");
   const rest = firstSpace === -1 ? "" : input.slice(firstSpace + 1).trim();
   const parts = rest.split(/\s+/);

@@ -11,7 +11,9 @@
  *   Enabled + started via `systemctl --user`. Requires lingering for boot-time
  *   start (loginctl enable-linger), which we note but don't auto-toggle.
  *
- * Windows: unsupported (daemon not targeted for Windows yet).
+ * Windows: Task Scheduler user-scoped task under \SoulForge\SoulForgeHearth.
+ *   Registered via PowerShell Register-ScheduledTask with -RunLevel Limited
+ *   so no admin elevation is required. Restart-on-failure via -RestartCount.
  *
  * No shell injection: we write a literal config file with escaped paths, and
  * invoke launchctl/systemctl with fixed argv arrays.
@@ -20,9 +22,10 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, platform, userInfo } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { configDir } from "../core/platform/index.js";
 
-export type ServicePlatform = "darwin" | "linux" | "unsupported";
+export type ServicePlatform = "darwin" | "linux" | "windows" | "unsupported";
 
 export interface ServiceStatus {
   platform: ServicePlatform;
@@ -53,7 +56,9 @@ function currentPlatform(): ServicePlatform {
   const p = platform();
   if (p === "darwin") return "darwin";
   if (p === "linux") return "linux";
+  if (p === "win32") return "windows";
   return "unsupported";
+  // ^ keep "win32" detection — node's os.platform() returns "win32" even on 64-bit and ARM64.
 }
 
 function macosPlistPath(): string {
@@ -65,11 +70,11 @@ function linuxUnitPath(): string {
 }
 
 function defaultLogPath(): string {
-  return join(homedir(), ".soulforge", "hearth.log");
+  return join(configDir(), "hearth.log");
 }
 
 function defaultErrPath(): string {
-  return join(homedir(), ".soulforge", "hearth.err");
+  return join(configDir(), "hearth.err");
 }
 
 /** XML-escape a string for inclusion in an Apple plist. */
@@ -267,6 +272,28 @@ export async function installService(opts: InstallOptions): Promise<ServiceStatu
     }
   }
 
+  if (plat === "windows") {
+    const unitPath = `${WINDOWS_TASK_PATH}${WINDOWS_TASK_NAME}`;
+    const script = buildWindowsRegisterScript(opts);
+    const result = await runPwsh(script);
+    if (result.code !== 0) {
+      return {
+        platform: plat,
+        installed: false,
+        unitPath,
+        unitLabel: WINDOWS_TASK_NAME,
+        error: `Register-ScheduledTask failed: ${result.stderr.trim() || result.stdout.trim()}`,
+      };
+    }
+    return {
+      platform: plat,
+      installed: true,
+      unitPath,
+      unitLabel: WINDOWS_TASK_NAME,
+      active: true,
+    };
+  }
+
   return {
     platform: plat,
     installed: false,
@@ -331,6 +358,27 @@ export async function uninstallService(): Promise<ServiceStatus> {
     }
   }
 
+  if (plat === "windows") {
+    const unitPath = `${WINDOWS_TASK_PATH}${WINDOWS_TASK_NAME}`;
+    const result = await runPwsh(buildWindowsUnregisterScript());
+    if (result.code !== 0) {
+      return {
+        platform: plat,
+        installed: false,
+        unitPath,
+        unitLabel: WINDOWS_TASK_NAME,
+        error: `Unregister-ScheduledTask failed: ${result.stderr.trim() || result.stdout.trim()}`,
+      };
+    }
+    return {
+      platform: plat,
+      installed: false,
+      unitPath,
+      unitLabel: WINDOWS_TASK_NAME,
+      active: false,
+    };
+  }
+
   return {
     platform: plat,
     installed: false,
@@ -367,5 +415,140 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
     return { platform: plat, installed, unitPath, unitLabel: LINUX_UNIT_NAME, active };
   }
 
+  if (plat === "windows") {
+    const unitPath = `${WINDOWS_TASK_PATH}${WINDOWS_TASK_NAME}`;
+    const result = await runPwsh(buildWindowsStatusScript());
+    if (result.code !== 0) {
+      return {
+        platform: plat,
+        installed: false,
+        unitPath,
+        unitLabel: WINDOWS_TASK_NAME,
+        error: result.stderr.trim() || result.stdout.trim() || "Get-ScheduledTask failed",
+      };
+    }
+    const lines = result.stdout.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    const installed = lines[0] === "INSTALLED";
+    // Task Scheduler 'State' values: Unknown(0) Disabled(1) Queued(2) Ready(3) Running(4)
+    const state = (lines[1] ?? "").trim();
+    const active = installed && (state === "Running" || state === "4");
+    return { platform: plat, installed, unitPath, unitLabel: WINDOWS_TASK_NAME, active };
+  }
+
   return { platform: plat, installed: false, unitPath: "", unitLabel: "" };
+}
+export const WINDOWS_TASK_NAME = "SoulForgeHearth";
+export const WINDOWS_TASK_PATH = "\\SoulForge\\";
+/**
+ * PS1 single-quote escape — PowerShell single-quoted strings escape `'` as `''`
+ * and treat everything else (including `$`, `\`, `"`) literally. Safe for
+ * untrusted paths and arguments. Backticks and `$()` are inert in single quotes.
+ */
+function psEscape(s: string): string {
+  return `'${s.replace(/'/g, "''")}'`;
+}
+/**
+ * Build the PowerShell script that registers the SoulForge Hearth scheduled
+ * task. Exported for testing — generation is pure and platform-independent so
+ * we can validate the output on any host.
+ *
+ * Why Task Scheduler over NSSM / sc.exe:
+ *   - No admin required for user-scoped tasks (-RunLevel Limited)
+ *   - Built into every supported Windows version, no bundled deps
+ *   - Mirrors the macOS LaunchAgent / Linux systemd --user model
+ *   - Restart-on-failure via -RestartCount + -RestartInterval
+ *
+ * Reference: https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/register-scheduledtask
+ */
+/** Quote a single argument for Windows command-line parsing (msvcrt rules):
+ * wrap in double quotes when it contains whitespace or quotes, double up
+ * trailing backslashes before the closing quote, and escape embedded quotes. */
+function quoteWindowsCmdArg(arg: string): string {
+  if (arg.length === 0) return '""';
+  if (!/[\s"]/.test(arg)) return arg;
+  let escaped = "";
+  let backslashes = 0;
+  for (const ch of arg) {
+    if (ch === "\\") {
+      backslashes++;
+      continue;
+    }
+    if (ch === '"') {
+      escaped += `${"\\".repeat(backslashes * 2 + 1)}"`;
+      backslashes = 0;
+      continue;
+    }
+    escaped += "\\".repeat(backslashes) + ch;
+    backslashes = 0;
+  }
+  escaped += "\\".repeat(backslashes * 2);
+  return `"${escaped}"`;
+}
+
+export function buildWindowsRegisterScript(opts: InstallOptions): string {
+  const exe = psEscape(opts.cmd);
+  // Each argv element gets Windows-quoted to preserve argv boundaries when
+  // ScheduledTaskAction passes -Argument as a single command-line string.
+  const args = psEscape(opts.args.map(quoteWindowsCmdArg).join(" "));
+  const wd = psEscape(dirname(opts.cmd));
+  const taskName = psEscape(WINDOWS_TASK_NAME);
+  const taskPath = psEscape(WINDOWS_TASK_PATH);
+
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    `$action = New-ScheduledTaskAction -Execute ${exe} -Argument ${args} -WorkingDirectory ${wd}`,
+    `$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME`,
+    "$settings = New-ScheduledTaskSettingsSet " +
+      "-AllowStartIfOnBatteries " +
+      "-DontStopIfGoingOnBatteries " +
+      "-StartWhenAvailable " +
+      "-RestartCount 3 " +
+      "-RestartInterval (New-TimeSpan -Minutes 1) " +
+      "-ExecutionTimeLimit (New-TimeSpan -Hours 0)",
+    "$principal = New-ScheduledTaskPrincipal " +
+      "-UserId $env:USERNAME " +
+      "-LogonType Interactive " +
+      "-RunLevel Limited",
+    `Register-ScheduledTask -TaskName ${taskName} -TaskPath ${taskPath} ` +
+      "-Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null",
+    `Start-ScheduledTask -TaskName ${taskName} -TaskPath ${taskPath}`,
+  ].join("\n");
+}
+/** PS1 to unregister the scheduled task. Idempotent — succeeds even if absent. */
+export function buildWindowsUnregisterScript(): string {
+  const taskName = psEscape(WINDOWS_TASK_NAME);
+  const taskPath = psEscape(WINDOWS_TASK_PATH);
+  return [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    `Stop-ScheduledTask -TaskName ${taskName} -TaskPath ${taskPath}`,
+    `Unregister-ScheduledTask -TaskName ${taskName} -TaskPath ${taskPath} -Confirm:$false`,
+    // Always exit 0 — uninstall is best-effort.
+    "exit 0",
+  ].join("\n");
+}
+/** PS1 to query the task; emits two lines: "INSTALLED|MISSING" then state name. */
+export function buildWindowsStatusScript(): string {
+  const taskName = psEscape(WINDOWS_TASK_NAME);
+  const taskPath = psEscape(WINDOWS_TASK_PATH);
+  return [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    `$t = Get-ScheduledTask -TaskName ${taskName} -TaskPath ${taskPath}`,
+    "if ($null -eq $t) { Write-Output 'MISSING'; Write-Output ''; exit 0 }",
+    "Write-Output 'INSTALLED'",
+    `$info = Get-ScheduledTaskInfo -TaskName ${taskName} -TaskPath ${taskPath}`,
+    "Write-Output $t.State",
+  ].join("\n");
+}
+/** Run a PS1 script with -Command — argv form, no shell interpolation. */
+function runPwsh(script: string): Promise<{ code: number; stdout: string; stderr: string }> {
+  // PowerShell 5.1 (`powershell`) ships on every supported Windows; PS 7
+  // (`pwsh`) is optional. Prefer `powershell` for the widest compatibility.
+  return runCmd("powershell", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    script,
+  ]);
 }

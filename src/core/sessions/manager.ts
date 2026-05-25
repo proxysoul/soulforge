@@ -4,7 +4,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -13,6 +12,7 @@ import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { ChatMessage } from "../../types/index.js";
+import { safeRename } from "../platform/index.js";
 import { ensureSoulforgeDir } from "../utils/ensure-soulforge-dir.js";
 import { getIOClient } from "../workers/io-client.js";
 import { rebuildCoreMessages, validateCoreMessages } from "./rebuild.js";
@@ -348,8 +348,8 @@ export class SessionManager {
       mode: 0o600,
     });
     writeFileSync(jsonlTmp, lines ? `${lines}\n` : "", { encoding: "utf-8", mode: 0o600 });
-    renameSync(jsonlTmp, jsonlPath);
-    renameSync(metaTmp, metaPath);
+    safeRename(jsonlTmp, jsonlPath);
+    safeRename(metaTmp, metaPath);
 
     if (tabCoreMessages) {
       const coreData: Record<string, import("ai").ModelMessage[]> = {};
@@ -359,7 +359,7 @@ export class SessionManager {
       const corePath = join(sessionDir, "core.json");
       const coreTmp = `${corePath}.${suffix}.tmp`;
       writeFileSync(coreTmp, JSON.stringify(coreData), { encoding: "utf-8", mode: 0o600 });
-      renameSync(coreTmp, corePath);
+      safeRename(coreTmp, corePath);
     }
   }
 
@@ -375,6 +375,7 @@ export class SessionManager {
           if (tab.checkpointTags) {
             for (const ct of tab.checkpointTags) {
               spawnSync("git", ["tag", "-d", ct.gitTag], {
+                windowsHide: true,
                 cwd: this.cwd,
                 timeout: 5_000,
                 stdio: "ignore",
@@ -400,7 +401,7 @@ export class SessionManager {
       const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const tmp = `${metaPath}.${suffix}.tmp`;
       writeFileSync(tmp, JSON.stringify(meta, null, 2), { encoding: "utf-8", mode: 0o600 });
-      renameSync(tmp, metaPath);
+      safeRename(tmp, metaPath);
       return true;
     } catch {
       return false;

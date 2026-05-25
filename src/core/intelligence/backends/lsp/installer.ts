@@ -3,30 +3,51 @@
 // Reads local cache if available, otherwise downloads from GitHub.
 // Installs to ~/.soulforge/lsp-servers/ via bun (npm), curl+tar (github), pip, go, cargo.
 
-import { execSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { extractArchive } from "../../../platform/archive.js";
+import {
+  CMD_EXT,
+  commandExists,
+  configDir,
+  dataDir,
+  EXE,
+  IS_WIN,
+  localAppData,
+} from "../../../platform/index.js";
 
-const SOULFORGE_LSP_DIR = join(homedir(), ".soulforge", "lsp-servers");
-const VERSIONS_FILE = join(homedir(), ".soulforge", "lsp-versions.json");
+const SOULFORGE_LSP_DIR = join(dataDir(), "lsp-servers");
+const VERSIONS_FILE = join(configDir(), "lsp-versions.json");
 
-const MASON_REGISTRY_LOCAL = join(
-  homedir(),
-  ".local",
-  "share",
-  "nvim",
-  "mason",
-  "registries",
-  "github",
-  "mason-org",
-  "mason-registry",
-  "registry.json",
-);
+const MASON_REGISTRY_LOCAL = IS_WIN
+  ? join(
+      localAppData() ?? join(homedir(), "AppData", "Local"),
+      "nvim-data",
+      "mason",
+      "registries",
+      "github",
+      "mason-org",
+      "mason-registry",
+      "registry.json",
+    )
+  : join(
+      homedir(),
+      ".local",
+      "share",
+      "nvim",
+      "mason",
+      "registries",
+      "github",
+      "mason-org",
+      "mason-registry",
+      "registry.json",
+    );
 const MASON_REGISTRY_RELEASE_URL =
   "https://api.github.com/repos/mason-org/mason-registry/releases/latest";
-const REGISTRY_CACHE = join(homedir(), ".soulforge", "mason-registry.json");
-const MASON_BIN_DIR = join(homedir(), ".local", "share", "soulforge", "mason", "bin");
+const REGISTRY_CACHE = join(configDir(), "mason-registry.json");
+const MASON_BIN_DIR = join(dataDir(), "mason", "bin");
 
 type InstallMethod = "npm" | "pypi" | "cargo" | "golang" | "github" | "unknown";
 export type PackageCategory = "LSP" | "Formatter" | "Linter" | "DAP" | "Runtime" | "Compiler";
@@ -168,9 +189,8 @@ export function loadRegistry(): MasonPackage[] {
   return [];
 }
 
-/** Download registry.json from GitHub releases (zipped since 2025) and cache it */
 export async function downloadRegistry(): Promise<MasonPackage[]> {
-  mkdirSync(join(homedir(), ".soulforge"), { recursive: true });
+  mkdirSync(configDir(), { recursive: true });
   try {
     const releaseResp = await fetch(MASON_REGISTRY_RELEASE_URL, {
       headers: { Accept: "application/vnd.github.v3+json", "User-Agent": "SoulForge" },
@@ -186,17 +206,14 @@ export async function downloadRegistry(): Promise<MasonPackage[]> {
     if (!zipResp.ok) throw new Error(`Download HTTP ${String(zipResp.status)}`);
     const zipBuf = await zipResp.arrayBuffer();
 
-    const tmpZip = join(homedir(), ".soulforge", "mason-registry.zip");
+    const tmpZip = join(configDir(), "mason-registry.zip");
     writeFileSync(tmpZip, Buffer.from(zipBuf));
 
-    const { execSync } = await import("node:child_process");
-    execSync(`unzip -qo "${tmpZip}" registry.json -d "${join(homedir(), ".soulforge")}"`, {
-      stdio: "ignore",
-      timeout: 10_000,
-    });
+    const result = extractArchive(tmpZip, configDir());
+    if (!result.success) throw new Error(`Extract failed: ${result.error}`);
     unlinkSync(tmpZip);
 
-    const jsonPath = join(homedir(), ".soulforge", "registry.json");
+    const jsonPath = join(configDir(), "registry.json");
     const text = readFileSync(jsonPath, "utf-8");
     writeFileSync(REGISTRY_CACHE, text);
     unlinkSync(jsonPath);
@@ -220,14 +237,11 @@ const pathCache = new Map<string, boolean>();
 function commandOnPath(cmd: string): boolean {
   const cached = pathCache.get(cmd);
   if (cached !== undefined) return cached;
-  try {
-    execSync(`command -v ${cmd}`, { stdio: "ignore", timeout: 500 });
-    pathCache.set(cmd, true);
-    return true;
-  } catch {
-    pathCache.set(cmd, false);
-    return false;
-  }
+  // platform.commandExists uses `where` on win32 (which automatically searches
+  // PATHEXT — .exe, .cmd, .bat, .ps1) and `command -v` elsewhere.
+  const ok = commandExists(cmd);
+  pathCache.set(cmd, ok);
+  return ok;
 }
 
 function toolchainAvailable(toolchain: string | null): boolean {
@@ -260,7 +274,7 @@ function loadVersions(): VersionMap {
 function saveVersions(map: VersionMap): void {
   versionCache = map;
   try {
-    mkdirSync(join(homedir(), ".soulforge"), { recursive: true });
+    mkdirSync(configDir(), { recursive: true });
     writeFileSync(VERSIONS_FILE, JSON.stringify(map, null, 2), "utf-8");
   } catch {}
 }
@@ -290,38 +304,46 @@ export function getUpdatablePackages(): PackageStatus[] {
   return all.filter((s) => s.hasUpdate);
 }
 
-/** Check install status for a single package */
 export function checkPackageStatus(pkg: MasonPackage): PackageStatus {
   const purl = parsePurl(pkg.source.id);
   const method = purl ? getInstallMethod(purl) : "unknown";
   const toolchain = getToolchainRequirement(method);
   const binaries = getBinaries(pkg);
 
+  // Windows: a bin shim can be `<bin>.exe`, `<bin>.cmd`, or bare. Probe all.
+  const winSuffixes = IS_WIN ? [EXE, CMD_EXT, ""] : [""];
+  const probe = (dir: string, bin: string): boolean => {
+    for (const sfx of winSuffixes) {
+      if (existsSync(join(dir, bin + sfx))) return true;
+    }
+    return false;
+  };
+
   // Check if any binary is installed
   let installed = false;
   let source: PackageStatus["source"] = null;
 
   for (const bin of binaries) {
-    // PATH
+    // PATH (where on win32 already follows PATHEXT)
     if (commandOnPath(bin)) {
       installed = true;
       source = "PATH";
       break;
     }
     // SoulForge npm bin
-    if (existsSync(join(SOULFORGE_LSP_DIR, "node_modules", ".bin", bin))) {
+    if (probe(join(SOULFORGE_LSP_DIR, "node_modules", ".bin"), bin)) {
       installed = true;
       source = "soulforge";
       break;
     }
     // SoulForge direct bin
-    if (existsSync(join(SOULFORGE_LSP_DIR, "bin", bin))) {
+    if (probe(join(SOULFORGE_LSP_DIR, "bin"), bin)) {
       installed = true;
       source = "soulforge";
       break;
     }
     // Mason
-    if (existsSync(join(MASON_BIN_DIR, bin))) {
+    if (probe(MASON_BIN_DIR, bin)) {
       installed = true;
       source = "mason";
       break;
@@ -449,14 +471,10 @@ export async function installPackage(
         const extras = pkg.source.extra_packages ?? [];
         log(`Installing ${fullName} via bun...`);
         const bunBin = (() => {
-          try {
-            execSync("command -v bun", { stdio: "ignore" });
-            return "bun";
-          } catch {
-            const sfBin = join(homedir(), ".soulforge", "bin", "bun");
-            if (existsSync(sfBin)) return sfBin;
-            return "bun";
-          }
+          if (commandExists("bun")) return "bun";
+          const sfBin = join(dataDir(), "bin", `bun${EXE}`);
+          if (existsSync(sfBin)) return sfBin;
+          return "bun";
         })();
         await runCommand(bunBin, ["add", "--cwd", SOULFORGE_LSP_DIR, fullName, ...extras], log, {
           BUN_BE_BUN: "1",
@@ -475,15 +493,26 @@ export async function installPackage(
           ["install", "--target", pipDir, `${purl.name}==${purl.version}`],
           log,
         );
-        // Create wrapper scripts for each binary
+        // Create wrapper scripts for each binary. Windows gets a .cmd shim
+        // that sets PYTHONPATH and invokes `python -m <pkg>`; POSIX gets a
+        // bash wrapper.
         if (pkg.bin) {
+          const moduleName = purl.name.replace(/-/g, "_");
           for (const binName of Object.keys(pkg.bin)) {
-            const wrapper = join(binDir, binName);
-            writeFileSync(
-              wrapper,
-              `#!/usr/bin/env bash\nPYTHONPATH="${pipDir}:$PYTHONPATH" exec python3 -m ${purl.name.replace(/-/g, "_")} "$@"\n`,
-            );
-            chmodSync(wrapper, 0o755);
+            if (IS_WIN) {
+              const wrapper = join(binDir, binName + CMD_EXT);
+              writeFileSync(
+                wrapper,
+                `@echo off\r\nset "PYTHONPATH=${pipDir};%PYTHONPATH%"\r\npython -m ${moduleName} %*\r\n`,
+              );
+            } else {
+              const wrapper = join(binDir, binName);
+              writeFileSync(
+                wrapper,
+                `#!/usr/bin/env bash\nPYTHONPATH="${pipDir}:$PYTHONPATH" exec python3 -m ${moduleName} "$@"\n`,
+              );
+              chmodSync(wrapper, 0o755);
+            }
           }
         }
         break;
@@ -517,9 +546,13 @@ export async function installPackage(
         // Find the right asset for this platform
         const asset = findPlatformAsset(pkg);
         if (!asset) {
+          const target = getMasonTarget();
           return {
             success: false,
-            error: `No pre-built binary for ${process.platform}/${process.arch}`,
+            error:
+              `No pre-built binary for ${target} (${process.platform}/${process.arch}). ` +
+              `This package may not publish a Windows asset — try installing via ` +
+              `\`bun add -g <pkg>\` instead.`,
           };
         }
 
@@ -531,31 +564,63 @@ export async function installPackage(
         log(`Downloading ${fileUrl}...`);
         await runCommand("curl", ["-fSL", "-o", join(tmpDir, "download"), fileUrl], log);
 
-        // Extract based on file extension
-        const fname = asset.file.toLowerCase();
-        if (fname.endsWith(".tar.gz") || fname.endsWith(".tgz")) {
-          await runCommand("tar", ["-xzf", join(tmpDir, "download"), "-C", tmpDir], log);
-        } else if (fname.endsWith(".zip")) {
-          await runCommand("unzip", ["-o", join(tmpDir, "download"), "-d", tmpDir], log);
+        // Extract — tar.exe on Win10 1809+ handles .tar.gz, .tar.xz, .zip via libarchive.
+        const downloadPath = join(tmpDir, "download");
+        // Rename to a name extractArchive can dispatch on (ext-based).
+        const lower = asset.file.toLowerCase();
+        let archivePath = downloadPath;
+        if (
+          lower.endsWith(".tar.gz") ||
+          lower.endsWith(".tgz") ||
+          lower.endsWith(".tar.xz") ||
+          lower.endsWith(".zip")
+        ) {
+          const { safeRename } = await import("../../../platform/index.js");
+          const ext = lower.endsWith(".tgz")
+            ? ".tar.gz"
+            : lower.endsWith(".tar.gz")
+              ? ".tar.gz"
+              : lower.endsWith(".tar.xz")
+                ? ".tar.xz"
+                : ".zip";
+          archivePath = join(tmpDir, `download${ext}`);
+          try {
+            safeRename(downloadPath, archivePath);
+          } catch {}
+          const result = extractArchive(archivePath, tmpDir);
+          if (!result.success) throw new Error(`Extract failed: ${result.error}`);
         }
 
-        // Copy binaries
+        // Copy binaries. Windows: try .exe / .cmd suffixes when bare name misses.
         if (pkg.bin) {
           for (const [binName, binPath] of Object.entries(pkg.bin)) {
             const resolvedBin = binPath.includes("{{") ? (asset.bin ?? binName) : binPath;
-            // Try to find the binary in the extracted files
-            const candidates = [
-              join(tmpDir, resolvedBin),
-              join(tmpDir, binName),
-              join(tmpDir, purl.name, resolvedBin),
-              join(tmpDir, purl.name, binName),
+            const winExts = IS_WIN ? [EXE, CMD_EXT, ""] : [""];
+            const baseCandidates = [
+              resolvedBin,
+              binName,
+              join(purl.name, resolvedBin),
+              join(purl.name, binName),
             ];
+            const candidates: string[] = [];
+            for (const c of baseCandidates) {
+              for (const ext of winExts) {
+                candidates.push(join(tmpDir, c + ext));
+              }
+            }
             for (const candidate of candidates) {
               if (existsSync(candidate)) {
                 const { copyFileSync } = await import("node:fs");
-                const dest = join(binDir, binName);
+                // Preserve the source extension so callers resolve `foo.exe`
+                // not `foo` on Windows.
+                const srcExt = candidate.endsWith(".exe")
+                  ? ".exe"
+                  : candidate.endsWith(".cmd")
+                    ? ".cmd"
+                    : "";
+                const dest = join(binDir, binName + (IS_WIN ? srcExt : ""));
                 copyFileSync(candidate, dest);
-                chmodSync(dest, 0o755);
+                if (!IS_WIN) chmodSync(dest, 0o755);
                 break;
               }
             }
@@ -582,7 +647,6 @@ export async function installPackage(
   }
 }
 
-/** Uninstall a package installed by SoulForge */
 export async function uninstallPackage(
   pkg: MasonPackage,
   onProgress?: (msg: string) => void,
@@ -593,22 +657,37 @@ export async function uninstallPackage(
   const log = (msg: string) => onProgress?.(msg);
   const binaries = getBinaries(pkg);
 
+  const { unlinkSync } = await import("node:fs");
+  // On Windows we may have copied either `<bin>.exe` or `<bin>.cmd` (or both)
+  // depending on the source asset shape. Try every suffix on uninstall.
+  const removeBin = (dir: string, bin: string) => {
+    const suffixes = IS_WIN ? [EXE, CMD_EXT, ""] : [""];
+    for (const sfx of suffixes) {
+      try {
+        unlinkSync(join(dir, bin + sfx));
+      } catch {}
+    }
+  };
+
   try {
     switch (purl.type) {
       case "npm": {
         const fullName = purl.namespace ? `${purl.namespace}/${purl.name}` : purl.name;
         log(`Removing ${fullName} via bun...`);
-        const { execSync: exec } = await import("node:child_process");
-        try {
-          exec(`bun remove --cwd ${SOULFORGE_LSP_DIR} ${fullName}`, { stdio: "pipe" });
-        } catch {
-          // If bun remove fails, manually remove the binaries
-          const { unlinkSync } = await import("node:fs");
+        const { spawnSync } = await import("node:child_process");
+        const bunBin = (() => {
+          if (commandExists("bun")) return "bun";
+          const sfBin = join(dataDir(), "bin", `bun${EXE}`);
+          if (existsSync(sfBin)) return sfBin;
+          return "bun";
+        })();
+        const removeResult = spawnSync(bunBin, ["remove", "--cwd", SOULFORGE_LSP_DIR, fullName], {
+          stdio: "pipe",
+          windowsHide: true,
+        });
+        if (removeResult.status !== 0) {
           for (const bin of binaries) {
-            const binPath = join(SOULFORGE_LSP_DIR, "node_modules", ".bin", bin);
-            try {
-              unlinkSync(binPath);
-            } catch {}
+            removeBin(join(SOULFORGE_LSP_DIR, "node_modules", ".bin"), bin);
           }
         }
         break;
@@ -616,18 +695,14 @@ export async function uninstallPackage(
 
       case "pypi": {
         log(`Removing ${purl.name}...`);
-        const { rmSync, unlinkSync } = await import("node:fs");
-        // Remove pip packages
+        const { rmSync } = await import("node:fs");
         const pipDir = join(SOULFORGE_LSP_DIR, "pip-packages");
         const pkgDir = join(pipDir, purl.name.replace(/-/g, "_"));
         try {
           rmSync(pkgDir, { recursive: true, force: true });
         } catch {}
-        // Remove wrapper scripts
         for (const bin of binaries) {
-          try {
-            unlinkSync(join(SOULFORGE_LSP_DIR, "bin", bin));
-          } catch {}
+          removeBin(join(SOULFORGE_LSP_DIR, "bin"), bin);
         }
         break;
       }
@@ -635,22 +710,16 @@ export async function uninstallPackage(
       case "golang":
       case "cargo": {
         log(`Removing ${purl.name} binaries...`);
-        const { unlinkSync } = await import("node:fs");
         for (const bin of binaries) {
-          try {
-            unlinkSync(join(SOULFORGE_LSP_DIR, "bin", bin));
-          } catch {}
+          removeBin(join(SOULFORGE_LSP_DIR, "bin"), bin);
         }
         break;
       }
 
       case "github": {
         log(`Removing ${purl.name} binaries...`);
-        const { unlinkSync } = await import("node:fs");
         for (const bin of binaries) {
-          try {
-            unlinkSync(join(SOULFORGE_LSP_DIR, "bin", bin));
-          } catch {}
+          removeBin(join(SOULFORGE_LSP_DIR, "bin"), bin);
         }
         break;
       }
@@ -692,6 +761,11 @@ export async function updatePackage(
 }
 
 function getMasonTarget(): string {
+  // Mason registry target keys: darwin_arm64, darwin_x64, linux_arm64,
+  // linux_x64, win_x64. (win_arm64 deferred to v2 — see windows-support.md.)
+  if (IS_WIN) {
+    return process.arch === "arm64" ? "win_arm64" : "win_x64";
+  }
   const platform = process.platform === "darwin" ? "darwin" : "linux";
   const arch = process.arch === "arm64" ? "arm64" : "x64";
   return `${platform}_${arch}`;

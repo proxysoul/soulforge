@@ -11,6 +11,7 @@
 
 import { basename } from "node:path";
 import { icon } from "../../core/icons.js";
+import { ghosttyDisabled } from "../../core/platform/index.js";
 import type { ImageArt } from "../../core/terminal/image.js";
 import { useTheme } from "../../core/theme/index.js";
 
@@ -120,8 +121,24 @@ export function ImageDisplay({ img }: { img: ImageArt }) {
     );
   }
 
-  // Fallback: chafa / half-block ANSI art via ghostty-terminal
+  // Fallback: chafa / half-block ANSI art via ghostty-terminal.
+  // On Windows the ghostty-opentui native addon is skipped, so the
+  // <ghostty-terminal> renderable isn't registered — render the ANSI
+  // lines as plain <text> rows instead so images still show (with
+  // raw escape sequences for the terminal to interpret).
   const vtCols = Math.max(80, img.lines.length > 0 ? (img.lines[0]?.length ?? 120) : 120);
+  if (ghosttyDisabled()) {
+    return (
+      <box flexDirection="column" flexShrink={0}>
+        <ImageHeader img={img} />
+        {img.lines.map((line, i) => (
+          <box key={`L${String(i)}`} height={1} flexShrink={0}>
+            <text>{line}</text>
+          </box>
+        ))}
+      </box>
+    );
+  }
   return (
     <box flexDirection="column" flexShrink={0}>
       <ImageHeader img={img} />

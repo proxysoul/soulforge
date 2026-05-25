@@ -41,7 +41,11 @@ export async function listPopularSkills(): Promise<SkillSearchResult[]> {
 /** Detect whether bunx is available, falling back to npx */
 async function detectRunner(): Promise<string> {
   try {
-    const proc = Bun.spawn(["bunx", "--version"], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["bunx", "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      windowsHide: true,
+    });
     const code = await proc.exited;
     if (code === 0) return "bunx";
   } catch {
@@ -63,6 +67,7 @@ export async function installSkill(
   const proc = Bun.spawn(args, {
     stdout: "pipe",
     stderr: "pipe",
+    windowsHide: true,
   });
 
   // Read streams concurrently with proc.exited to avoid pipe-buffer deadlock.
@@ -119,7 +124,9 @@ export function listInstalledSkills(): InstalledSkill[] {
   const byName = new Map<string, InstalledSkill>();
   const seenPaths = new Set<string>();
 
-  // Scan global dirs first, then local — local overwrites global (preferred)
+  // Skill scan dirs are fixed per guidelines: ~/.soulforge/skills,
+  // ~/.agents/skills, ~/.claude/skills + project-local equivalents.
+  // Do not broaden scope.
   const dirs: Array<{ path: string; scope: "global" | "project" }> = [
     { path: join(homedir(), ".soulforge", "skills"), scope: "global" },
     { path: join(homedir(), ".agents", "skills"), scope: "global" },

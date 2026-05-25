@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { findNvim } from "neovim";
 import { getVendoredPath } from "../setup/install.js";
 
@@ -17,7 +17,12 @@ export function detectNeovim(): DetectedNvim | null {
   const vendored = getVendoredPath("nvim");
   if (vendored) {
     try {
-      const output = execSync(`"${vendored}" --version`, { encoding: "utf-8" });
+      // execFileSync (argv form) — no shell, safe with spaces in vendored path.
+      const output = execFileSync(vendored, ["--version"], {
+        encoding: "utf-8",
+        windowsHide: true,
+        timeout: 5_000,
+      });
       const match = output.match(/NVIM v(\d+\.\d+\.\d+)/);
       if (match?.[1]) {
         return { path: vendored, version: match[1] };

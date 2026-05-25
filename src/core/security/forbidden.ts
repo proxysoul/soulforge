@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, realpathSync, watch, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { configDir } from "../platform/index.js";
 import { ensureSoulforgeDir } from "../utils/ensure-soulforge-dir.js";
 
 /**
@@ -94,7 +94,7 @@ function parseIgnoreFile(filePath: string): string[] {
 
 /** Initialize the forbidden guard. Call once at startup. */
 export function initForbidden(cwd: string): void {
-  const globalFile = join(homedir(), ".soulforge", "forbidden.json");
+  const globalFile = join(configDir(), "forbidden.json");
   const projectFile = join(cwd, ".soulforge", "forbidden.json");
 
   globalPatterns = loadPatternsFromFile(globalFile);
