@@ -66,15 +66,20 @@ describe("hearth windows: register script", () => {
 });
 
 describe("hearth windows: unregister script", () => {
-  test("targets the right task and is idempotent", () => {
+  test("targets the right task, idempotent on missing, surfaces real errors", () => {
     const ps = buildWindowsUnregisterScript();
     expect(ps).toContain("Unregister-ScheduledTask");
     expect(ps).toContain("-Confirm:$false");
     expect(ps).toContain(`'${WINDOWS_TASK_NAME}'`);
     expect(ps).toContain(`'${WINDOWS_TASK_PATH}'`);
-    // SilentlyContinue + exit 0 → best-effort, never bubbles a failure.
-    expect(ps).toContain("$ErrorActionPreference = 'SilentlyContinue'");
-    expect(ps).toContain("exit 0");
+    // ErrorActionPreference = Stop so genuine scheduler failures propagate.
+    expect(ps).toContain("$ErrorActionPreference = 'Stop'");
+    // Missing task is the only success-fast path — probe + exit 0 when null.
+    expect(ps).toContain("Get-ScheduledTask");
+    expect(ps).toContain("if ($null -eq $t) { exit 0 }");
+    // Stop-ScheduledTask kept best-effort (task may already be stopped) but the
+    // unregister call is NOT silently swallowed — that's the bug fix.
+    expect(ps).toContain("Stop-ScheduledTask");
   });
 });
 

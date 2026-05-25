@@ -9,7 +9,7 @@ winget install ProxySoul.SoulForge
 
 ## Layout (in winget-pkgs)
 
-```
+```text
 manifests/p/ProxySoul/SoulForge/<version>/
   ProxySoul.SoulForge.yaml             # version manifest
   ProxySoul.SoulForge.installer.yaml   # installer URLs + switches

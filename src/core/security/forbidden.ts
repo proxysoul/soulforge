@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, realpathSync, watch, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { configDir } from "../platform/index.js";
 import { ensureSoulforgeDir } from "../utils/ensure-soulforge-dir.js";
@@ -92,12 +93,24 @@ function parseIgnoreFile(filePath: string): string[] {
   }
 }
 
-/** Initialize the forbidden guard. Call once at startup. */
 export function initForbidden(cwd: string): void {
   const globalFile = join(configDir(), "forbidden.json");
   const projectFile = join(cwd, ".soulforge", "forbidden.json");
 
-  globalPatterns = loadPatternsFromFile(globalFile);
+  // Migration fallback: if the canonical location is empty but the historic
+  // `~/.soulforge/forbidden.json` exists, honour the legacy file so upgrade
+  // installs don't silently lose user blocks. New writes always go to the
+  // canonical configDir().
+  if (existsSync(globalFile)) {
+    globalPatterns = loadPatternsFromFile(globalFile);
+  } else {
+    const legacyFile = join(homedir(), ".soulforge", "forbidden.json");
+    if (legacyFile !== globalFile && existsSync(legacyFile)) {
+      globalPatterns = loadPatternsFromFile(legacyFile);
+    } else {
+      globalPatterns = [];
+    }
+  }
   projectPatterns = loadPatternsFromFile(projectFile);
   sessionPatternsMap.clear();
 

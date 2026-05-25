@@ -15,7 +15,9 @@
 #   dist/bundle/soulforge-setup-<version>-<arch>.exe
 
 param(
-    [ValidateSet("x64", "arm64")]
+    # x64 only for v1.2 — ARM64 deferred until the upstream native dependency
+    # publishes a win32-arm64 build. ValidateSet keeps the public surface honest.
+    [ValidateSet("x64")]
     [string]$Arch = "x64",
     [switch]$SkipBundle
 )

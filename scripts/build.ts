@@ -23,6 +23,10 @@ import { dirname, resolve } from "node:path";
 // %LOCALAPPDATA% on Windows and ~/.soulforge on POSIX. Single source of truth
 // — mirrors src/core/platform/index.ts:configDir() at runtime. Update both
 // together if the canonical path moves.
+// Inlined into every native-lookup plugin so the runtime resolution honours
+// %LOCALAPPDATA% on Windows and ~/.soulforge on POSIX. Single source of truth
+// — mirrors src/core/platform/index.ts:configDir() exactly. Update both
+// together if the canonical path moves.
 const APPDATA_DIR_JS = `
 function appDataDir() {
   const { homedir } = require("os");
@@ -31,6 +35,7 @@ function appDataDir() {
     const local = process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local");
     return join(local, "SoulForge");
   }
+  // process.env.HOME honoured first so sandboxed test runs don't escape to the real profile.
   return join(process.env.HOME || homedir(), ".soulforge");
 }
 `;

@@ -31,7 +31,7 @@
  *     the heavy lift (the actual soulforge runtime) is downloaded after.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
 import { copyFileSync, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -244,31 +244,37 @@ async function main() {
   // registered UninstallString points at a stable location, not at
   // process.execPath (which is the disposable copy the user ran from
   // Downloads). Settings -> Apps stays valid even after the original is
-  // moved or deleted.
+  // moved or deleted. If the copy fails we skip registry registration
+  // entirely rather than registering a dangling UninstallString.
   const persistentUninstaller = join(INSTALL_DIR, "soulforge-uninstall.exe");
+  let uninstallerStaged = false;
   try {
     copyFileSync(process.execPath, persistentUninstaller);
+    uninstallerStaged = existsSync(persistentUninstaller);
   } catch (err) {
     process.stderr.write(`  ${COLOR.muted}warn:${COLOR.reset} could not stage uninstaller (${err.message})\n`);
   }
 
-  // Uninstaller registry entry — points at the staged uninstaller.
-  startSpinner("registering uninstaller");
-  try {
-    const uninstallCmd = `"${persistentUninstaller}" --uninstall`;
-    const key = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SoulForge";
-    spawnSync("reg", ["add", key, "/v", "DisplayName", "/t", "REG_SZ", "/d", "SoulForge", "/f"], { stdio: "ignore" });
-    spawnSync("reg", ["add", key, "/v", "DisplayVersion", "/t", "REG_SZ", "/d", version, "/f"], { stdio: "ignore" });
-    spawnSync("reg", ["add", key, "/v", "Publisher", "/t", "REG_SZ", "/d", "proxySoul", "/f"], { stdio: "ignore" });
-    spawnSync("reg", ["add", key, "/v", "InstallLocation", "/t", "REG_SZ", "/d", INSTALL_DIR, "/f"], { stdio: "ignore" });
-    spawnSync("reg", ["add", key, "/v", "DisplayIcon", "/t", "REG_SZ", "/d", join(INSTALL_DIR, "soulforge.exe"), "/f"], { stdio: "ignore" });
-    spawnSync("reg", ["add", key, "/v", "UninstallString", "/t", "REG_SZ", "/d", uninstallCmd, "/f"], { stdio: "ignore" });
-    spawnSync("reg", ["add", key, "/v", "URLInfoAbout", "/t", "REG_SZ", "/d", "https://github.com/proxysoul/soulforge", "/f"], { stdio: "ignore" });
-    spawnSync("reg", ["add", key, "/v", "NoModify", "/t", "REG_DWORD", "/d", "1", "/f"], { stdio: "ignore" });
-    spawnSync("reg", ["add", key, "/v", "NoRepair", "/t", "REG_DWORD", "/d", "1", "/f"], { stdio: "ignore" });
-    stopSpinner(true, "registered");
-  } catch (err) {
-    stopSpinner(false, `registry write failed: ${err.message}`);
+  if (!uninstallerStaged) {
+    process.stderr.write(`  ${COLOR.muted}warn:${COLOR.reset} skipping Apps registration — uninstaller missing\n`);
+  } else {
+    startSpinner("registering uninstaller");
+    try {
+      const uninstallCmd = `"${persistentUninstaller}" --uninstall`;
+      const key = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SoulForge";
+      spawnSync("reg", ["add", key, "/v", "DisplayName", "/t", "REG_SZ", "/d", "SoulForge", "/f"], { stdio: "ignore" });
+      spawnSync("reg", ["add", key, "/v", "DisplayVersion", "/t", "REG_SZ", "/d", version, "/f"], { stdio: "ignore" });
+      spawnSync("reg", ["add", key, "/v", "Publisher", "/t", "REG_SZ", "/d", "proxySoul", "/f"], { stdio: "ignore" });
+      spawnSync("reg", ["add", key, "/v", "InstallLocation", "/t", "REG_SZ", "/d", INSTALL_DIR, "/f"], { stdio: "ignore" });
+      spawnSync("reg", ["add", key, "/v", "DisplayIcon", "/t", "REG_SZ", "/d", join(INSTALL_DIR, "soulforge.exe"), "/f"], { stdio: "ignore" });
+      spawnSync("reg", ["add", key, "/v", "UninstallString", "/t", "REG_SZ", "/d", uninstallCmd, "/f"], { stdio: "ignore" });
+      spawnSync("reg", ["add", key, "/v", "URLInfoAbout", "/t", "REG_SZ", "/d", "https://github.com/proxysoul/soulforge", "/f"], { stdio: "ignore" });
+      spawnSync("reg", ["add", key, "/v", "NoModify", "/t", "REG_DWORD", "/d", "1", "/f"], { stdio: "ignore" });
+      spawnSync("reg", ["add", key, "/v", "NoRepair", "/t", "REG_DWORD", "/d", "1", "/f"], { stdio: "ignore" });
+      stopSpinner(true, "registered");
+    } catch (err) {
+      stopSpinner(false, `registry write failed: ${err.message}`);
+    }
   }
 
   console.log();
@@ -286,9 +292,34 @@ async function uninstall() {
   spawnSync("taskkill", ["/F", "/IM", "soulforge.exe", "/T"], { stdio: "ignore" });
   spawnSync("taskkill", ["/F", "/IM", "sf.exe", "/T"], { stdio: "ignore" });
 
+  // The running uninstaller exe holds an exclusive lock on its own file under
+  // INSTALL_DIR, so a direct rmSync(INSTALL_DIR) cannot fully remove the dir.
+  // We delete every file we can, then hand off the final dir removal to a
+  // detached cmd.exe that waits for this process to exit, retries until the
+  // lock clears, and removes the dir + uninstaller copy.
+  const persistentUninstaller = join(INSTALL_DIR, "soulforge-uninstall.exe");
+  const myExe = process.execPath;
+  const runningFromInstall =
+    myExe.toLowerCase() === persistentUninstaller.toLowerCase() ||
+    myExe.toLowerCase().startsWith(INSTALL_DIR.toLowerCase());
+
   startSpinner("removing files");
   try {
-    if (existsSync(INSTALL_DIR)) rmSync(INSTALL_DIR, { recursive: true, force: true });
+    if (existsSync(INSTALL_DIR)) {
+      // Best-effort: remove everything we can, leaving the running exe behind.
+      for (const name of readdirSync(INSTALL_DIR)) {
+        const target = join(INSTALL_DIR, name);
+        if (runningFromInstall && target.toLowerCase() === myExe.toLowerCase()) continue;
+        try {
+          rmSync(target, { recursive: true, force: true });
+        } catch {}
+      }
+      if (!runningFromInstall) {
+        try {
+          rmSync(INSTALL_DIR, { recursive: true, force: true });
+        } catch {}
+      }
+    }
     stopSpinner(true, `removed ${INSTALL_DIR}`);
   } catch (err) {
     stopSpinner(false, `remove failed: ${err.message}`);
@@ -317,6 +348,31 @@ async function uninstall() {
   }
 
   spawnSync("reg", ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SoulForge", "/f"], { stdio: "ignore" });
+
+  if (runningFromInstall && existsSync(INSTALL_DIR)) {
+    // Detached deferred sweep: spawn cmd.exe with a script that loops on
+    // del + rmdir until the lock releases (typically <1s after our exit).
+    const cleanupScript = [
+      "@echo off",
+      ":loop",
+      "timeout /t 1 /nobreak >nul",
+      `del /f /q \"${myExe}\" 2>nul`,
+      `if exist \"${myExe}\" goto loop`,
+      `rmdir /s /q \"${INSTALL_DIR}\" 2>nul`,
+      `del /f /q \"%~f0\"`,
+    ].join("\r\n");
+    const batPath = join(tmpdir(), `soulforge-uninstall-${Date.now()}.bat`);
+    try {
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(batPath, cleanupScript, "utf-8");
+      const child = spawn("cmd.exe", ["/c", batPath], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      child.unref();
+    } catch {}
+  }
 
   console.log();
   console.log(`  ${COLOR.ok}Goodbye.${COLOR.reset}`);

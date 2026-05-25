@@ -514,16 +514,18 @@ export function buildWindowsRegisterScript(opts: InstallOptions): string {
     `Start-ScheduledTask -TaskName ${taskName} -TaskPath ${taskPath}`,
   ].join("\n");
 }
-/** PS1 to unregister the scheduled task. Idempotent — succeeds even if absent. */
 export function buildWindowsUnregisterScript(): string {
   const taskName = psEscape(WINDOWS_TASK_NAME);
   const taskPath = psEscape(WINDOWS_TASK_PATH);
+  // "Task missing" is success; real scheduler errors propagate so the
+  // uninstall path can surface them. Previous version forced exit 0
+  // unconditionally, hiding genuine failures.
   return [
-    "$ErrorActionPreference = 'SilentlyContinue'",
-    `Stop-ScheduledTask -TaskName ${taskName} -TaskPath ${taskPath}`,
+    "$ErrorActionPreference = 'Stop'",
+    `$t = Get-ScheduledTask -TaskName ${taskName} -TaskPath ${taskPath} -ErrorAction SilentlyContinue`,
+    "if ($null -eq $t) { exit 0 }",
+    `Stop-ScheduledTask -TaskName ${taskName} -TaskPath ${taskPath} -ErrorAction SilentlyContinue`,
     `Unregister-ScheduledTask -TaskName ${taskName} -TaskPath ${taskPath} -Confirm:$false`,
-    // Always exit 0 — uninstall is best-effort.
-    "exit 0",
   ].join("\n");
 }
 /** PS1 to query the task; emits two lines: "INSTALLED|MISSING" then state name. */

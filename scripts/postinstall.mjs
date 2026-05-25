@@ -1,10 +1,9 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Postinstall: hydrate native libs into the per-user data dir.
  *
- * Runs after `npm/bun/pnpm/yarn install` of `@proxysoul/soulforge`. Plain
- * Node ESM so it works whether the user has bun on PATH or not (npm runs
- * lifecycle scripts with `node`, not `bun`).
+ * Runs after `bun install` of `@proxysoul/soulforge`. Plain ESM so it works
+ * under Bun's lifecycle hook runner.
  *
  * Locates whichever platform-specific optional deps the package manager
  * installed (`@opentui/core-<plat>-<arch>`, `ghostty-opentui/dist/<plat>-<arch>`)
@@ -137,7 +136,7 @@ async function main() {
     warn(
       `@opentui/core-${process.platform}-${process.arch} not found in node_modules — ` +
         "your package manager may have skipped the os-specific optional dep. " +
-        `Try: npm install --include=optional @opentui/core-${process.platform}-${process.arch}`,
+        "Reinstall with `bun install` so optional platform deps are included.",
     );
   }
 

@@ -220,8 +220,8 @@ function portIsOccupied(): boolean {
           stdio: ["ignore", "pipe", "ignore"],
           windowsHide: true,
         },
-      ).trim();
-      return out.length > 0;
+      );
+      return parseNetstatPidsForPort(out, port).length > 0;
     }
     try {
       const out = execFileSync("lsof", ["-ti", `tcp:${port}`], {
@@ -494,10 +494,8 @@ function killProxyOnPort(force = false): void {
           windowsHide: true,
         },
       );
-      for (const line of out.split(/\r?\n/)) {
-        const cols = line.trim().split(/\s+/);
-        const pid = Number.parseInt(cols[cols.length - 1] ?? "0", 10);
-        if (pid > 0 && pid !== process.pid) pids.push(pid);
+      for (const pid of parseNetstatPidsForPort(out, port)) {
+        if (pid !== process.pid) pids.push(pid);
       }
     } catch {
       return;
@@ -804,4 +802,24 @@ export async function fetchProxyStatus(): Promise<ProxyStatus> {
   status.version = versionInfo;
 
   return status;
+}
+/** Parse `netstat -ano | findstr LISTENING` output and return the PIDs whose
+ *  local-address column ends in `:<port>` exactly. findstr alone substring-matches
+ *  (`:8317` would catch `:83170`), so we re-tokenise here. */
+function parseNetstatPidsForPort(out: string, port: string): number[] {
+  const pids: number[] = [];
+  const needle = `:${port}`;
+  for (const line of out.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const cols = trimmed.split(/\s+/);
+    // netstat -ano line: "  TCP    0.0.0.0:5555    0.0.0.0:0   LISTENING   1234"
+    // cols indices: 0=proto 1=local 2=foreign 3=state 4=pid
+    if (cols.length < 5) continue;
+    const local = cols[1] ?? "";
+    if (!local.endsWith(needle)) continue;
+    const pid = Number.parseInt(cols[cols.length - 1] ?? "0", 10);
+    if (Number.isFinite(pid) && pid > 0) pids.push(pid);
+  }
+  return pids;
 }

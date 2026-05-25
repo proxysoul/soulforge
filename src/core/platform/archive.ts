@@ -14,7 +14,6 @@ export interface ExtractResult {
   error?: string;
 }
 
-/** Extract a `.tar.gz` (or `.tgz`) archive to `destDir`. Returns success status. */
 export function extractTarGz(archivePath: string, destDir: string): ExtractResult {
   const result = spawnSync("tar", ["-xzf", archivePath, "-C", destDir], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -23,10 +22,9 @@ export function extractTarGz(archivePath: string, destDir: string): ExtractResul
     encoding: "utf-8",
   });
   if (result.status === 0) return { success: true };
-  return { success: false, error: result.stderr?.toString().trim() || `exit ${result.status}` };
+  return { success: false, error: diagnose(result, "tar") };
 }
 
-/** Extract a `.tar.xz` archive to `destDir`. */
 export function extractTarXz(archivePath: string, destDir: string): ExtractResult {
   const result = spawnSync("tar", ["-xJf", archivePath, "-C", destDir], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -35,15 +33,9 @@ export function extractTarXz(archivePath: string, destDir: string): ExtractResul
     encoding: "utf-8",
   });
   if (result.status === 0) return { success: true };
-  return { success: false, error: result.stderr?.toString().trim() || `exit ${result.status}` };
+  return { success: false, error: diagnose(result, "tar") };
 }
 
-/**
- * Extract a `.zip` archive to `destDir`.
- *
- * POSIX: `unzip`. Win32: bundled `tar.exe` accepts `.zip` via libarchive
- * (Win10 1803+), so a single binary handles both formats.
- */
 export function extractZip(archivePath: string, destDir: string): ExtractResult {
   if (IS_WIN) {
     const result = spawnSync("tar", ["-xf", archivePath, "-C", destDir], {
@@ -53,10 +45,7 @@ export function extractZip(archivePath: string, destDir: string): ExtractResult 
       encoding: "utf-8",
     });
     if (result.status === 0) return { success: true };
-    return {
-      success: false,
-      error: result.stderr?.toString().trim() || `tar.exe exit ${result.status}`,
-    };
+    return { success: false, error: diagnose(result, "tar.exe") };
   }
   const result = spawnSync("unzip", ["-o", archivePath, "-d", destDir], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -64,10 +53,7 @@ export function extractZip(archivePath: string, destDir: string): ExtractResult 
     encoding: "utf-8",
   });
   if (result.status === 0) return { success: true };
-  return {
-    success: false,
-    error: result.stderr?.toString().trim() || `unzip exit ${result.status}`,
-  };
+  return { success: false, error: diagnose(result, "unzip") };
 }
 
 /** Pick the right extractor based on filename suffix. */
@@ -83,4 +69,11 @@ export function extractArchive(archivePath: string, destDir: string): ExtractRes
     return extractZip(archivePath, destDir);
   }
   return { success: false, error: `Unsupported archive format: ${archivePath}` };
+}
+function diagnose(result: ReturnType<typeof spawnSync>, fallback: string): string {
+  if (result.error) return result.error.message;
+  const stderr = result.stderr?.toString().trim();
+  if (stderr) return stderr;
+  if (result.signal) return `${fallback} killed by ${result.signal}`;
+  return `${fallback} exit ${result.status}`;
 }

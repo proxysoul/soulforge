@@ -169,19 +169,23 @@ export function windowsKeychainAvailable(): boolean {
   return loadDpapi() !== null;
 }
 
-function readEncryptedStore(): Record<string, string> {
+type ReadResult =
+  | { ok: true; store: Record<string, string> }
+  | { ok: false; reason: "missing" | "unreadable" };
+
+function readEncryptedStore(): ReadResult {
   const file = windowsSecretsFile();
-  if (!existsSync(file)) return {};
+  if (!existsSync(file)) return { ok: true, store: {} };
   try {
     const dpapi = loadDpapi();
-    if (!dpapi) return {};
+    if (!dpapi) return { ok: false, reason: "unreadable" };
     const ciphertext = readFileSync(file);
-    if (ciphertext.length === 0) return {};
+    if (ciphertext.length === 0) return { ok: true, store: {} };
     const plain = dpapi.unprotect(ciphertext);
-    if (!plain) return {};
-    return JSON.parse(plain.toString("utf-8")) as Record<string, string>;
+    if (!plain) return { ok: false, reason: "unreadable" };
+    return { ok: true, store: JSON.parse(plain.toString("utf-8")) as Record<string, string> };
   } catch {
-    return {};
+    return { ok: false, reason: "unreadable" };
   }
 }
 
@@ -202,26 +206,29 @@ function writeEncryptedStore(store: Record<string, string>): boolean {
   }
 }
 
-/** Read a single secret from the Windows DPAPI store. Returns null if absent or DPAPI unavailable. */
 export function windowsKeychainGet(key: string): string | null {
   if (!IS_WIN) return null;
-  const store = readEncryptedStore();
-  return store[key] ?? null;
+  const r = readEncryptedStore();
+  if (!r.ok) return null;
+  return r.store[key] ?? null;
 }
 
-/** Write a single secret. Returns true on success. */
 export function windowsKeychainSet(key: string, value: string): boolean {
   if (!IS_WIN) return false;
-  const store = readEncryptedStore();
-  store[key] = value;
-  return writeEncryptedStore(store);
+  const r = readEncryptedStore();
+  // Refuse to write when we can't read the existing store — otherwise a
+  // transient DPAPI/IO failure overwrites every previously stored secret
+  // with the synthesized empty object.
+  if (!r.ok) return false;
+  r.store[key] = value;
+  return writeEncryptedStore(r.store);
 }
 
-/** Delete a single secret. Returns true on success (including not-found). */
 export function windowsKeychainDelete(key: string): boolean {
   if (!IS_WIN) return false;
-  const store = readEncryptedStore();
-  if (!(key in store)) return true;
-  delete store[key];
-  return writeEncryptedStore(store);
+  const r = readEncryptedStore();
+  if (!r.ok) return false;
+  if (!(key in r.store)) return true;
+  delete r.store[key];
+  return writeEncryptedStore(r.store);
 }

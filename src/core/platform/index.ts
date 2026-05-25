@@ -102,14 +102,8 @@ export function killTree(pid: number, signal: "SIGTERM" | "SIGKILL" = "SIGTERM")
 
 // ── Command detection ──────────────────────────────────────────
 
-/**
- * Does `bin` exist on PATH? POSIX: `command -v`. Windows: `where`.
- * Synchronous so it can run during boot prereq checks.
- */
 export function commandExists(bin: string): boolean {
   if (IS_WIN) {
-    // `where` on Windows. Try bare name + PATHEXT-extended via shell so we
-    // catch .cmd / .bat / .ps1 wrappers in addition to .exe.
     const result = spawnSync("where", [bin], {
       timeout: 2000,
       stdio: ["ignore", "ignore", "ignore"],
@@ -117,15 +111,10 @@ export function commandExists(bin: string): boolean {
     });
     return result.status === 0;
   }
-  try {
-    const result = spawnSync("sh", ["-c", `command -v ${bin}`], {
-      timeout: 2000,
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-    return result.status === 0;
-  } catch {
-    return false;
-  }
+  // POSIX: shell-free PATH walk — invoking `sh -c \`command -v ${bin}\`` lets
+  // a crafted bin name execute arbitrary shell. We feed registry names from
+  // the LSP installer through this, so injection is real.
+  return findOnPath(bin) !== null;
 }
 /**
  * Ghostty native addon (ghostty-opentui) is currently x64-only on Windows AND
@@ -198,11 +187,11 @@ export function bunShellArgs(commandLine: string): string[] {
   return ["sh", "-c", commandLine];
 }
 
-/**
- * Resolve a binary on PATH, trying common Windows shim suffixes (.cmd, .exe,
- * .bat) when bare lookup fails. Returns the resolved absolute path or null.
- */
 export function findOnPath(bin: string): string | null {
+  if (!bin) return null;
+  // Conservative allowlist — `sh -c` shell metacharacters never need to land
+  // in a binary name; reject anything outside [A-Za-z0-9._+-].
+  if (!/^[A-Za-z0-9._+-]+$/.test(bin)) return null;
   if (IS_WIN) {
     const result = spawnSync("where", [bin], {
       encoding: "utf-8",
@@ -213,7 +202,6 @@ export function findOnPath(bin: string): string | null {
       const first = result.stdout.split(/\r?\n/).find((l) => l.trim().length > 0);
       return first ? first.trim() : null;
     }
-    // Fall back: walk PATH manually with PATHEXT
     const path = process.env.Path ?? process.env.PATH ?? "";
     const exts = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD;.PS1").split(";");
     for (const dir of path.split(delimiter)) {
@@ -224,16 +212,14 @@ export function findOnPath(bin: string): string | null {
     }
     return null;
   }
-  try {
-    const result = spawnSync("sh", ["-c", `command -v ${bin}`], {
-      encoding: "utf-8",
-      timeout: 2000,
-    });
-    if (result.status === 0 && result.stdout) return result.stdout.trim();
-    return null;
-  } catch {
-    return null;
+  // POSIX: shell-free PATH walk. Replaces the prior `sh -c command -v ${bin}`
+  // which was injectable.
+  const path = process.env.PATH ?? "";
+  for (const dir of path.split(delimiter)) {
+    const candidate = join(dir, bin);
+    if (existsSync(candidate)) return candidate;
   }
+  return null;
 }
 /**
  * True when the current process is a Bun-compiled single-file executable.

@@ -397,8 +397,11 @@ export async function start(opts: StartOptions): Promise<void> {
     if (!ghosttyDisabled()) {
       try {
         const { GhosttyTerminalRenderable } = await import("ghostty-opentui/terminal-buffer");
-        // biome-ignore lint/suspicious/noExplicitAny: ghostty-opentui may resolve a different @opentui/core version
-        extend({ "ghostty-terminal": GhosttyTerminalRenderable as any });
+        // ghostty-opentui may resolve a different @opentui/core version, so the
+        // class can't satisfy extend()'s precise generic. Bridge via `unknown`
+        // to keep strict-mode happy without an `as any` escape hatch.
+        type Extendable = Parameters<typeof extend>[0][string];
+        extend({ "ghostty-terminal": GhosttyTerminalRenderable as unknown as Extendable });
       } catch {}
     }
   }

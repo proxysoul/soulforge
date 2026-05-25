@@ -28,6 +28,13 @@ on:
         required: false
         default: ""
 
+# Serialize runs per release ref so two pushes / dispatches for the same tag
+# can't race while publishing the same asset names to a GitHub Release. The
+# group key uses inputs.ref when set (workflow_dispatch) else github.ref.
+concurrency:
+  group: release-windows-${{ github.event.inputs.ref || github.ref }}
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:

@@ -551,7 +551,7 @@ export async function installPackage(
             success: false,
             error:
               `No pre-built binary for ${target} (${process.platform}/${process.arch}). ` +
-              `This package may not publish a Windows asset — try installing via ` +
+              `This package may not publish an asset for your platform — try installing via ` +
               `\`bun add -g <pkg>\` instead.`,
           };
         }

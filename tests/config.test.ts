@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mergeConfigs, saveProjectConfig, saveGlobalConfig } from "../src/config/index.js";
-import { DEFAULT_CONFIG } from "../src/config/index.js";
+import {
+  DEFAULT_CONFIG,
+  loadConfig,
+  mergeConfigs,
+  saveGlobalConfig,
+  saveProjectConfig,
+} from "../src/config/index.js";
 import { AppConfig } from "../src/types/index.js";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -98,6 +103,27 @@ describe("config retry deep-merge", () => {
 
         const saved = JSON.parse(readFileSync(cfgFile, "utf-8"));
         expect(saved.retry).toEqual({ maxRetries: 5, baseDelayMs: 1000 });
+      } finally {
+        if (origHome !== undefined) process.env.HOME = origHome;
+        else delete process.env.HOME;
+        if (origLocal !== undefined) process.env.LOCALAPPDATA = origLocal;
+        else delete process.env.LOCALAPPDATA;
+        rmSync(sandbox, { recursive: true, force: true });
+      }
+    });
+
+    test("loadConfig round-trips through configDir() routing", () => {
+      const sandbox = join(tmpdir(), `sf-global-rt-${process.pid}-${Date.now()}`);
+      const origHome = process.env.HOME;
+      const origLocal = process.env.LOCALAPPDATA;
+      process.env.HOME = sandbox;
+      process.env.LOCALAPPDATA = sandbox;
+      try {
+        // saveGlobalConfig → loadConfig must route to the same configDir().
+        saveGlobalConfig({ retry: { maxRetries: 7, baseDelayMs: 1234 } });
+        const loaded = loadConfig();
+        expect(loaded.retry?.maxRetries).toBe(7);
+        expect(loaded.retry?.baseDelayMs).toBe(1234);
       } finally {
         if (origHome !== undefined) process.env.HOME = origHome;
         else delete process.env.HOME;
