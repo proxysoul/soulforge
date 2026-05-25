@@ -274,25 +274,30 @@ jobs:
               `<sub>Run: ${runUrl}</sub>`,
             ].join('\n');
             const marker = '<!-- windows-artifact-comment -->';
+            const payload = `${marker}\n${body}`;
+            // Delete any prior artifact comments (matched by marker) and post
+            // a fresh one so the new comment lands at the bottom of the PR
+            // timeline. Updating in place keeps the original createdAt which
+            // buries the comment after every push.
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            const existing = comments.find(c => c.body?.includes(marker));
-            const payload = `${marker}\n${body}`;
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body: payload,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: payload,
-              });
+            for (const c of comments.filter(c => c.body?.includes(marker))) {
+              try {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: c.id,
+                });
+              } catch (err) {
+                core.warning(`Could not delete stale artifact comment ${c.id}: ${err.message}`);
+              }
             }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: payload,
+            });
