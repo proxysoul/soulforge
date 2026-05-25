@@ -35,7 +35,7 @@ jobs:
     name: windows-platform-tests (platform shim on win32)
     needs: check
     if: github.event_name == 'pull_request'
-    runs-on: windows-2025
+    runs-on: windows-2025-vs2026
     permissions:
       contents: read
     steps:
@@ -120,10 +120,10 @@ jobs:
           retention-days: 14
 
   windows-installer:
-    name: windows-installer (NSIS on windows-2025)
+    name: windows-installer (NSIS on windows-2025-vs2026)
     needs: windows-bundle
     if: github.event_name == 'pull_request'
-    runs-on: windows-2025
+    runs-on: windows-2025-vs2026
     permissions:
       contents: read
     steps:
@@ -188,7 +188,7 @@ jobs:
     name: windows-smoke (PR validation)
     needs: [windows-bundle, windows-installer]
     if: github.event_name == 'pull_request'
-    runs-on: windows-2025
+    runs-on: windows-2025-vs2026
     permissions:
       contents: read
     steps:
@@ -247,7 +247,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Comment with artifact links
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
