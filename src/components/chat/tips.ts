@@ -30,7 +30,7 @@ export const TIPS: readonly Tip[] = [
   { text: "press up arrow to recall a previous prompt" },
   { text: "git menu at your fingertips", hint: "Ctrl+G" },
   { text: "drop into the editor", hint: "Ctrl+E" },
-  { text: "rewind a turn with checkpoint navigation", hint: "Ctrl+B / Ctrl+F" },
+  { text: "browse checkpoints prev/next", hint: "Ctrl+B / Ctrl+F" },
   { text: "cycle modes (plan, architect, auto)", hint: "Ctrl+D" },
   { text: "stop a runaway response", hint: "Ctrl+X" },
   { text: "verbose render shows raw stream", hint: "/verbose-tab" },

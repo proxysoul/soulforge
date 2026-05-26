@@ -72,7 +72,7 @@ export const SHORTCUTS = [
       { keys: "Ctrl+T / W", desc: "New / close tab", slash: false },
       { keys: "Ctrl+D", desc: "Cycle mode", slash: false },
       { keys: "Ctrl+X", desc: "Abort generation", slash: false },
-      { keys: "Ctrl+B / F", desc: "Undo / redo a turn (checkpoints)", slash: false },
+      { keys: "Ctrl+B / F", desc: "Browse prev / next checkpoint", slash: false },
     ],
   },
   {
@@ -216,7 +216,7 @@ export const WORKFLOW_ITEMS = [
     desc: "Every turn is a checkpoint — resume, rewind, replay anytime",
     bullets: [
       "Sessions auto-save as JSONL under ~/.soulforge/sessions/",
-      "Ctrl+B / Ctrl+F undo / redo a turn including file changes",
+      "Ctrl+B / Ctrl+F browse prev / next checkpoint (files + chat)",
     ],
   },
   {
