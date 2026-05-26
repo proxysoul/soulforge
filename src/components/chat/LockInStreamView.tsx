@@ -7,6 +7,7 @@ import { garble } from "../../core/utils/splash.js";
 import { formatElapsed } from "../../hooks/useElapsed.js";
 import { useHover } from "../../hooks/useHover.js";
 import { Spinner } from "../layout/shared.js";
+import { ImageDisplay } from "./ImageDisplay.js";
 import { DripText, type StreamSegment } from "./StreamSegmentList.js";
 import {
   DispatchSubtree,
@@ -15,7 +16,6 @@ import {
   TREE_PIPE,
   TREE_SPACE,
 } from "./ToolCallDisplay.js";
-import { ImageDisplay } from "./ImageDisplay.js";
 import { formatArgs } from "./tool-formatters.js";
 
 export const LOCKIN_EDIT_TOOLS = new Set([
