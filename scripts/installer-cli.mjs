@@ -4,10 +4,10 @@
  *
  * Cross-platform shape but only meaningful as the Windows entrypoint —
  * POSIX users have install.sh. This file gets bun-compiled into a small
- * .exe and shipped as the "soulforge-installer.exe" release asset, paired
- * with the irm-iex style PowerShell flow:
+ * .exe and shipped as the "soulforge-installer.exe" release asset.
+ * Users download it from the GitHub Releases page and double-click, or:
  *
- *   irm https://soulforge.dev/install.exe -o sf.exe; .\\sf.exe
+ *   .\\soulforge-installer.exe
  *
  * What it does (every line visible to the user, brand-coherent):
  *   1. Paints the SoulForge wordmark + tagline in the same color pipeline

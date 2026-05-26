@@ -1,12 +1,16 @@
 ﻿# SoulForge Windows Installer
 #
-# Usage:
-#   powershell -c "irm https://soulforge.dev/install.ps1 | iex"
+# Not hosted as a one-liner — invoke locally after cloning the repo, or via the
+# release-bundled copy.
 #
-# Or with options:
-#   $env:SOULFORGE_VERSION = "2.16.0"; irm https://soulforge.dev/install.ps1 | iex
-#   $env:SOULFORGE_INSTALL_DIR = "C:\Tools\SoulForge\bin"; irm https://soulforge.dev/install.ps1 | iex
-#   $env:SOULFORGE_NO_PATH = "1"; irm https://soulforge.dev/install.ps1 | iex
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1
+#
+# Or with options (set env vars first):
+#   $env:SOULFORGE_VERSION = "2.16.0"
+#   $env:SOULFORGE_INSTALL_DIR = "C:\Tools\SoulForge\bin"
+#   $env:SOULFORGE_NO_PATH = "1"
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1
 #
 # Pattern follows Bun's install.ps1 (https://bun.sh/install.ps1) and
 # Deno's install.ps1 (https://deno.land/install.ps1):
