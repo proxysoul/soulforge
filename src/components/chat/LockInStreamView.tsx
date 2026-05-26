@@ -295,8 +295,18 @@ export const LockInWrapper = memo(function LockInWrapper({
                   </box>
                 ) : null}
                 {interactive && isExpanded && toolDetails ? toolDetails(tc.id) : null}
-                {!toolDetails && tc.imageArt && tc.imageArt.length > 0 ? (
-                  <box flexDirection="column" paddingLeft={2} marginTop={1} marginBottom={1}>
+                {tc.imageArt && tc.imageArt.length > 0 ? (
+                  // opacity=1 — Kitty placeholders encode the image ID in the FG RGB triple
+                  // (r,g,b = (id>>16, id>>8, id) & 0xff). The parent rail applies opacity 0.6
+                  // when done, which blends the FG color and corrupts the encoded ID → Kitty
+                  // can't bind the placement → blank rect. Force full opacity here.
+                  <box
+                    flexDirection="column"
+                    paddingLeft={2}
+                    marginTop={1}
+                    marginBottom={1}
+                    opacity={1}
+                  >
                     {tc.imageArt.map((img) => (
                       <box key={img.name} flexDirection="column">
                         <ImageDisplay img={img} />

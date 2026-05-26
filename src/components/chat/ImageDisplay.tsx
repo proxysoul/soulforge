@@ -10,9 +10,10 @@
  */
 
 import { basename } from "node:path";
+import { useEffect } from "react";
 import { icon } from "../../core/icons.js";
 import { ghosttyDisabled } from "../../core/platform/index.js";
-import type { ImageArt } from "../../core/terminal/image.js";
+import { type ImageArt, rearmKittyPlacement } from "../../core/terminal/image.js";
 import { useTheme } from "../../core/theme/index.js";
 
 /** Kitty Unicode placeholder character (Private Use Area Supplementary B). */
@@ -97,6 +98,32 @@ function KittyPlaceholder({
   const g = (imageId >> 8) & 0xff;
   const b = imageId & 0xff;
   const fg = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+
+  // Re-arm the virtual placement on mount AND on a short repeating tick.
+  //
+  // Why mount alone is insufficient: when the live tool rail (LockInLiveAutoView)
+  // unmounts and the static rail (AssistantMessage) mounts in its place, React
+  // tears down the old <KittyPlaceholder> subtree and mounts a new one. The
+  // useEffect runs after React commits, but opentui's renderer flushes its own
+  // frame on a separate clock — the re-arm command can race ahead of the new
+  // placeholder cells reaching the terminal, leaving Kitty with no cells to
+  // bind the placement to. Result: blank rect where the image was.
+  //
+  // Why a tick is needed: any parent repaint (scroll, hover, sibling state)
+  // can dirty the placeholder cells. Re-arming periodically (cheap: ~30 bytes
+  // per write) reliably rebinds the placement to whatever cells are currently
+  // showing the U+10EEEE glyphs.
+  useEffect(() => {
+    // Initial fire: mount.
+    rearmKittyPlacement(imageId, cols, rows);
+    // Delayed fire: after opentui's next paint cycle reaches the terminal.
+    const t1 = setTimeout(() => rearmKittyPlacement(imageId, cols, rows), 50);
+    const t2 = setTimeout(() => rearmKittyPlacement(imageId, cols, rows), 200);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [imageId, cols, rows]);
 
   return (
     <box flexDirection="column" height={rows} flexShrink={0}>

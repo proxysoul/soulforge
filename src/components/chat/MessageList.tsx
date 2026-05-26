@@ -1291,6 +1291,7 @@ const AssistantMessage = memo(function AssistantMessage({
         done: true,
         error: !!tc.result && !tc.result.success,
         argStr: formatArgs(tc.name, JSON.stringify(tc.args)),
+        imageArt: tc.imageArt,
       }));
   }, [autoLayout, msg.toolCalls]);
 
@@ -1577,8 +1578,10 @@ function ToolExpandedDetail({
   const effectiveDiffStyle = diffStyle ?? "default";
   const fullResult = tc.result?.output ?? tc.result?.error ?? "";
   const hasDiff = !!props.diff;
-  const hasImage = !!(props.imageArt && props.imageArt.length > 0);
-  const showResultText = !hasDiff && !hasImage && fullResult.length > 0;
+  // imageArt is rendered by LockInWrapper directly under the row — skip here to avoid duplicate render.
+  const hasImage = false;
+  const showResultText =
+    !hasDiff && !(props.imageArt && props.imageArt.length > 0) && fullResult.length > 0;
   const isError = !!tc.result && !tc.result.success;
   return (
     <box flexDirection="column" paddingLeft={2} marginTop={1} marginBottom={1}>

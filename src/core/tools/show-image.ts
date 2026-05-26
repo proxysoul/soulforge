@@ -22,6 +22,12 @@ import {
 } from "../terminal/image.js";
 import { emitToolProgress } from "./tool-progress.js";
 
+/** Max width (px) for downscaled GIF animation frames — keeps total transmitted bytes
+ *  comfortably under Kitty's 320MB image quota / 1.6GB animation quota. */
+const GIF_FRAME_MAX_WIDTH = 360;
+/** Hard cap on total raw frame bytes sent to Kitty — beyond this, fall back to static. */
+const GIF_TOTAL_BYTES_BUDGET = 64 * 1024 * 1024; // 64 MB
+
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
 const TARGET_IMAGE_SIZE = 9 * 1024 * 1024; // 9 MB target after resize
 const SUPPORTED_EXTENSIONS = /\.(png|jpg|jpeg|bmp|gif|webp|tiff|tif)$/i;
@@ -720,12 +726,17 @@ function isGif(data: Buffer): boolean {
 
 /**
  * Extract individual frames from a GIF (async).
+ * Downscales frames to `maxWidth` pixels to keep total transmitted bytes under
+ * Kitty's storage quota (~320MB base, ~1.6GB anim). Without downscaling, a
+ * 50-frame 450×600 GIF can blow the quota and get evicted post-stream.
+ *
  * Tries ffmpeg first (most common), then ImageMagick as fallback.
  * Returns array of { png: Buffer, delay: number (ms) } or null if no tool available.
  */
 async function extractGifFrames(
   data: Buffer,
   signal?: AbortSignal,
+  maxWidth = GIF_FRAME_MAX_WIDTH,
 ): Promise<KittyAnimFrame[] | null> {
   const id = `soul-vision-gif-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`;
   const srcPath = resolve(tmpdir(), `${id}.gif`);
@@ -736,26 +747,37 @@ async function extractGifFrames(
 
     const delays = parseGifDelays(data);
 
-    // Strategy 1: ffmpeg
+    // Strategy 1: ffmpeg — scale to maxWidth, preserve aspect, only downscale (never upscale)
     let extracted = false;
     try {
-      const r = await spawnAsync("ffmpeg", ["-y", "-i", srcPath, "-vsync", "0", outPattern], {
-        timeout: 30_000,
-        signal,
-      });
+      const r = await spawnAsync(
+        "ffmpeg",
+        [
+          "-y",
+          "-i",
+          srcPath,
+          "-vf",
+          `scale='min(${String(maxWidth)},iw)':-1:flags=lanczos`,
+          "-vsync",
+          "0",
+          outPattern,
+        ],
+        { timeout: 30_000, signal },
+      );
       extracted = r.code === 0;
     } catch {
       // ffmpeg not available
     }
 
-    // Strategy 2: ImageMagick
+    // Strategy 2: ImageMagick — `>` in geometry means "only shrink"
     if (!extracted) {
       for (const cmd of ["magick", "convert"]) {
         try {
-          const r = await spawnAsync(cmd, [srcPath, "-coalesce", outPattern], {
-            timeout: 30_000,
-            signal,
-          });
+          const r = await spawnAsync(
+            cmd,
+            [srcPath, "-coalesce", "-resize", `${String(maxWidth)}x>`, outPattern],
+            { timeout: 30_000, signal },
+          );
           if (r.code === 0) {
             extracted = true;
             break;
@@ -976,17 +998,35 @@ export async function showImage(
     }
   }
 
-  // GIF animation path — extract frames and animate in Kitty
+  // GIF animation path — extract frames and animate in Kitty.
+  // Quota-aware: if total frame bytes would blow Kitty's storage quota, the
+  // image gets evicted post-stream and placeholders show as raw glyphs. Fall
+  // back to static first frame in that case.
   if (isGif(data) && supportsKittyAnimation()) {
     const frames = await extractGifFrames(data, signal);
     if (frames && frames.length > 1) {
-      const art = renderAnimatedImage(frames, name, { cols: args.cols });
-      if (art) {
-        return {
-          success: true,
-          output: `Displayed animated image: ${name} (${String(frames.length)} frames, ${String(art.lines.length)} rows)`,
-          _imageArt: [art],
-        };
+      const totalBytes = frames.reduce((sum, f) => sum + f.png.length, 0);
+      if (totalBytes <= GIF_TOTAL_BYTES_BUDGET) {
+        const art = renderAnimatedImage(frames, name, { cols: args.cols });
+        if (art) {
+          return {
+            success: true,
+            output: `Displayed animated image: ${name} (${String(frames.length)} frames, ${String(art.lines.length)} rows)`,
+            _imageArt: [art],
+          };
+        }
+      }
+      // Over budget — render first frame as static instead of risking eviction.
+      const firstFrame = frames[0];
+      if (firstFrame) {
+        const art = await renderImageFromData(firstFrame.png, name, { cols: args.cols });
+        if (art) {
+          return {
+            success: true,
+            output: `Displayed image: ${name} (${String(art.lines.length)} rows, animation skipped: ${String(Math.round(totalBytes / 1024 / 1024))}MB > ${String(Math.round(GIF_TOTAL_BYTES_BUDGET / 1024 / 1024))}MB budget)`,
+            _imageArt: [art],
+          };
+        }
       }
     }
     // Fall through to static if frame extraction failed

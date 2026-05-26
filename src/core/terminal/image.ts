@@ -813,3 +813,25 @@ function halfBlockArtFromPng(png: PngData, targetCols: number): string[] {
 
   return lines;
 }
+/**
+ * Re-issue the virtual placement for an already-transmitted Kitty image.
+ * Used after stream finalize / repaint: opentui may damage the cell region
+ * containing placeholder chars, and re-arming the placement nudges Kitty to
+ * re-render pixels for those cells.
+ *
+ * If Kitty has evicted the image (quota), this is a no-op on its side and
+ * placeholders will still show as raw glyphs — that's handled by quota-aware
+ * frame budgeting at transmit time, not here.
+ */
+export function rearmKittyPlacement(imageId: number, cols: number, rows: number): void {
+  const fd = openTty();
+  if (fd < 0) return;
+  try {
+    writeSync(
+      fd,
+      `\x1b_Ga=p,i=${String(imageId)},U=1,c=${String(cols)},r=${String(rows)},q=2\x1b\\`,
+    );
+  } finally {
+    closeSync(fd);
+  }
+}
