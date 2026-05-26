@@ -181,9 +181,6 @@ export async function removeAddon(name: AddonName, onStatus?: StatusCallback): P
       const { stopProxy } = await import("../proxy/lifecycle.js");
       stopProxy();
     } catch {}
-    try {
-      rmSync(join(dataDir(), "proxy", "version"), { force: true });
-    } catch {}
   }
 
   const binPath = join(BIN_DIR, ADDON_BIN[name]);

@@ -46,10 +46,18 @@ if (cliArgs[0] === "remote") {
 
 // `soulforge addon <install|remove|update|list> [proxy|neovim]` —
 // out-of-band component management. Runs without booting the TUI.
-if (cliArgs[0] === "addon" || cliArgs[0] === "addons") {
-  const { runAddonCli } = await import("./core/setup/addons.js");
-  const code = await runAddonCli(cliArgs.slice(1));
-  process.exit(code);
+// Accept both positional (`soulforge addon …`) and flag (`--addon …`) forms.
+// Handled BEFORE the generic --help short-circuit so `addon -h` and
+// `--addon -h` surface addon-specific usage instead of headless help.
+{
+  const isAddonVerb = cliArgs[0] === "addon" || cliArgs[0] === "addons";
+  const flagIdx = cliArgs.findIndex((a) => a === "--addon" || a === "--addons");
+  if (isAddonVerb || flagIdx !== -1) {
+    const rest = isAddonVerb ? cliArgs.slice(1) : cliArgs.slice(flagIdx + 1);
+    const { runAddonCli } = await import("./core/setup/addons.js");
+    const code = await runAddonCli(rest);
+    process.exit(code);
+  }
 }
 
 if (hasCli) {

@@ -30,6 +30,13 @@ ${BOLD}Management:${RST}
   soulforge --set-key <provider> <key>                   Save an API key
   soulforge --version                                    Show version
 
+${BOLD}Addons${RST} (opt-in: proxy gateway, bundled Neovim):
+  soulforge addon list                                   Show addon state
+  soulforge addon install <proxy|neovim>                 Download + activate
+  soulforge addon remove <proxy|neovim>                  Uninstall
+  soulforge addon update <proxy|neovim>                  Reinstall latest
+  soulforge addon --help                                 Addon-specific help
+
 ${BOLD}Exit codes:${RST} 0=success, 1=error, 2=timeout, 130=abort
 `;
 
