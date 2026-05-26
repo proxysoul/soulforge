@@ -245,20 +245,25 @@ function recordInstall(name: AddonName, version?: string): void {
   saveGlobalConfig({ addons: { [name]: entry } });
 }
 
-/**
- * Parse and execute `soulforge addon <verb> <name?>`.
- * Returns the exit code to use for process.exit().
- */
 export async function runAddonCli(args: string[]): Promise<number> {
-  const verb = args[0];
-  const target = args[1];
-
-  if (verb === "--help" || verb === "-h" || verb === "help") {
+  // Accept `--help`/`-h` anywhere — `soulforge addon -h`, `--addon -h`,
+  // `--addon install -h` all surface usage.
+  if (args.some((a) => a === "--help" || a === "-h" || a === "help")) {
     process.stdout.write(usage());
     return 0;
   }
 
-  if (!verb || verb === "list" || verb === "ls" || verb === "-l") {
+  // Treat `--list`/`-l` flags the same as the `list` verb so
+  // `soulforge --addon --list` Just Works.
+  const isListFlag = (a: string) => a === "--list" || a === "-l" || a === "list" || a === "ls";
+
+  // Strip leading verb-position flags so `--addon --list` resolves to verb=list.
+  // Anything else with a leading `--` is an unknown flag — surface it.
+  const target = args[1];
+  let verb = args[0];
+  if (verb && isListFlag(verb)) verb = "list";
+
+  if (!verb || verb === "list") {
     printList();
     return 0;
   }
@@ -318,7 +323,7 @@ export async function runAddonCli(args: string[]): Promise<number> {
     }
   }
 
-  process.stderr.write(usage());
+  process.stderr.write(`Unknown addon command: ${verb}\n${usage()}`);
   return 1;
 }
 
