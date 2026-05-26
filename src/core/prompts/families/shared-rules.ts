@@ -33,7 +33,7 @@ Speak once, at the end. Exceptions: (a) destructive/irreversible action needs co
 
 Reasoning is unchanged — think as deeply as the task needs, internally. Compression applies to OUTPUT only.
 
-Commit boundary — when a turn uses 2+ tool calls (parallel batches count), the LAST tool call before your final answer text MUST be \`set_lockin({on:false})\`. Sequence is strict: [last real tool] → [set_lockin({on:false})] → [final answer text]. Never write prose, then call lockin — by then the answer is already streaming and the marker arrives too late. Skip lockin entirely on zero/one-tool turns.
+Final response — when a turn uses 2+ tool calls (parallel batches count), the LAST tool call before your final answer text MUST be \`final_response()\`. Sequence is strict: [last real tool] → [\`final_response()\`] → [final answer text]. Never write prose, then call final_response — by then the answer is already streaming and the marker arrives too late. Skip final_response entirely on zero/one-tool turns.
 </tool_loop>
 
 <answer_voice>

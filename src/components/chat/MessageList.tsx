@@ -29,8 +29,12 @@ import { buildPrefix, buildTree, flattenTree } from "../layout/ChangedFiles.js";
 import { Spinner } from "../layout/shared.js";
 import { StructuredPlanView } from "../plan/StructuredPlanView.js";
 import { DiffView } from "./DiffView.js";
+import {
+  FINAL_RESPONSE_EDIT_TOOLS,
+  FinalResponseWrapper,
+  filterQuietTools,
+} from "./FinalResponseView.js";
 import { ImageDisplay } from "./ImageDisplay.js";
-import { filterQuietTools, LOCKIN_EDIT_TOOLS, LockInWrapper } from "./LockInStreamView.js";
 import { Markdown, useCodeExpanded } from "./Markdown.js";
 import { ReasoningBlock } from "./ReasoningBlock.js";
 import { buildFinalToolRowProps, StaticToolRow } from "./StaticToolRow.js";
@@ -927,7 +931,7 @@ function renderSegments(
     // Hide failed edits that were retried on the same file
     const calls = topLevel.filter((tc, idx) => {
       if (tc.name === "update_plan_step") return false;
-      if (tc.name === "set_lockin") return false;
+      if (tc.name === "final_response") return false;
       if (tc.name === "task_list" && !verbose) return false;
       if (!isFailedEditCall(tc)) return true;
       const path = extractPathFromArgs(tc.args);
@@ -1210,7 +1214,7 @@ const AssistantMessage = memo(function AssistantMessage({
   const isEmpty = !hasSegments && !hasContent && !hasTools;
 
   // Stable seed from message id for deterministic silly-message selection
-  const lockInSeed = useMemo(() => {
+  const finalResponseSeed = useMemo(() => {
     let h = 0;
     for (let i = 0; i < msg.id.length; i++) h = (h * 31 + msg.id.charCodeAt(i)) | 0;
     return h;
@@ -1225,17 +1229,24 @@ const AssistantMessage = memo(function AssistantMessage({
     const firstToolsIdx = segs.findIndex((s) => s.type === "tools");
     if (firstToolsIdx < 0) return null; // chat-only turn — render as normal
 
-    // Find the boundary between rail and final text.
-    // 1. Explicit: model called set_lockin({on:false}) → lockInCommittedAt is the index AFTER which is final.
-    // 2. Heuristic: last segment is text and there's at least one tools segment before it.
+    // Find the boundary between rail and final text using a shape-based rule:
+    // the final answer is the text segment(s) AFTER the last `tools` segment.
+    // `finalResponseCalled` confirms the model meant to commit (vs. mid-stream
+    // narration); when absent we fall back to the same shape heuristic.
     let boundary: number;
-    if (typeof msg.lockInCommittedAt === "number") {
-      boundary = msg.lockInCommittedAt;
+    let lastToolsIdx = -1;
+    for (let i = segs.length - 1; i >= 0; i--) {
+      if (segs[i]?.type === "tools") {
+        lastToolsIdx = i;
+        break;
+      }
+    }
+    if (lastToolsIdx >= 0 && lastToolsIdx < segs.length - 1) {
+      boundary = lastToolsIdx + 1;
+    } else if (msg.finalResponseCalled) {
+      boundary = lastToolsIdx + 1;
     } else {
-      const last = segs.length - 1;
-      const lastIsText = segs[last]?.type === "text";
-      const hasToolsBeforeLast = segs.slice(0, last).some((s) => s.type === "tools");
-      boundary = lastIsText && hasToolsBeforeLast ? last : segs.length;
+      boundary = segs.length;
     }
 
     // Opening text: first segment if it's text AND it precedes the first tools segment.
@@ -1275,7 +1286,7 @@ const AssistantMessage = memo(function AssistantMessage({
     }
 
     return { opening, railSegs, finalSegs, narrationByTool };
-  }, [tabVerbose, msg.segments, msg.lockInCommittedAt]);
+  }, [tabVerbose, msg.segments, msg.finalResponseCalled]);
 
   const autoRailTools = useMemo(() => {
     if (!autoLayout) return [];
@@ -1301,7 +1312,7 @@ const AssistantMessage = memo(function AssistantMessage({
       const inRail = autoLayout.railSegs.some(
         (s) => s.type === "tools" && s.toolCallIds.includes(tc.id),
       );
-      return inRail && LOCKIN_EDIT_TOOLS.has(tc.name);
+      return inRail && FINAL_RESPONSE_EDIT_TOOLS.has(tc.name);
     });
   }, [autoLayout, msg.toolCalls]);
 
@@ -1342,11 +1353,11 @@ const AssistantMessage = memo(function AssistantMessage({
           ) : null}
           {autoRailTools.length > 0 ? (
             <box flexDirection="column" marginTop={autoLayout.opening ? 1 : 0}>
-              <LockInWrapper
+              <FinalResponseWrapper
                 hasEdits={autoRailHasEdits}
                 hasDispatch={autoRailHasDispatch}
                 done
-                seed={lockInSeed}
+                seed={finalResponseSeed}
                 tools={autoRailTools}
                 hideStatusHeader
                 toolExpanded={toolExpandedMap}
@@ -1397,7 +1408,7 @@ const AssistantMessage = memo(function AssistantMessage({
                 ?.filter(
                   (tc) =>
                     tc.name !== "update_plan_step" &&
-                    tc.name !== "set_lockin" &&
+                    tc.name !== "final_response" &&
                     (verbose || tc.name !== "task_list"),
                 )
                 .map((tc) => (
@@ -1578,7 +1589,7 @@ function ToolExpandedDetail({
   const effectiveDiffStyle = diffStyle ?? "default";
   const fullResult = tc.result?.output ?? tc.result?.error ?? "";
   const hasDiff = !!props.diff;
-  // imageArt is rendered by LockInWrapper directly under the row — skip here to avoid duplicate render.
+  // imageArt is rendered by FinalResponseWrapper directly under the row — skip here to avoid duplicate render.
   const hasImage = false;
   const showResultText =
     !hasDiff && !(props.imageArt && props.imageArt.length > 0) && fullResult.length > 0;

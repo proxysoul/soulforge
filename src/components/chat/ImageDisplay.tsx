@@ -101,7 +101,7 @@ function KittyPlaceholder({
 
   // Re-arm the virtual placement on mount AND on a short repeating tick.
   //
-  // Why mount alone is insufficient: when the live tool rail (LockInLiveAutoView)
+  // Why mount alone is insufficient: when the live tool rail (FinalResponseLiveAutoView)
   // unmounts and the static rail (AssistantMessage) mounts in its place, React
   // tears down the old <KittyPlaceholder> subtree and mounts a new one. The
   // useEffect runs after React commits, but opentui's renderer flushes its own

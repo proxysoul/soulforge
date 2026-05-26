@@ -28,6 +28,7 @@ import { undoEditTool } from "./edit-stack.js";
 import { editorTool } from "./editor";
 import { fetchPageTool } from "./fetch-page.js";
 import { onCacheReset, onFileEdited } from "./file-events.js";
+import { createFinalResponseTool } from "./final-response.js";
 import { gitTool, resetDiffCache } from "./git.js";
 import { globTool } from "./glob";
 import { grepTool } from "./grep";
@@ -47,7 +48,6 @@ import {
   tryInterceptGrep,
   tryInterceptNavigate,
 } from "./repo-map-intercept.js";
-import { createSetLockinTool } from "./set-lockin.js";
 import { shellTool } from "./shell";
 import { showImage } from "./show-image.js";
 import { createSkillsTool } from "./skills.js";
@@ -1086,7 +1086,7 @@ export function buildTools(
 
     memory: memoryTool,
     ...(skillsTool ? { skills: skillsTool } : {}),
-    set_lockin: createSetLockinTool(),
+    final_response: createFinalResponseTool(),
 
     editor: tool({
       ...TEXT_OUTPUT,

@@ -876,7 +876,7 @@ const ToolRow = memo(
     prev.treePosition?.isLast === next.treePosition?.isLast,
 );
 
-const QUIET_TOOLS = new Set(["update_plan_step", "ask_user", "task_list", "set_lockin"]);
+const QUIET_TOOLS = new Set(["update_plan_step", "ask_user", "task_list", "final_response"]);
 
 const EDIT_TOOL_NAMES = new Set(["edit_file", "multi_edit"]);
 

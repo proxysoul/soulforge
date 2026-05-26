@@ -155,9 +155,10 @@ export interface ChatMessage {
   durationMs?: number;
   /** Attached images (pasted from clipboard or referenced by path). */
   images?: ImageAttachment[];
-  /** Segment index marking the model's commit boundary (set_lockin({on:false})).
-   *  Segments[0..committedAt) render as rail, segments[committedAt..) stream as final answer. */
-  lockInCommittedAt?: number;
+  /** True when the model called `final_response()` to mark the answer boundary.
+   *  When true, text segments after the last `tools` segment stream as the final
+   *  answer; the rest renders as a collapsed rail. */
+  finalResponseCalled?: boolean;
 }
 
 export interface ToolCall {

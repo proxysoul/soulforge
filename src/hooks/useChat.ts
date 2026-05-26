@@ -206,8 +206,9 @@ export interface ChatInstance {
   isCompacting: boolean;
   streamSegments: StreamSegment[];
   liveToolCalls: LiveToolCall[];
-  /** Live commit boundary (set_lockin({on:false})) — segment index. null = uncommitted. */
-  lockInCommittedAt: number | null;
+  /** True when the model called `final_response()` this turn. The renderer
+   *  uses this to know the trailing text is the final answer (not narration). */
+  finalResponseCalled: boolean;
   activePlan: Plan | null;
   setActivePlan: React.Dispatch<React.SetStateAction<Plan | null>>;
   sidebarPlan: Plan | null;
@@ -293,7 +294,7 @@ export function useChat({
   const [loadingStartedAt, setLoadingStartedAt] = useState(0);
   const [streamSegments, setStreamSegments] = useState<StreamSegment[]>([]);
   const [liveToolCalls, setLiveToolCalls] = useState<LiveToolCall[]>([]);
-  const [liveLockInCommittedAt, setLiveLockInCommittedAt] = useState<number | null>(null);
+  const [liveFinalResponseCalled, setLiveFinalResponseCalled] = useState<boolean>(false);
 
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -1830,7 +1831,7 @@ export function useChat({
       setPendingPlanReview(null);
       // Reset the live commit boundary at the start of every user turn so the model
       // commits fresh per turn.
-      setLiveLockInCommittedAt(null);
+      setLiveFinalResponseCalled(false);
       streamSegmentsBuffer.current = [];
       liveToolCallsBuffer.current = [];
       lastFlushedSegments.current = [];
@@ -1857,10 +1858,9 @@ export function useChat({
       let lastIncrementalSave = 0;
       const completedCalls: import("../types/index.js").ToolCall[] = [];
       const finalSegments: MessageSegment[] = [];
-      // Commit-boundary index: index into finalSegments where the model called
-      // set_lockin({on:false}). Everything before is "tool work" (rail);
-      // everything from this index onward is the final answer.
-      let lockInCommittedAt: number | undefined;
+      // True when the model called `final_response()` this turn. The renderer
+      // uses this to know the trailing text is the final answer (not narration).
+      let finalResponseCalled = false;
 
       // Track subagent token usage and aggregate into the main total
       const subagentCumulative = new Map<
@@ -2178,7 +2178,7 @@ export function useChat({
                 timestamp: Date.now(),
                 toolCalls: allCalls.length > 0 ? allCalls : undefined,
                 segments: finalSegments.length > 0 ? [...finalSegments] : undefined,
-                ...(lockInCommittedAt !== undefined ? { lockInCommittedAt } : {}),
+                ...(finalResponseCalled ? { finalResponseCalled: true } : {}),
               };
               setMessages((prev) => [...prev, flushedAssistant, ...steeringMsgs]);
             }
@@ -2187,7 +2187,7 @@ export function useChat({
             fullText = "";
             completedCalls.length = 0;
             finalSegments.length = 0;
-            lockInCommittedAt = undefined;
+            finalResponseCalled = false;
 
             // Clear streaming display buffers (mutate in-place — closures hold direct refs)
             streamSegmentsBuffer.current.length = 0;
@@ -2899,16 +2899,12 @@ export function useChat({
                 }
                 completedCalls.push(completedCall);
                 if (
-                  part.toolName === "set_lockin" &&
+                  part.toolName === "final_response" &&
                   toolResult.success &&
-                  parsedArgs &&
-                  typeof parsedArgs === "object" &&
-                  "on" in parsedArgs &&
-                  parsedArgs.on === false &&
-                  lockInCommittedAt === undefined
+                  !finalResponseCalled
                 ) {
-                  lockInCommittedAt = finalSegments.length;
-                  setLiveLockInCommittedAt(streamSegmentsBuffer.current.length);
+                  finalResponseCalled = true;
+                  setLiveFinalResponseCalled(true);
                 }
                 if (workingStateRef.current) {
                   extractFromToolCall(workingStateRef.current, part.toolName, parsedArgs);
@@ -3069,7 +3065,7 @@ export function useChat({
                         timestamp: Date.now(),
                         toolCalls: [...completedCalls],
                         segments: finalSegments.length > 0 ? [...finalSegments] : undefined,
-                        ...(lockInCommittedAt !== undefined ? { lockInCommittedAt } : {}),
+                        ...(finalResponseCalled ? { finalResponseCalled: true } : {}),
                       };
                       // Build a paired assistant+tool snapshot for coreMessages so
                       // the checkpoint stays valid for the AI SDK validator if the
@@ -3208,7 +3204,7 @@ export function useChat({
             segments: finalSegments,
             responseStartedAt,
             now: Date.now(),
-            lockInCommittedAt,
+            finalResponseCalled,
           });
 
           // Premature stop: agent used tools then ended without a closing message.
@@ -3360,7 +3356,7 @@ export function useChat({
                   segments: finalSegments,
                   responseStartedAt,
                   now: Date.now(),
-                  lockInCommittedAt,
+                  finalResponseCalled,
                 });
                 if (partialMsg) {
                   setMessages((prev) => [...prev, partialMsg]);
@@ -3463,7 +3459,7 @@ export function useChat({
                   segments: finalSegments,
                   responseStartedAt,
                   now: Date.now(),
-                  lockInCommittedAt,
+                  finalResponseCalled,
                 });
                 if (partialMsg) {
                   setMessages((prev) => [...prev, partialMsg]);
@@ -3598,7 +3594,7 @@ export function useChat({
                 segments: finalSegments,
                 responseStartedAt,
                 now: Date.now(),
-                lockInCommittedAt,
+                finalResponseCalled,
               });
               if (!partialMsg) return;
               setMessages((prev) => [...prev, partialMsg]);
@@ -3758,7 +3754,7 @@ export function useChat({
               segments: finalSegments,
               responseStartedAt,
               now: Date.now(),
-              lockInCommittedAt,
+              finalResponseCalled,
             });
             if (!partialMsg) return;
             setMessages((prev) => [...prev, partialMsg]);
@@ -4172,7 +4168,7 @@ export function useChat({
     isCompacting,
     streamSegments,
     liveToolCalls,
-    lockInCommittedAt: liveLockInCommittedAt,
+    finalResponseCalled: liveFinalResponseCalled,
     activePlan,
     setActivePlan,
     sidebarPlan,

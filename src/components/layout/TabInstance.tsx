@@ -28,8 +28,8 @@ import type {
   ImageAttachment,
 } from "../../types/index.js";
 import { CheckpointRail } from "../chat/CheckpointRail.js";
+import { FinalResponseLiveAutoView } from "../chat/FinalResponseView.js";
 import { InputBox } from "../chat/InputBox.js";
-import { LockInLiveAutoView } from "../chat/LockInStreamView.js";
 import { CodeExpandedProvider, VerboseProvider } from "../chat/Markdown.js";
 import {
   ExpandToggleProvider,
@@ -804,12 +804,12 @@ export const TabInstance = memo(function TabInstance({
                                   reasoningExpanded={reasoningExpanded}
                                 />
                               ) : (
-                                <LockInLiveAutoView
+                                <FinalResponseLiveAutoView
                                   segments={chat.streamSegments}
                                   liveToolCalls={chat.liveToolCalls}
                                   loadingStartedAt={loadingStartedAtRef.current}
                                   messagesLength={chat.messages.length}
-                                  committedAt={chat.lockInCommittedAt}
+                                  finalResponseCalled={chat.finalResponseCalled}
                                 />
                               )}
                             </box>

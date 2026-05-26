@@ -415,11 +415,11 @@ describe("normalizePath edge cases", () => {
 
 // ── LockInStreamView: no stale terminology ───────────────────────────────
 
-describe("LockInStreamView dispatch pairs", () => {
+describe("FinalResponseView dispatch pairs", () => {
   test("module loads without errors", async () => {
-    // LockInStreamView is a React component — verify the module loads
+    // FinalResponseView is a React component — verify the module loads
     // and doesn't contain stale miniforge/fork terminology
-    const mod = await import("../src/components/chat/LockInStreamView.js");
+    const mod = await import("../src/components/chat/FinalResponseView.js");
     // Module should have exports (component may be default or named)
     expect(Object.keys(mod).length).toBeGreaterThan(0);
   });

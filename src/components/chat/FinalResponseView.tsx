@@ -18,7 +18,7 @@ import {
 } from "./ToolCallDisplay.js";
 import { formatArgs } from "./tool-formatters.js";
 
-export const LOCKIN_EDIT_TOOLS = new Set([
+export const FINAL_RESPONSE_EDIT_TOOLS = new Set([
   "edit_file",
   "multi_edit",
   "ast_edit",
@@ -29,7 +29,7 @@ export const LOCKIN_EDIT_TOOLS = new Set([
   "rename_symbol",
 ]);
 
-const QUIET_TOOLS = new Set(["update_plan_step", "ask_user", "task_list", "set_lockin"]);
+const QUIET_TOOLS = new Set(["update_plan_step", "ask_user", "task_list", "final_response"]);
 
 const MAX_VISIBLE = 5;
 const ROTATE_INTERVAL = 8000;
@@ -78,7 +78,7 @@ const DISPATCH_PAIRS: [string, string][] = [
   ["Dispatching agents…", "Agents returned"],
 ];
 
-export interface LockInTool {
+export interface FinalResponseTool {
   id: string;
   name: string;
   done: boolean;
@@ -149,7 +149,7 @@ function useRotatingMessage(pairs: [string, string][], done: boolean) {
   return text;
 }
 
-export const LockInWrapper = memo(function LockInWrapper({
+export const FinalResponseWrapper = memo(function FinalResponseWrapper({
   hasEdits,
   hasDispatch,
   done,
@@ -167,7 +167,7 @@ export const LockInWrapper = memo(function LockInWrapper({
   hasDispatch?: boolean;
   done: boolean;
   seed: number;
-  tools: LockInTool[];
+  tools: FinalResponseTool[];
   children?: ReactNode;
   loadingStartedAt?: number;
   toolExpanded?: Record<string, boolean>;
@@ -199,7 +199,7 @@ export const LockInWrapper = memo(function LockInWrapper({
   const naturalHiddenCount = Math.max(0, tools.length - MAX_VISIBLE);
   const hiddenCount = showAllHidden ? 0 : naturalHiddenCount;
   const hidden = tools.slice(0, naturalHiddenCount);
-  const hiddenEdits = hidden.filter((tc) => LOCKIN_EDIT_TOOLS.has(tc.name)).length;
+  const hiddenEdits = hidden.filter((tc) => FINAL_RESPONSE_EDIT_TOOLS.has(tc.name)).length;
   const visible = showAllHidden ? tools : tools.slice(-MAX_VISIBLE);
 
   return (
@@ -339,19 +339,19 @@ export const LockInWrapper = memo(function LockInWrapper({
  * into a rail, trailing text after the last tool segment streams visibly as the
  * final answer. Interstitial text between tool clusters folds into the rail.
  */
-export const LockInLiveAutoView = memo(function LockInLiveAutoView({
+export const FinalResponseLiveAutoView = memo(function FinalResponseLiveAutoView({
   segments,
   liveToolCalls,
   loadingStartedAt,
   messagesLength,
-  committedAt,
+  finalResponseCalled,
 }: {
   segments: StreamSegment[];
   liveToolCalls: LiveToolCall[];
   loadingStartedAt: number;
   messagesLength: number;
-  /** Live commit boundary from useChat. Segments[committedAt..] stream visibly as final answer. */
-  committedAt: number | null;
+  /** True when the model called `final_response()` this turn. Trailing text streams as final answer. */
+  finalResponseCalled: boolean;
 }) {
   const firstToolsIdx = useMemo(() => segments.findIndex((s) => s.type === "tools"), [segments]);
 
@@ -372,26 +372,31 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
     return first?.type === "text" ? first.content : null;
   }, [segments, firstToolsIdx]);
 
-  // Only render trailing text when the model has explicitly committed via set_lockin({on:false}).
+  // Only render trailing text when the model has explicitly called final_response().
   // Pre-commit text after a tool is interstitial work, not a final answer — it folds into the rail.
-  // If more tool clusters land AFTER the commit, the model violated the "last tool" rule —
-  // invalidate the commit so the text re-folds into the rail and we don't strand prose above growing tools.
+  // Shape-based boundary: text segments AFTER the last `tools` segment are the final answer.
+  // This survives buffer-coalescing races (the index-based boundary was fragile because
+  // `appendText` mutates the trailing text segment in place, breaking any captured length).
   const trailingText = useMemo(() => {
-    if (committedAt === null) return null;
-    for (let i = committedAt; i < segments.length; i++) {
-      if (segments[i]?.type === "tools") return null;
+    if (!finalResponseCalled) return null;
+    let lastToolsIdx = -1;
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (segments[i]?.type === "tools") {
+        lastToolsIdx = i;
+        break;
+      }
     }
     const parts: string[] = [];
-    for (let i = committedAt; i < segments.length; i++) {
+    for (let i = lastToolsIdx + 1; i < segments.length; i++) {
       const seg = segments[i];
       if (seg?.type === "text" && seg.content.trim().length > 0) parts.push(seg.content);
     }
     return parts.length > 0 ? parts.join("\n\n") : null;
-  }, [segments, committedAt]);
+  }, [segments, finalResponseCalled]);
 
-  const toolsRef = useRef<LockInTool[]>([]);
+  const toolsRef = useRef<FinalResponseTool[]>([]);
   const tools = useMemo(() => {
-    const next: LockInTool[] = [];
+    const next: FinalResponseTool[] = [];
     for (const tc of liveToolCalls) {
       if (!filterQuietTools(tc.toolName)) continue;
       const isDispatch = SUBAGENT_NAMES.has(tc.toolName);
@@ -432,14 +437,14 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
   );
 
   const hasEdits = useMemo(
-    () => liveToolCalls.some((tc) => LOCKIN_EDIT_TOOLS.has(tc.toolName)),
+    () => liveToolCalls.some((tc) => FINAL_RESPONSE_EDIT_TOOLS.has(tc.toolName)),
     [liveToolCalls],
   );
 
   // "Thinking…" trailing row: rail is up, every tool is done, no dispatch is
   // mid-flight, and no final-answer text has streamed yet. Covers two gaps:
-  //   1. Pre-commit narration (tools done, set_lockin not yet called).
-  //   2. Post-commit silence (set_lockin fired but final text hasn't arrived).
+  //   1. Pre-commit narration (tools done, final_response not yet called).
+  //   2. Post-commit silence (final_response fired but final text hasn't arrived).
   // Without (2), the rail freezes on "+N completed" with no spinner — looks
   // like a hang for the entire stretch between the last tool and the answer.
   const allToolsDone = tools.length > 0 && tools.every((t) => t.done);
@@ -464,7 +469,7 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
         </box>
       ) : null}
       {tools.length > 0 ? (
-        <LockInWrapper
+        <FinalResponseWrapper
           hasEdits={hasEdits}
           hasDispatch={hasDispatch}
           done={false}

@@ -332,8 +332,8 @@ function buildForgePrepareStep(
       if (crossTab) hints.push(crossTab);
     }
 
-    // [7.6] Commit-boundary reminder. Tool work renders as a collapsed rail;
-    // set_lockin({on:false}) marks the boundary so the final answer streams visibly.
+    // [7.6] Final-response reminder. Tool work renders as a collapsed rail;
+    // final_response() marks the boundary so the final answer streams visibly.
     // Server never inspects or mutates display state — the renderer reads the call directly.
     //
     // Recompute fresh every step from the full message history of THIS user turn —
@@ -341,7 +341,7 @@ function buildForgePrepareStep(
     // when text + tools share one assistant message). Re-fires every step the
     // constraint is violated — no latch.
     {
-      // Walk back to the most recent user message; tally tool calls + lockin commit after it.
+      // Walk back to the most recent user message; tally tool calls + final_response after it.
       let toolCallsThisTurn = 0;
       let committedThisTurn = false;
       for (let i = sanitized.length - 1; i >= 0; i--) {
@@ -351,17 +351,17 @@ function buildForgePrepareStep(
         if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
         for (const part of m.content) {
           if (typeof part !== "object" || part === null || !("type" in part)) continue;
-          const p = part as { type: string; toolName?: string; input?: { on?: boolean } };
+          const p = part as { type: string; toolName?: string };
           if (p.type !== "tool-call") continue;
           toolCallsThisTurn++;
-          if (p.toolName === "set_lockin" && p.input?.on === false) {
+          if (p.toolName === "final_response") {
             committedThisTurn = true;
           }
         }
       }
       if (!committedThisTurn && toolCallsThisTurn >= 2) {
         hints.push(
-          "Reminder — passive, every turn: when a turn uses 2 or more tools, the very last tool call before your final answer text must be set_lockin({on:false}). Keep working normally; do not pause, acknowledge, or change course because of this reminder. When you are finished with all tool work and are about to write the final answer, the sequence is: [your last real tool] → set_lockin({on:false}) → final answer text.",
+          "Reminder — passive, every turn: when a turn uses 2 or more tools, the very last tool call before your final answer text must be final_response(). Keep working normally; do not pause, acknowledge, or change course because of this reminder. When you are finished with all tool work and are about to write the final answer, the sequence is: [your last real tool] → final_response() → final answer text.",
         );
       }
     }
@@ -770,7 +770,7 @@ export function createForgeAgent({
     "plan",
     "update_plan_step",
     "ask_user",
-    "set_lockin",
+    "final_response",
     // Editor & session
     "editor",
     "task_list",
