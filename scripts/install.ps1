@@ -244,6 +244,10 @@ Write-Host ""
 Write-Host "  Try it:" -ForegroundColor Cyan
 Write-Host "    soulforge --version"
 Write-Host ""
+Write-Host "  Optional addons (download on demand):" -ForegroundColor Cyan
+Write-Host "    soulforge addon install proxy    # CLIProxyAPI gateway"
+Write-Host "    soulforge addon install neovim   # editor integration"
+Write-Host ""
 Write-Host "  SmartScreen warning?"
 Write-Host "    Click 'More info' → 'Run anyway'."
 Write-Host "    See https://github.com/$repo#windows-smartscreen for details."

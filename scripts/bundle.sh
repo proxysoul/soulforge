@@ -508,6 +508,10 @@ if [[ -z "$QUIET" ]]; then
   printf "  ${W}Commands:${RST}  ${P}soulforge${RST}  ${M}or${RST}  ${P}sf${RST}\n"
   printf "  ${W}Location:${RST}  ${M}~/.soulforge/bin/${RST}\n"
   printf "\n"
+  printf "  ${M}Optional addons (download on demand):${RST}\n"
+  printf "    ${P}soulforge addon install proxy${RST}    ${M}# CLIProxyAPI gateway${RST}\n"
+  printf "    ${P}soulforge addon install neovim${RST}   ${M}# editor integration${RST}\n"
+  printf "\n"
   printf "  ${Y}→${RST} ${W}Run${RST} ${P}source ${SHELL_RC:-~/.zshrc}${RST} ${W}then${RST} ${P}soulforge${RST}\n"
   printf "\n"
   printf "\033[?25h"
@@ -565,7 +569,7 @@ if [[ -d "$SOULFORGE_DIR" ]]; then
   spin "Extinguishing the forge" $!
 
   (rm -rf "${SOULFORGE_DIR}/installs") &
-  spin "Banishing the editor spirit" $!
+  spin "Removing addons (proxy, neovim)" $!
 
   (rm -rf "${SOULFORGE_DIR}/fonts" "${SOULFORGE_DIR}/wasm" "${SOULFORGE_DIR}/workers" "${SOULFORGE_DIR}/native" "${SOULFORGE_DIR}/opentui-assets" "${SOULFORGE_DIR}/init.lua") &
   spin "Dissolving the runes" $!

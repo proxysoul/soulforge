@@ -175,4 +175,14 @@ Section "Uninstall"
 
   DeleteRegKey HKCU "${UNINST_KEY}"
   DeleteRegKey HKCU "Software\${APP_NAME}"
+
+  ; Per-user data dir (config, sessions, addons under installs/) lives under
+  ; %LOCALAPPDATA%\SoulForge. Offer to remove it so addons + config don't
+  ; orphan after uninstall. Default = No (preserves data on accidental
+  ; uninstall + reinstall flows).
+  MessageBox MB_YESNO|MB_DEFBUTTON2|MB_ICONQUESTION \
+    "Also remove SoulForge config + addons under $LOCALAPPDATA\${APP_NAME}?$\r$\n$\r$\n(Choose No to keep your settings, sessions, and installed addons.)" \
+    /SD IDNO IDNO skip_userdata
+    RMDir /r "$LOCALAPPDATA\${APP_NAME}"
+  skip_userdata:
 SectionEnd

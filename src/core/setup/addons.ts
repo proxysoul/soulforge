@@ -334,15 +334,22 @@ function isAddonName(s: string): s is AddonName {
 function printList(): void {
   const rows = listAddons();
   process.stdout.write("Addons\n");
+  let anyInstalled = false;
   for (const r of rows) {
     const vendored = isVendoredAddonInstalled(r.name);
     const system = !vendored && hasSystemBinary(r.name);
+    if (vendored || system) anyInstalled = true;
     const status = vendored ? "installed" : system ? "system PATH" : "not installed";
     const ver = r.version ? ` v${r.version}` : "";
     process.stdout.write(`  ${r.name.padEnd(8)} ${status}${ver}\n`);
     if (vendored && r.path) process.stdout.write(`           ${r.path}\n`);
   }
-  process.stdout.write("\nUsage: soulforge addon <install|remove|update|list> [proxy|neovim]\n");
+  process.stdout.write("\n");
+  if (anyInstalled) {
+    process.stdout.write("Manage: soulforge addon <install|remove|update> <name>\n");
+  } else {
+    process.stdout.write("Install with: soulforge addon install proxy   (or neovim)\n");
+  }
 }
 
 function usage(): string {
