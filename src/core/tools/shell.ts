@@ -417,7 +417,12 @@ export const shellTool = {
         }
         let compressed: { text: string; original: string | null };
         try {
-          compressed = await getIOClient().compressShellOutputFull(raw);
+          compressed = await Promise.race([
+            getIOClient().compressShellOutputFull(raw),
+            new Promise<never>((_, rej) =>
+              setTimeout(() => rej(new Error("shell-compress: IO worker timeout")), 5_000),
+            ),
+          ]);
         } catch {
           compressed = compressLocal(raw);
         }
