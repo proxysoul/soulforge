@@ -88,7 +88,6 @@ export function getPresetOverlay(): Partial<AppConfig> | null {
   return _presetOverlay;
 }
 
-/** Load global config from ~/.soulforge/config.json */
 export function loadConfig(): AppConfig {
   const configDir = getConfigDir();
   const configFile = getConfigFile();
@@ -96,30 +95,69 @@ export function loadConfig(): AppConfig {
     mkdirSync(configDir, { recursive: true, mode: 0o700 });
   }
 
-  // Preserve original behavior: seed file on first run.
-  if (!existsSync(configFile)) {
-    writeFileSync(configFile, JSON.stringify(DEFAULT_CONFIG, null, 2));
-    if (!_presetOverlay) return DEFAULT_CONFIG;
-  }
-
   let userConfig: Partial<AppConfig> = {};
-  try {
-    userConfig = JSON.parse(readFileSync(configFile, "utf-8")) as Partial<AppConfig>;
-  } catch (err) {
-    logBackgroundError(
-      "config",
-      `Failed to parse ${configFile}: ${err instanceof Error ? err.message : String(err)} — using defaults`,
-    );
-    if (!_presetOverlay) return DEFAULT_CONFIG;
+  let fileExists = existsSync(configFile);
+  if (!fileExists) {
+    writeFileSync(configFile, JSON.stringify(DEFAULT_CONFIG, null, 2));
+    fileExists = true;
+  } else {
+    try {
+      userConfig = JSON.parse(readFileSync(configFile, "utf-8")) as Partial<AppConfig>;
+    } catch (err) {
+      logBackgroundError(
+        "config",
+        `Failed to parse ${configFile}: ${err instanceof Error ? err.message : String(err)} — using defaults`,
+      );
+      userConfig = {};
+    }
   }
 
-  // Layer order: defaults -> presets -> user config (user wins).
-  // When no overlay is set, the merged result equals the original
-  // { ...DEFAULT_CONFIG, ...userConfig } shallow merge.
+  // Layer order: defaults → presets → user (user wins, but only on keys the user
+  // explicitly customized vs defaults — otherwise presets would never override
+  // the seeded DEFAULT_CONFIG values). Nested objects merge shallow via applyConfigPatch.
   let merged: AppConfig = { ...DEFAULT_CONFIG };
   if (_presetOverlay) merged = applyConfigPatch(merged, _presetOverlay) as AppConfig;
-  merged = { ...merged, ...userConfig };
+  const userPatch = diffAgainstDefaults(userConfig);
+  if (Object.keys(userPatch).length > 0) {
+    merged = applyConfigPatch(merged, userPatch) as AppConfig;
+  }
   return merged;
+}
+
+function diffAgainstDefaults(userConfig: Partial<AppConfig>): Partial<AppConfig> {
+  const out: Record<string, unknown> = {};
+  const defaults = DEFAULT_CONFIG as unknown as Record<string, unknown>;
+  const nested = new Set<string>(NESTED_KEYS);
+  for (const [key, value] of Object.entries(userConfig as Record<string, unknown>)) {
+    if (value === undefined) continue;
+    const def = defaults[key];
+    if (
+      nested.has(key) &&
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      def &&
+      typeof def === "object" &&
+      !Array.isArray(def)
+    ) {
+      // For NESTED_KEYS, diff each subfield so user-untouched subfields
+      // do not shadow the preset's nested values.
+      const subPatch: Record<string, unknown> = {};
+      const defRec = def as Record<string, unknown>;
+      for (const [subKey, subValue] of Object.entries(value as Record<string, unknown>)) {
+        if (subValue === undefined) continue;
+        if (JSON.stringify(subValue) !== JSON.stringify(defRec[subKey])) {
+          subPatch[subKey] = subValue;
+        }
+      }
+      if (Object.keys(subPatch).length > 0) out[key] = subPatch;
+      continue;
+    }
+    if (JSON.stringify(value) !== JSON.stringify(def)) {
+      out[key] = value;
+    }
+  }
+  return out as Partial<AppConfig>;
 }
 
 /** Load project-level config from <cwd>/.soulforge/config.json */

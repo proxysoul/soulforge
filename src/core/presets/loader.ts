@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import { z } from "zod";
 import { expandHome } from "../platform/index.js";
 import { fetchRegistry, getCacheDir } from "./registry.js";
 
@@ -52,17 +53,14 @@ function expandEnv(value: unknown): unknown {
 }
 
 function validatePreset(raw: unknown, origin: string): Preset {
-  if (!raw || typeof raw !== "object") {
-    throw new Error(`Preset at ${origin} is not an object`);
+  const expanded = expandEnv(raw);
+  const parsed = PresetSchema.safeParse(expanded);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.length ? issue.path.join(".") : "<root>";
+    throw new Error(`Preset at ${origin}: ${path} — ${issue?.message ?? "invalid shape"}`);
   }
-  const obj = raw as Record<string, unknown>;
-  if (typeof obj.name !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(obj.name)) {
-    throw new Error(`Preset at ${origin}: invalid or missing "name"`);
-  }
-  if (typeof obj.version !== "string" || !/^\d+\.\d+\.\d+$/.test(obj.version)) {
-    throw new Error(`Preset at ${origin}: invalid or missing "version" (semver required)`);
-  }
-  return expandEnv(obj) as Preset;
+  return parsed.data as Preset;
 }
 
 function cacheFile(name: string, version: string): string {
@@ -179,3 +177,26 @@ export async function resolvePresets(
     failures,
   };
 }
+const PresetSchema = z
+  .object({
+    name: z
+      .string()
+      .regex(
+        /^[a-z0-9][a-z0-9-]*$/,
+        "name must be lowercase, start with [a-z0-9], hyphen-separated",
+      ),
+    version: z.string().regex(/^\d+\.\d+\.\d+$/, "version must be semver (x.y.z)"),
+    description: z.string().optional(),
+    author: z.string().optional(),
+    homepage: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    router: z.record(z.string(), z.unknown()).optional(),
+    routerRules: z.unknown().optional(),
+    providers: z.unknown().optional(),
+    theme: z.unknown().optional(),
+    themes: z.record(z.string(), z.unknown()).optional(),
+    hooks: z.record(z.string(), z.unknown()).optional(),
+    prompts: z.record(z.string(), z.unknown()).optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();

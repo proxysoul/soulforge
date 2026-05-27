@@ -291,4 +291,54 @@ describe("config layering with preset overlay", () => {
     expect(cfg.defaultModel).toBe("set-by-user");
     expect(cfg.codeExecution).toBe(DEFAULT_CONFIG.codeExecution);
   });
+
+  test("preset overrides seeded defaults when user did not customize the key", async () => {
+    const { setPresetOverlay, loadConfig } = await import("../src/config/index.js");
+
+    // Simulate a freshly seeded config (== DEFAULT_CONFIG verbatim).
+    mkdirSync(join(workDir, ".soulforge"), { recursive: true });
+    writeFileSync(
+      join(workDir, ".soulforge", "config.json"),
+      JSON.stringify(DEFAULT_CONFIG),
+    );
+
+    setPresetOverlay({ defaultModel: "preset-wins-when-user-untouched" });
+    try {
+      const cfg = loadConfig();
+      expect(cfg.defaultModel).toBe("preset-wins-when-user-untouched");
+    } finally {
+      setPresetOverlay(null);
+    }
+  });
+
+  test("preset overlay applies on first run (no existing config file)", async () => {
+    const { setPresetOverlay, loadConfig } = await import("../src/config/index.js");
+
+    setPresetOverlay({ defaultModel: "preset-on-first-run" });
+    try {
+      const cfg = loadConfig();
+      expect(cfg.defaultModel).toBe("preset-on-first-run");
+    } finally {
+      setPresetOverlay(null);
+    }
+  });
+
+  test("nested keys merge — preset theme.name preserved when user only sets theme.transparent", async () => {
+    const { setPresetOverlay, loadConfig } = await import("../src/config/index.js");
+
+    mkdirSync(join(workDir, ".soulforge"), { recursive: true });
+    writeFileSync(
+      join(workDir, ".soulforge", "config.json"),
+      JSON.stringify({ theme: { ...DEFAULT_CONFIG.theme, transparent: false } }),
+    );
+
+    setPresetOverlay({ theme: { name: "preset-theme", transparent: DEFAULT_CONFIG.theme.transparent } });
+    try {
+      const cfg = loadConfig();
+      expect(cfg.theme.name).toBe("preset-theme");
+      expect(cfg.theme.transparent).toBe(false);
+    } finally {
+      setPresetOverlay(null);
+    }
+  });
 });
