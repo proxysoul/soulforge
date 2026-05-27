@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.18.3] — 2026-05-27
+
+### Bug Fixes
+
+- skip neovim-not-found system banner
 ## [2.18.2] — 2026-05-27
 
 ### Bug Fixes
