@@ -1969,6 +1969,7 @@ export function useChat({
         completedResultChars.clear();
         stallTriggered = false;
         stallAborted = false;
+        stallRetryPendingRef.current = false;
 
         try {
           setIsLoading(true);
