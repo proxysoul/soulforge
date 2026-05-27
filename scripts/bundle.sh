@@ -159,16 +159,39 @@ fi
 # Use --outdir + --entry-naming because Bun may emit multiple chunks for
 # the intelligence worker (code-splitting via dynamic imports of ts-morph,
 # tree-sitter, etc.). --outfile only accepts a single output file.
+#
+# --external marks native + binary assets that Bun would otherwise inline as
+# hash-named chunks. Two reasons:
+#   1. Homebrew's keg_relocate walks the keg looking for Mach-O dylibs to
+#      patch install names on. The hash-named .node files in deps/workers/
+#      have no header pad and fail relinking → broken brew install.
+#   2. shiki transitively pulls @opentui/core + ghostty-opentui for terminal
+#      rendering, but worker code paths never invoke that surface — only the
+#      pure-JS highlighter. Keep the native bits out.
+# Tree-sitter wasm grammars are resolved at runtime from ~/.soulforge/wasm.
 echo "    Bundling worker scripts..."
 mkdir -p "${DEPS_DIR}/workers"
+WORKER_EXTERNALS=(
+  --external "ghostty-opentui"
+  --external "ghostty-opentui/*"
+  --external "@opentui/core"
+  --external "@opentui/core/*"
+  --external "tree-sitter-wasms"
+  --external "tree-sitter-wasms/*"
+  --external "*.node"
+  --external "*.wasm"
+  --external "*.scm"
+)
 bun build src/core/workers/intelligence.worker.ts \
   --outdir "${DEPS_DIR}/workers" \
   --entry-naming "[name].[ext]" \
-  --target=bun
+  --target=bun \
+  "${WORKER_EXTERNALS[@]}"
 bun build src/core/workers/io.worker.ts \
   --outdir "${DEPS_DIR}/workers" \
   --entry-naming "[name].[ext]" \
-  --target=bun
+  --target=bun \
+  "${WORKER_EXTERNALS[@]}"
 
 # Tree-sitter WASM runtime + grammars + OpenTUI syntax assets
 echo "    Bundling tree-sitter assets..."

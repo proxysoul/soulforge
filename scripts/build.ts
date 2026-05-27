@@ -366,7 +366,11 @@ if (isCompile) {
     process.exit(1);
   }
 
-  // Build workers separately — npm installs need them as standalone files
+  // Build workers separately — npm installs need them as standalone files.
+  // --external native + asset packages so Bun doesn't fan them out into
+  // hash-named .node/.scm/.wasm chunks next to the worker JS (Homebrew's
+  // keg_relocate chokes on Mach-O files it can't patch). Workers never
+  // invoke the terminal-rendering surface; they only need the JS shells.
   const workerResult = await Bun.build({
     entrypoints: [
       "src/core/workers/intelligence.worker.ts",
@@ -375,6 +379,17 @@ if (isCompile) {
     outdir: "dist/workers",
     target: "bun",
     naming: "[name].[ext]",
+    external: [
+      "ghostty-opentui",
+      "ghostty-opentui/*",
+      "@opentui/core",
+      "@opentui/core/*",
+      "tree-sitter-wasms",
+      "tree-sitter-wasms/*",
+      "*.node",
+      "*.wasm",
+      "*.scm",
+    ],
     plugins: [reactCompilerPlugin],
     minify,
     sourcemap: "none",
