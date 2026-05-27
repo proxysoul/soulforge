@@ -4,7 +4,7 @@ import {
   getModelContextInfoSync,
   matchesContextOverride,
 } from "../src/core/llm/models.js";
-import { codex } from "../src/core/llm/providers/codex.js";
+import { codex } from "../src/core/llm/providers/codex/index.js";
 
 const GPT_55_INPUT_CONTEXT = 272_000;
 
