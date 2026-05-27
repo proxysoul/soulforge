@@ -71,7 +71,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Force-install win32 optional deps
-        run: bun add --optional @opentui/core-win32-x64@0.2.0 || true
+        run: bun add --optional @opentui/core-win32-x64@0.2.15 || true
 
       - name: Install PowerShell
         run: |
