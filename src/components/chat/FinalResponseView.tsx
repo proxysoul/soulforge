@@ -339,52 +339,79 @@ export const FinalResponseLiveAutoView = memo(function FinalResponseLiveAutoView
   liveToolCalls,
   loadingStartedAt,
   messagesLength,
-  finalResponseCalled: _finalResponseCalled,
+  finalResponseCalled,
 }: {
   segments: StreamSegment[];
   liveToolCalls: LiveToolCall[];
   loadingStartedAt: number;
   messagesLength: number;
-  /** Retained for API compatibility; rendering is now segment-positional. */
+  /** True when the model called `final_response()` this turn. Trailing text streams as final answer. */
   finalResponseCalled: boolean;
 }) {
-  // Stable timeline: walk segments once and emit each in place. Adjacent
-  // `tools` segments collapse into a single rail so consecutive tool calls
-  // share one frame. Text segments — wherever they appear — always render.
-  // No derived "opening/trailing/chat-only" slots → no content ever flips
-  // from visible to hidden when a new segment arrives.
-  type Block =
-    | { kind: "text"; key: string; content: string }
-    | { kind: "reasoning"; key: string }
-    | { kind: "rail"; key: string; toolCallIds: string[] };
+  const firstToolsIdx = useMemo(() => segments.findIndex((s) => s.type === "tools"), [segments]);
 
-  const toolCallMap = useMemo(() => {
-    const m = new Map<string, LiveToolCall>();
-    for (const tc of liveToolCalls) m.set(tc.id, tc);
-    return m;
-  }, [liveToolCalls]);
+  // Chat-only turn (no tool segments) — stream everything as plain text.
+  const chatOnlyText = useMemo(() => {
+    if (firstToolsIdx >= 0) return null;
+    const parts: string[] = [];
+    for (const seg of segments) {
+      if (seg?.type === "text" && seg.content.length > 0) parts.push(seg.content);
+    }
+    return parts.length > 0 ? parts.join("") : null;
+  }, [segments, firstToolsIdx]);
 
-  const blocks = useMemo<Block[]>(() => {
-    const out: Block[] = [];
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      if (!seg) continue;
-      if (seg.type === "text") {
-        if (seg.content.length === 0) continue;
-        out.push({ kind: "text", key: `t-${i}`, content: seg.content });
-      } else if (seg.type === "reasoning") {
-        out.push({ kind: "reasoning", key: `r-${seg.id}-${i}` });
-      } else {
-        const last = out[out.length - 1];
-        if (last?.kind === "rail") {
-          last.toolCallIds = [...last.toolCallIds, ...seg.callIds];
-        } else {
-          out.push({ kind: "rail", key: `rail-${i}`, toolCallIds: [...seg.callIds] });
-        }
+  // Opening text: a text segment BEFORE the first tool cluster.
+  const opening = useMemo(() => {
+    if (firstToolsIdx <= 0) return null;
+    const first = segments[0];
+    return first?.type === "text" ? first.content : null;
+  }, [segments, firstToolsIdx]);
+
+  // Trailing text only renders once the model has called final_response() —
+  // text between tool clusters is interstitial narration and folds into the rail.
+  const trailingText = useMemo(() => {
+    if (!finalResponseCalled) return null;
+    let lastToolsIdx = -1;
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (segments[i]?.type === "tools") {
+        lastToolsIdx = i;
+        break;
       }
     }
+    const parts: string[] = [];
+    for (let i = lastToolsIdx + 1; i < segments.length; i++) {
+      const seg = segments[i];
+      if (seg?.type === "text" && seg.content.trim().length > 0) parts.push(seg.content);
+    }
+    return parts.length > 0 ? parts.join("\n\n") : null;
+  }, [segments, finalResponseCalled]);
+
+  // Flatten every tool segment into a single rail.
+  const tools = useMemo<FinalResponseTool[]>(() => {
+    const ids: string[] = [];
+    for (const seg of segments) {
+      if (seg?.type === "tools") ids.push(...seg.callIds);
+    }
+    const seen = new Set<string>();
+    const out: FinalResponseTool[] = [];
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const tc = liveToolCalls.find((c) => c.id === id);
+      if (!tc || !filterQuietTools(tc.toolName)) continue;
+      const isDispatch = SUBAGENT_NAMES.has(tc.toolName);
+      out.push({
+        id: tc.id,
+        name: tc.toolName,
+        done: tc.state !== "running",
+        error: tc.state === "error",
+        argStr: formatArgs(tc.toolName, tc.args),
+        subtree: isDispatch ? <DispatchSubtree call={tc} /> : undefined,
+        imageArt: tc.imageArt,
+      });
+    }
     return out;
-  }, [segments]);
+  }, [segments, liveToolCalls]);
 
   const hasDispatch = useMemo(
     () => liveToolCalls.some((tc) => SUBAGENT_NAMES.has(tc.toolName)),
@@ -400,71 +427,40 @@ export const FinalResponseLiveAutoView = memo(function FinalResponseLiveAutoView
     (tc) => SUBAGENT_NAMES.has(tc.toolName) && tc.state === "running",
   );
 
-  const lastRailIdx = useMemo(() => {
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      if (blocks[i]?.kind === "rail") return i;
-    }
-    return -1;
-  }, [blocks]);
+  const allToolsDone = tools.length > 0 && tools.every((t) => t.done);
+  const pendingNarration = allToolsDone && !dispatchActive && !trailingText;
 
-  const trailingTextAfterRail = useMemo(() => {
-    if (lastRailIdx < 0) return false;
-    for (let i = lastRailIdx + 1; i < blocks.length; i++) {
-      if (blocks[i]?.kind === "text") return true;
-    }
-    return false;
-  }, [blocks, lastRailIdx]);
+  if (chatOnlyText) {
+    return (
+      <box flexDirection="column">
+        <DripText content={chatOnlyText} streaming />
+      </box>
+    );
+  }
 
   return (
     <box flexDirection="column">
-      {blocks.map((block, idx) => {
-        if (block.kind === "text") {
-          const isFirst = idx === 0;
-          return (
-            <box key={block.key} flexDirection="column" marginTop={isFirst ? 0 : 1}>
-              <DripText content={block.content} streaming />
-            </box>
-          );
-        }
-        if (block.kind === "reasoning") {
-          return null;
-        }
-        const calls: LiveToolCall[] = [];
-        for (const id of block.toolCallIds) {
-          const tc = toolCallMap.get(id);
-          if (tc && filterQuietTools(tc.toolName)) calls.push(tc);
-        }
-        if (calls.length === 0) return null;
-        const tools: FinalResponseTool[] = calls.map((tc) => {
-          const isDispatch = SUBAGENT_NAMES.has(tc.toolName);
-          return {
-            id: tc.id,
-            name: tc.toolName,
-            done: tc.state !== "running",
-            error: tc.state === "error",
-            argStr: formatArgs(tc.toolName, tc.args),
-            subtree: isDispatch ? <DispatchSubtree call={tc} /> : undefined,
-            imageArt: tc.imageArt,
-          };
-        });
-        const allToolsDone = tools.length > 0 && tools.every((t) => t.done);
-        const isLastRail = idx === lastRailIdx;
-        const pendingNarration =
-          isLastRail && allToolsDone && !dispatchActive && !trailingTextAfterRail;
-        return (
-          <box key={block.key} flexDirection="column">
-            <FinalResponseWrapper
-              hasEdits={hasEdits}
-              hasDispatch={hasDispatch}
-              done={false}
-              seed={messagesLength}
-              loadingStartedAt={loadingStartedAt}
-              tools={tools}
-              pendingNarration={pendingNarration}
-            />
-          </box>
-        );
-      })}
+      {opening ? (
+        <box flexDirection="column">
+          <DripText content={opening} streaming />
+        </box>
+      ) : null}
+      {tools.length > 0 ? (
+        <FinalResponseWrapper
+          hasEdits={hasEdits}
+          hasDispatch={hasDispatch}
+          done={false}
+          seed={messagesLength}
+          loadingStartedAt={loadingStartedAt}
+          tools={tools}
+          pendingNarration={pendingNarration}
+        />
+      ) : null}
+      {trailingText ? (
+        <box flexDirection="column" marginTop={1}>
+          <DripText content={trailingText} streaming />
+        </box>
+      ) : null}
     </box>
   );
 });
