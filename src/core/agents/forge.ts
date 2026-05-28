@@ -583,7 +583,7 @@ function buildForgePrepareStep(
 
 const instructionsCache = new WeakMap<
   ContextManager,
-  { text: string; key: string; size?: number }
+  { text: string; key: string }
 >();
 
 function buildInstructions(cm: ContextManager, modelId: string): string {
@@ -596,14 +596,9 @@ function buildInstructions(cm: ContextManager, modelId: string): string {
   const skills = cm.buildSkillsBlock();
   if (skills) parts.push(skills);
   const text = parts.join("\n\n");
-  if (snapshot) instructionsCache.set(cm, { text, key, size: text.length });
+  cm.setInstructionsSize(text.length);
+  if (snapshot) instructionsCache.set(cm, { text, key });
   return text;
-}
-
-/** Returns the cached size (in chars) of the last built instructions for this context manager.
- *  Returns undefined when no cached entry exists (e.g. no Soul Map snapshot yet at time of build). */
-export function getCachedInstructionsSize(cm: ContextManager): number | undefined {
-  return instructionsCache.get(cm)?.size;
 }
 
 interface ForgeAgentOptions {

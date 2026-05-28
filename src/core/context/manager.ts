@@ -7,7 +7,6 @@ import { recordModelCall } from "../../stores/model-events.js";
 import { useRepoMapStore } from "../../stores/repomap.js";
 import type { EditorIntegration, ForgeMode, TaskRouter } from "../../types/index.js";
 import { toErrorMessage } from "../../utils/errors.js";
-import { getCachedInstructionsSize } from "../agents/forge.js";
 import { setNeovimFileWrittenHandler } from "../editor/neovim.js";
 import { setIntelligenceClient } from "../intelligence/instance.js";
 import type { SymbolForSummary } from "../intelligence/repo-map.js";
@@ -82,7 +81,8 @@ export class ContextManager {
   private mentionedFiles = new Set<string>();
   // conversationTerms removed — FTS boosting was noisy, PageRank handles ranking
   private conversationTokens = 0;
-  private contextWindowTokens = DEFAULT_CONTEXT_WINDOW;
+private contextWindowTokens = DEFAULT_CONTEXT_WINDOW;
+private lastInstructionsSize: number | undefined = undefined;
   private repoMapCache: { content: string; at: number } | null = null;
   /** Changed files since snapshot, ordered by most recent edit (re-edits move to end). */
   private soulMapDiffChangedFiles = new Map<string, number>(); // rel path → edit sequence number
@@ -711,6 +711,14 @@ export class ContextManager {
     }
   }
 
+  setInstructionsSize(size: number): void {
+    this.lastInstructionsSize = size;
+  }
+
+  getInstructionsSize(): number | undefined {
+    return this.lastInstructionsSize;
+  }
+
   async setSemanticSummaries(
     modeOrBool: "off" | "ast" | "synthetic" | "llm" | "full" | "on" | boolean,
   ): Promise<void> {
@@ -1146,7 +1154,7 @@ export class ContextManager {
     const sections: { section: string; chars: number; active: boolean }[] = [];
 
     // System prompt size — use actual cached size from forge if available, else estimate
-    const cachedSize = getCachedInstructionsSize(this);
+    const cachedSize = this.getInstructionsSize();
     sections.push({
       section: "System prompt + tools",
       chars: cachedSize ?? 1800,
