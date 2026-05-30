@@ -2,6 +2,20 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.18.5] — 2026-05-30
+
+### Bug Fixes
+
+- **chat**: restore single rail + gated narration in live auto view
+- **chat**: stable segment-positional render for live auto view
+- **config**: exit with clear error on invalid config.json instead of silently using defaults
+- **llm**: Opus 4.8 support — adaptive-only thinking, correct headers, pricing verified
+### Documentation
+
+- **sponsors**: add @nerminba to backers
+### Features
+
+- **providers**: add NVIDIA NIM provider
 ## [2.18.4] — 2026-05-27
 
 ### Bug Fixes
