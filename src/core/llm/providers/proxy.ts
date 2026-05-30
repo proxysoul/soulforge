@@ -66,6 +66,7 @@ export const proxy: ProviderDefinition = {
   },
 
   fallbackModels: [
+    { id: "claude-opus-4-8", name: "Claude Opus 4.8" },
     { id: "claude-opus-4-7", name: "Claude Opus 4.7" },
     { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
     { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
@@ -79,6 +80,8 @@ export const proxy: ProviderDefinition = {
   // Specific overrides first → shared patterns → generic catch-alls last.
   contextWindows: [
     // Claude (both dot/hyphen styles)
+    ["claude-opus-4-8", 1_000_000],
+    ["claude-opus-4.8", 1_000_000],
     ["claude-opus-4-7", 1_000_000],
     ["claude-opus-4.7", 1_000_000],
     ["claude-opus-4-6", 1_000_000],

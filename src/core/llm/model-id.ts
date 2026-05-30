@@ -40,3 +40,10 @@ export function supportsTemperature(modelId: string): boolean {
   if (!v) return true;
   return v.major < 5 && (v.major < 4 || v.minor < 7);
 }
+/** Opus 4.7+ only supports adaptive thinking — rejects type:"enabled" with budget_tokens. */
+export function isAdaptiveOnly(modelId: string): boolean {
+  const base = extractBaseModel(modelId);
+  const v = parseOpusVersion(base);
+  if (!v) return false;
+  return v.major >= 5 || (v.major === 4 && v.minor >= 7);
+}

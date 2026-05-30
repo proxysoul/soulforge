@@ -4,6 +4,7 @@
  *  Each provider's createModel imports from here directly. */
 
 import type { AppConfig } from "../../types/index.js";
+import { isAdaptiveOnly } from "./model-id.js";
 
 function parseProvider(modelId: string): { provider: string; model: string } {
   const slash = modelId.indexOf("/");
@@ -62,6 +63,10 @@ export function getCompatReasoningBody(
   // Zen's normaliser forwards the OpenAI-compat /v1/chat/completions request
   // to upstream Anthropic which expects { thinking: { type, budget_tokens } }.
   if (isClaude && provider === "opencode-zen") {
+    // Opus 4.7+ only supports adaptive thinking — type:"enabled" returns 400.
+    if (isAdaptiveOnly(base)) {
+      return { thinking: { type: "adaptive" } };
+    }
     const explicitBudget = config.thinking?.budgetTokens;
     const budget =
       explicitBudget ?? { low: 2048, medium: 5000, high: 10000, xhigh: 20000 }[effort] ?? 5000;

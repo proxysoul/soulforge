@@ -31,6 +31,7 @@ export const bedrock: ProviderDefinition = {
   },
 
   fallbackModels: [
+    { id: "anthropic.claude-opus-4-8", name: "Claude Opus 4.8" },
     { id: "anthropic.claude-sonnet-4-20250514-v1:0", name: "Claude Sonnet 4" },
     { id: "anthropic.claude-haiku-4-5-20251001-v1:0", name: "Claude Haiku 4.5" },
     { id: "us.amazon.nova-pro-v1:0", name: "Amazon Nova Pro" },
@@ -39,6 +40,10 @@ export const bedrock: ProviderDefinition = {
   ],
 
   contextWindows: [
+    ["claude-opus-4-8", 1_000_000],
+    ["claude-opus-4-7", 1_000_000],
+    ["claude-opus-4-6", 1_000_000],
+    ["claude-sonnet-4-6", 1_000_000],
     ["claude-sonnet-4", 200_000],
     ["claude-opus-4", 200_000],
     ["claude-haiku-4", 200_000],

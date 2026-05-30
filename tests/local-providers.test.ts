@@ -14,9 +14,9 @@ describe("local providers registration", () => {
 		expect(getProvider("lmstudio")!.custom).toBeUndefined();
 	});
 
-	test("total builtin count is 21", () => {
+	test("total builtin count is 22", () => {
 		const builtins = getAllProviders().filter((p) => !p.custom);
-		expect(builtins.length).toBe(21);
+		expect(builtins.length).toBe(22);
 	});
 
 	test("ollama has required fields", () => {

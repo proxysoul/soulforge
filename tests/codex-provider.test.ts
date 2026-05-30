@@ -23,7 +23,7 @@ const BASE_OPTIONS: LanguageModelV2CallOptions = {
 describe("codex provider", () => {
   test("is registered as a builtin provider", () => {
     expect(getProvider("codex")).toBeDefined();
-    expect(getAllProviders().filter((provider) => !provider.custom)).toHaveLength(21);
+    expect(getAllProviders().filter((provider) => !provider.custom)).toHaveLength(22);
   });
 
   test("has provider metadata, fallback models, and shared auth hook", () => {

@@ -72,6 +72,7 @@ export const opencodeZen: ProviderDefinition = {
     { id: "gpt-5", name: "GPT 5" },
     { id: "gpt-5-codex", name: "GPT 5 Codex" },
     { id: "gpt-5-nano", name: "GPT 5 Nano" },
+    { id: "claude-opus-4-8", name: "Claude Opus 4.8" },
     { id: "claude-opus-4-7", name: "Claude Opus 4.7" },
     { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
     { id: "claude-opus-4-5", name: "Claude Opus 4.5" },
@@ -133,6 +134,7 @@ export const opencodeZen: ProviderDefinition = {
     ["gpt-5-codex", 400_000],
     ["gpt-5-nano", 400_000],
     // Claude (hyphen-style on Zen)
+    ["claude-opus-4-8", 1_000_000],
     ["claude-opus-4-7", 1_000_000],
     ["claude-opus-4-6", 1_000_000],
     ["claude-opus-4-5", 200_000],
@@ -142,6 +144,7 @@ export const opencodeZen: ProviderDefinition = {
     ["claude-sonnet-4", 200_000],
     ["claude-haiku-4-5", 200_000],
     // also tolerate dot-style if returned
+    ["claude-opus-4.8", 1_000_000],
     ["claude-opus-4.6", 1_000_000],
     ["claude-sonnet-4.6", 1_000_000],
     ["claude-sonnet-4.5", 1_000_000],

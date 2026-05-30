@@ -3,6 +3,7 @@ import type { AppConfig, ContextManagementConfig, EffortLevel } from "../../type
 import {
   extractBaseModel as _leafExtractBaseModel,
   getModelId as _leafGetModelId,
+  isAdaptiveOnly as _leafIsAdaptiveOnly,
   parseOpusVersion as _leafParseOpusVersion,
   supportsTemperature as _leafSupportsTemperature,
 } from "./model-id.js";
@@ -10,6 +11,7 @@ import { getModelContextWindow } from "./models.js";
 import { getProvider } from "./providers/index.js";
 
 const parseOpusVersion = _leafParseOpusVersion;
+const isAdaptiveOnly = _leafIsAdaptiveOnly;
 
 export const extractBaseModel = _leafExtractBaseModel;
 export const getModelId = _leafGetModelId;
@@ -647,7 +649,9 @@ async function buildAnthropicOptions(
 
   if (caps.thinking) {
     const mode = config.thinking?.mode ?? "off";
-    if (mode === "auto" || mode === "adaptive") {
+    const adaptiveOnly = isAdaptiveOnly(modelId);
+    if (mode === "auto" || mode === "adaptive" || (mode === "enabled" && adaptiveOnly)) {
+      // Opus 4.7+ only supports adaptive thinking — type:"enabled" returns 400.
       if (caps.adaptiveThinking) {
         opts.thinking = { type: "adaptive" };
         thinkingEnabled = true;
@@ -690,7 +694,9 @@ async function buildAnthropicOptions(
     }
   }
 
-  if (thinkingEnabled && caps.interleavedThinking) {
+  // Interleaved thinking: adaptive mode enables it automatically (no header needed).
+  // Manual mode on Sonnet 4.6 still requires the beta header.
+  if (thinkingEnabled && caps.interleavedThinking && opts.thinking?.type !== "adaptive") {
     headers["anthropic-beta"] = "interleaved-thinking-2025-05-14";
   }
 
@@ -846,7 +852,9 @@ export function degradeProviderOptions(modelId: string, level: number): Provider
 
   if (caps.anthropicOptions && caps.thinking) {
     // biome-ignore lint/suspicious/noExplicitAny: ProviderOptions inner shape is parsed by Zod at runtime
-    const opts: Record<string, any> = { thinking: { type: "enabled", budgetTokens: 5_000 } };
+    const opts: Record<string, any> = isAdaptiveOnly(modelId)
+      ? { thinking: { type: "adaptive" }, effort: "low" }
+      : { thinking: { type: "enabled", budgetTokens: 5_000 } };
     providerOptions.anthropic = opts;
   }
 
@@ -873,9 +881,9 @@ export function degradeProviderOptions(modelId: string, level: number): Provider
   }
 
   if (caps.bedrockOptions && caps.thinking) {
-    providerOptions.bedrock = {
-      reasoningConfig: { type: "enabled", budgetTokens: 5_000 },
-    };
+    providerOptions.bedrock = isAdaptiveOnly(modelId)
+      ? { reasoningConfig: { type: "adaptive", maxReasoningEffort: "low" } }
+      : { reasoningConfig: { type: "enabled", budgetTokens: 5_000 } };
   }
 
   return {

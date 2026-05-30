@@ -47,6 +47,7 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // cacheWrite = 5-min TTL (1.25× base). 1h TTL would be 2× base; SDK doesn't
   // expose which TTL was used, and we always request the 5m default.
   // cacheRead = 0.1× base input.
+  "claude-opus-4-8": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
   "claude-opus-4-7": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
   "claude-opus-4-6": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
   "claude-opus-4-5": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
@@ -186,9 +187,14 @@ const COPILOT_PRICING: Record<string, ModelPricing> = {
   "claude-opus-4.6": M3,
   // multiplier 7.5
   "claude-opus-4.7": M75,
+  "claude-opus-4.8": M75,
+  // multiplier 7.5
   "gpt-5.5": M75,
-  // multiplier 30 (Opus 4.6 fast mode preview)
+  // multiplier 10 (Opus 4.8 fast mode)
+  "claude-opus-4.8-fast": { input: 20, cacheWrite: 20, cacheRead: 2, output: 100 },
+  // multiplier 30 (Opus 4.6/4.7 fast mode)
   "claude-opus-4.6-fast": M30,
+  "claude-opus-4.7-fast": M30,
 };
 
 function matchCopilotPricing(model: string): ModelPricing | undefined {
@@ -269,7 +275,7 @@ function matchPricing(modelId: string): ModelPricing {
     if (id.includes(key)) return pricing;
   }
   // Fallback heuristics for unknown variants / OpenRouter prefixed IDs
-  if (id.includes("opus")) return MODEL_PRICING["claude-opus-4-6"] ?? DEFAULT_PRICING;
+  if (id.includes("opus")) return MODEL_PRICING["claude-opus-4-8"] ?? DEFAULT_PRICING;
   if (id.includes("sonnet")) return DEFAULT_PRICING;
   if (id.includes("haiku")) return MODEL_PRICING["claude-haiku-4-5"] ?? DEFAULT_PRICING;
   if (id.includes("gemini")) return MODEL_PRICING["gemini-2.5-flash"] ?? DEFAULT_PRICING;

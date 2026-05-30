@@ -28,6 +28,7 @@ export const openrouter: ProviderDefinition = {
   },
 
   fallbackModels: [
+    { id: "anthropic/claude-opus-4.8", name: "Claude Opus 4.8" },
     { id: "anthropic/claude-opus-4.7", name: "Claude Opus 4.7" },
     { id: "anthropic/claude-opus-4.6", name: "Claude Opus 4.6" },
     { id: "anthropic/claude-sonnet-4.6", name: "Claude Sonnet 4.6" },
@@ -68,6 +69,8 @@ export const openrouter: ProviderDefinition = {
   // Specific overrides must NOT be substrings of shared patterns (ordering matters).
   contextWindows: [
     // Claude (OpenRouter uses dots: claude-opus-4.6)
+    ["claude-opus-4.8", 1_000_000],
+    ["claude-opus-4.7", 1_000_000],
     ["claude-opus-4.6", 1_000_000],
     ["claude-sonnet-4.6", 1_000_000],
     ["claude-sonnet-4.5", 1_000_000],

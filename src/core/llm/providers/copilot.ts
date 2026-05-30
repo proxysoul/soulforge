@@ -209,8 +209,10 @@ export const copilot: ProviderDefinition = {
   },
 
   fallbackModels: [
-    { id: "claude-opus-4.6", name: "Claude Opus 4.6", contextWindow: 200_000 },
-    { id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", contextWindow: 200_000 },
+    { id: "claude-opus-4.8", name: "Claude Opus 4.8", contextWindow: 1_000_000 },
+    { id: "claude-opus-4.7", name: "Claude Opus 4.7", contextWindow: 1_000_000 },
+    { id: "claude-opus-4.6", name: "Claude Opus 4.6", contextWindow: 1_000_000 },
+    { id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", contextWindow: 1_000_000 },
     { id: "claude-sonnet-4", name: "Claude Sonnet 4", contextWindow: 128_000 },
     { id: "claude-opus-4.5", name: "Claude Opus 4.5", contextWindow: 200_000 },
     { id: "claude-sonnet-4.5", name: "Claude Sonnet 4.5", contextWindow: 200_000 },
@@ -226,8 +228,10 @@ export const copilot: ProviderDefinition = {
   ],
 
   contextWindows: [
-    ["claude-opus-4.6", 200_000],
-    ["claude-sonnet-4.6", 200_000],
+    ["claude-opus-4.8", 1_000_000],
+    ["claude-opus-4.7", 1_000_000],
+    ["claude-opus-4.6", 1_000_000],
+    ["claude-sonnet-4.6", 1_000_000],
     ["claude-opus-4.5", 200_000],
     ["claude-sonnet-4.5", 200_000],
     ["claude-sonnet-4", 128_000],
