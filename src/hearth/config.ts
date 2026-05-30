@@ -89,7 +89,9 @@ function readJsonFile<T>(path: string): Partial<T> | null {
       return null;
     }
     return JSON.parse(readFileSync(path, "utf-8")) as Partial<T>;
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`  Warning: invalid ${path} — ${msg}. Ignoring.\n`);
     return null;
   }
 }

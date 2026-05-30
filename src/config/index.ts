@@ -3,7 +3,6 @@ import { join } from "node:path";
 import type { CustomProviderConfig } from "../core/llm/providers/types.js";
 import { configDir } from "../core/platform/index.js";
 import { ensureSoulforgeDir } from "../core/utils/ensure-soulforge-dir.js";
-import { logBackgroundError } from "../stores/errors.js";
 import type { AppConfig, MCPServerConfig } from "../types";
 
 function mergeProviders(
@@ -104,11 +103,14 @@ export function loadConfig(): AppConfig {
     try {
       userConfig = JSON.parse(readFileSync(configFile, "utf-8")) as Partial<AppConfig>;
     } catch (err) {
-      logBackgroundError(
-        "config",
-        `Failed to parse ${configFile}: ${err instanceof Error ? err.message : String(err)} — using defaults`,
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `\n  Error: invalid config.json — ${msg}\n\n` +
+          `  Path: ${configFile}\n\n` +
+          `  Fix the JSON syntax error and try again.\n` +
+          `  (Your config was NOT overwritten.)\n\n`,
       );
-      userConfig = {};
+      process.exit(1);
     }
   }
 
@@ -168,9 +170,11 @@ export function loadProjectConfig(cwd: string): Partial<AppConfig> | null {
     const raw = readFileSync(projectFile, "utf-8");
     return JSON.parse(raw) as Partial<AppConfig>;
   } catch (err) {
-    logBackgroundError(
-      "config",
-      `Failed to parse ${projectFile}: ${err instanceof Error ? err.message : String(err)} — ignoring project config`,
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `\n  Warning: invalid project config.json — ${msg}\n` +
+        `  Path: ${projectFile}\n` +
+        `  Fix the JSON syntax error. Ignoring project config for now.\n\n`,
     );
     return null;
   }

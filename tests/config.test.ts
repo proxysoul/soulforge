@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   DEFAULT_CONFIG,
   loadConfig,
+  loadProjectConfig,
   mergeConfigs,
   saveGlobalConfig,
   saveProjectConfig,
@@ -154,5 +155,62 @@ describe("config retry deep-merge", () => {
         rmSync(sandbox, { recursive: true, force: true });
       }
     });
+  });
+});
+
+describe("invalid config.json exits with error", () => {
+  test("loadConfig exits with code 1 on malformed JSON", () => {
+    const sandbox = join(tmpdir(), `sf-invalid-cfg-${process.pid}-${Date.now()}`);
+    const origHome = process.env.HOME;
+    const origLocal = process.env.LOCALAPPDATA;
+    process.env.HOME = sandbox;
+    process.env.LOCALAPPDATA = sandbox;
+
+    const exitSpy = spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`EXIT_${code}`);
+    });
+    const stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    try {
+      const cfgDir =
+        process.platform === "win32" ? join(sandbox, "SoulForge") : join(sandbox, ".soulforge");
+      mkdirSync(cfgDir, { recursive: true });
+      writeFileSync(join(cfgDir, "config.json"), "{ invalid json missing comma }");
+
+      expect(() => loadConfig()).toThrow("EXIT_1");
+      expect(exitSpy).toHaveBeenCalledWith(1);
+
+      // Verify stderr got a helpful message
+      const output = stderrSpy.mock.calls.map((c) => c[0]).join("");
+      expect(output).toContain("invalid config.json");
+      expect(output).toContain("NOT overwritten");
+    } finally {
+      exitSpy.mockRestore();
+      stderrSpy.mockRestore();
+      if (origHome !== undefined) process.env.HOME = origHome;
+      else delete process.env.HOME;
+      if (origLocal !== undefined) process.env.LOCALAPPDATA = origLocal;
+      else delete process.env.LOCALAPPDATA;
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test("loadProjectConfig returns null and warns on malformed JSON", () => {
+    const sandbox = join(tmpdir(), `sf-invalid-proj-${process.pid}-${Date.now()}`);
+    const stderrSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    try {
+      mkdirSync(join(sandbox, ".soulforge"), { recursive: true });
+      writeFileSync(join(sandbox, ".soulforge", "config.json"), "not valid { json");
+
+      const result = loadProjectConfig(sandbox);
+      expect(result).toBeNull();
+
+      const output = stderrSpy.mock.calls.map((c) => c[0]).join("");
+      expect(output).toContain("invalid project config.json");
+    } finally {
+      stderrSpy.mockRestore();
+      rmSync(sandbox, { recursive: true, force: true });
+    }
   });
 });
