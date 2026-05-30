@@ -178,13 +178,19 @@ describe("sanitizeMessages cache safety", () => {
 		expect(result).toBe(messages);
 	});
 
-	test("messages with no assistant content are returned as-is", () => {
+	test("orphan tool-result with no matching assistant tool-call is dropped", () => {
+		// Anthropic rejects with "unexpected tool_use_id found in tool_result blocks"
+		// when a tool message references a tool-call that doesn't exist in any
+		// preceding assistant message — sanitizeMessages drops the orphan to keep
+		// the next request valid.
 		const messages: ModelMessage[] = [
 			{ role: "user", content: [{ type: "text" as const, text: "hello" }] },
 			toolResultMsg("1", "read", "output"),
 		];
 		const result = sanitizeMessages(messages);
-		expect(result).toBe(messages);
+		expect(result).not.toBe(messages);
+		expect(result).toHaveLength(1);
+		expect(result[0]?.role).toBe("user");
 	});
 
 	test("broken tool-call input (string) gets fixed to empty object", () => {

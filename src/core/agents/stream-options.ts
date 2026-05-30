@@ -64,33 +64,37 @@ export function sanitizeMessages(messages: ModelMessage[]): ModelMessage[] {
   });
 
   // Pass 2: cross-message pairing — drop tool-result blocks in "tool" messages
-  // whose toolCallId has no matching tool-call in the preceding assistant message.
-  // This prevents "unexpected tool_use_id found in tool_result blocks" after
-  // compaction or session restore drops the assistant that owned them.
+  // whose toolCallId has no matching tool-call anywhere in the preceding
+  // assistant messages. This prevents "unexpected tool_use_id found in
+  // tool_result blocks" after compaction or session restore drops the
+  // assistant that owned them.
   const result = dirty ? cleaned : [...messages];
+  // Collect all valid (non-providerExecuted) tool-call IDs across the
+  // conversation up front — Anthropic only cares that SOME prior assistant
+  // owns the tool_use, not that it's the immediately preceding one.
+  const allValidCallIds = new Set<string>();
+  for (const msg of result) {
+    if (msg?.role !== "assistant" || !Array.isArray(msg.content)) continue;
+    for (const p of msg.content) {
+      // biome-ignore lint/suspicious/noExplicitAny: structural check
+      const part = p as any;
+      if (
+        part?.type === "tool-call" &&
+        typeof part.toolCallId === "string" &&
+        !part.providerExecuted
+      ) {
+        allValidCallIds.add(part.toolCallId);
+      }
+    }
+  }
   for (let i = result.length - 1; i >= 0; i--) {
     const msg = result[i];
     if (!msg || msg.role !== "tool" || !Array.isArray(msg.content)) continue;
-    const prev = result[i - 1];
-    const validCallIds = new Set<string>();
-    if (prev?.role === "assistant" && Array.isArray(prev.content)) {
-      for (const p of prev.content) {
-        // biome-ignore lint/suspicious/noExplicitAny: structural check
-        const part = p as any;
-        if (
-          part?.type === "tool-call" &&
-          typeof part.toolCallId === "string" &&
-          !part.providerExecuted
-        ) {
-          validCallIds.add(part.toolCallId);
-        }
-      }
-    }
     const filtered = msg.content.filter((p) => {
       // biome-ignore lint/suspicious/noExplicitAny: structural check
       const part = p as any;
       if (part?.type !== "tool-result") return true;
-      return validCallIds.has(part.toolCallId);
+      return allValidCallIds.has(part.toolCallId);
     });
     if (filtered.length === 0) {
       result.splice(i, 1);
