@@ -37,10 +37,12 @@ describe("codex provider", () => {
     expect(codex.badge).toBe("non-streaming");
     expect(codex.onRequestAuth).toBeDefined();
     expect(codex.fallbackModels).toEqual([
+      { id: "gpt-5.5", name: "GPT-5.5", contextWindow: 272_000 },
       { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_050_000 },
       { id: "gpt-5.2-codex", name: "GPT-5.2-Codex", contextWindow: 400_000 },
     ]);
     expect(codex.contextWindows).toEqual([
+      ["gpt-5.5", 272_000],
       ["gpt-5.4", 1_050_000],
       ["gpt-5.2-codex", 400_000],
     ]);

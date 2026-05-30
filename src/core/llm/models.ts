@@ -58,11 +58,44 @@ onProvidersChanged(() => {
 const DEFAULT_CONTEXT_TOKENS = 128_000;
 const METADATA_FETCH_TIMEOUT = 5_000;
 
-type ContextWindowSource = "api" | "openrouter" | "fallback";
+type ContextWindowSource = "api" | "openrouter" | "fallback" | "override";
 
 interface ContextWindowResult {
   tokens: number;
   source: ContextWindowSource;
+}
+
+export function matchesContextOverride(model: string, pattern: string): boolean {
+  const lowerModel = model.toLowerCase();
+  const lowerPattern = pattern.toLowerCase();
+  const bareModel = lowerModel.split("/").pop() ?? lowerModel;
+  const barePattern = lowerPattern.split("/").pop() ?? lowerPattern;
+  return (
+    bareModel === barePattern ||
+    lowerModel === lowerPattern ||
+    lowerModel.endsWith(`/${lowerPattern}`)
+  );
+}
+
+function findContextOverride(
+  provider: ReturnType<typeof getProvider>,
+  model: string,
+): number | undefined {
+  if (!provider?.contextWindowOverrides) return undefined;
+
+  for (const [pattern, tokens] of provider.contextWindowOverrides) {
+    if (matchesContextOverride(model, pattern)) return tokens;
+  }
+
+  return undefined;
+}
+
+export function applyProviderContextOverride(
+  providerId: string,
+  model: ProviderModelInfo,
+): ProviderModelInfo {
+  const tokens = findContextOverride(getProvider(providerId), model.id);
+  return tokens ? { ...model, contextWindow: tokens } : model;
 }
 
 /**
@@ -88,11 +121,12 @@ export function getModelContextInfoSync(modelId: string): ContextWindowResult {
   // 0. Provider-specific overrides for known-incorrect upstream API values
   //    (e.g. OpenRouter lists GLM-5 as 80k, actual ~200k)
   const ownProvider = providerId ? getProvider(providerId) : null;
-  if (ownProvider?.contextWindowOverrides) {
-    for (const [pattern, tokens] of ownProvider.contextWindowOverrides) {
-      if (model.includes(pattern)) return { tokens, source: "fallback" };
-    }
-  }
+  const overrideTokens = providerId
+    ? findContextOverride(ownProvider ?? undefined, model)
+    : getAllProviders()
+        .map((provider) => findContextOverride(provider, model))
+        .find((tokens) => tokens !== undefined);
+  if (overrideTokens) return { tokens: overrideTokens, source: "override" };
 
   // 1. Provider's own API data (most accurate)
   if (providerId && !ownProvider?.grouped) {
@@ -407,10 +441,13 @@ export async function fetchProviderModels(
   try {
     const models = await provider.fetchModels();
     if (models) {
-      modelCache.set(providerId, { models, ts: Date.now() });
-      return { models };
+      const normalized = models.map((m) => applyProviderContextOverride(providerId, m));
+      modelCache.set(providerId, { models: normalized, ts: Date.now() });
+      return { models: normalized };
     }
-    return { models: provider.fallbackModels };
+    return {
+      models: provider.fallbackModels.map((m) => applyProviderContextOverride(providerId, m)),
+    };
   } catch (err) {
     const msg = toErrorMessage(err);
     return { models: [], error: `API error: ${msg}` };
@@ -690,11 +727,13 @@ async function fetchProxyGrouped(): Promise<GroupedModelsResult> {
       const ctxWindow =
         m.context_length ?? anthropicCtx.get(m.id) ?? findOpenRouterModel(m.id)?.context_length;
 
-      grouped[group].push({
-        id: m.id,
-        name: m.id,
-        contextWindow: ctxWindow,
-      });
+      grouped[group].push(
+        applyProviderContextOverride("proxy", {
+          id: m.id,
+          name: m.id,
+          contextWindow: ctxWindow,
+        }),
+      );
     }
 
     const subProviders: SubProvider[] = Object.keys(grouped)
