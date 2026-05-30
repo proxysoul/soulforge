@@ -602,6 +602,7 @@ function buildInstructions(cm: ContextManager, modelId: string): string {
   const skills = cm.buildSkillsBlock();
   if (skills) parts.push(skills);
   const text = parts.join("\n\n");
+  cm.setInstructionsSize(text.length);
   if (snapshot) instructionsCache.set(cm, { text, key });
   return text;
 }

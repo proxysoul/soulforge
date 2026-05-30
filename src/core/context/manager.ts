@@ -90,6 +90,7 @@ export class ContextManager {
   // conversationTerms removed — FTS boosting was noisy, PageRank handles ranking
   private conversationTokens = 0;
   private contextWindowTokens = DEFAULT_CONTEXT_WINDOW;
+  private lastInstructionsSize: number | undefined = undefined;
   private repoMapCache: { content: string; at: number } | null = null;
   /** Changed files since snapshot, ordered by most recent edit (re-edits move to end). */
   private soulMapDiffChangedFiles = new Map<string, number>(); // rel path → edit sequence number
@@ -764,6 +765,14 @@ export class ContextManager {
     }
   }
 
+  setInstructionsSize(size: number): void {
+    this.lastInstructionsSize = size;
+  }
+
+  getInstructionsSize(): number | undefined {
+    return this.lastInstructionsSize;
+  }
+
   async setSemanticSummaries(
     modeOrBool: "off" | "ast" | "synthetic" | "llm" | "full" | "on" | boolean,
   ): Promise<void> {
@@ -1207,10 +1216,11 @@ export class ContextManager {
   getContextBreakdown(): { section: string; chars: number; active: boolean }[] {
     const sections: { section: string; chars: number; active: boolean }[] = [];
 
-    // Core + tools reference (always present)
+    // System prompt size — use actual cached size from forge if available, else estimate
+    const cachedSize = this.getInstructionsSize();
     sections.push({
-      section: "Core + tool reference",
-      chars: 1800, // approximate: identity + all tool docs + guidelines
+      section: "System prompt + tools",
+      chars: cachedSize ?? 1800,
       active: true,
     });
 
