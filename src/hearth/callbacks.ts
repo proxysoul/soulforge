@@ -10,6 +10,7 @@ import type {
   PlanReviewAction,
   PlanStepStatus,
 } from "../types/index.js";
+import { askRemote } from "./bridge.js";
 import type { ExternalChatId, Surface } from "./types.js";
 
 export interface CallbacksCtx {
@@ -39,20 +40,34 @@ export function buildHearthCallbacks(ctx: CallbacksCtx): InteractiveCallbacks {
       _planFile: string,
       _planContent: string,
     ): Promise<PlanReviewAction> {
-      safeNotify(
-        ctx,
-        `🧭 Plan ready: ${plan.title}. Reply /approve to execute or /deny to cancel.`,
+      // Route through the bridge: emit a plan-review event the surface renders as
+      // Approve/Cancel/Edit buttons, and park the promise until the user taps one.
+      // Falls back to "cancel" when the surface is offline (askRemote short-circuits).
+      return askRemote<PlanReviewAction>(
+        ctx.tabId,
+        (callbackId) => ({
+          type: "plan-review",
+          callbackId,
+          title: plan.title,
+          summary: `${String(plan.steps.length)} steps`,
+        }),
+        "cancel",
       );
-      // Plan review in Hearth resolves via /approve or /deny commands intercepted by the daemon.
-      // Default to "cancel" — daemon overrides when the command arrives.
-      return "cancel";
     },
-    async onAskUser(question: string, options, _allowSkip): Promise<string> {
-      const lines = [question, ...options.map((o, i) => `${String(i + 1)}. ${o.label}`)];
-      safeNotify(ctx, lines.join("\n"));
-      // Daemon overrides this promise when the user replies. Returning "" lets
-      // Forge continue with no answer when the surface is unreachable.
-      return "";
+    async onAskUser(question: string, options, allowSkip): Promise<string> {
+      // Emit an ask-user event (inline keyboard) and await the user's choice.
+      // Fallback: skip token when allowed, else the first option (never hang).
+      return askRemote<string>(
+        ctx.tabId,
+        (callbackId) => ({
+          type: "ask-user",
+          callbackId,
+          question,
+          options: [...options],
+          allowSkip,
+        }),
+        allowSkip ? "__skipped__" : (options[0]?.value ?? ""),
+      );
     },
     async onOpenEditor(_file?: string): Promise<void> {
       safeNotify(ctx, "Editor is not available on remote surfaces.");
@@ -85,5 +100,35 @@ export function buildHearthCallbacks(ctx: CallbacksCtx): InteractiveCallbacks {
         return false;
       }
     },
+  };
+}
+/**
+ * Approval hooks for destructive ops and out-of-cwd writes. These route to
+ * createForgeAgent directly (not via InteractiveCallbacks), so the daemon
+ * passes them through HeadlessChatOptions. Both await a surface Allow/Deny;
+ * surface offline or error → deny (safe default).
+ */
+export function buildHearthApprovals(ctx: CallbacksCtx): {
+  onApproveDestructive: (description: string) => Promise<boolean>;
+  onApproveOutsideCwd: (toolName: string, path: string) => Promise<boolean>;
+} {
+  const ask = async (toolName: string, summary: string): Promise<boolean> => {
+    try {
+      const { decision } = await ctx.surface.requestApproval(ctx.externalId, {
+        approvalId: `${toolName}:${Date.now().toString(36)}`,
+        toolName,
+        summary,
+        cwd: "",
+        tabId: ctx.tabId,
+      });
+      return decision === "allow";
+    } catch {
+      return false;
+    }
+  };
+  return {
+    onApproveDestructive: (description: string) => ask("destructive", description),
+    onApproveOutsideCwd: (toolName: string, path: string) =>
+      ask(toolName, `Write outside workspace: ${path}`),
   };
 }

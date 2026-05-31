@@ -119,6 +119,10 @@ export interface HeadlessChatOptions {
   signal?: AbortSignal;
   /** Human-in-loop callbacks. Default: none (auto-allow today). */
   callbacks?: InteractiveCallbacks;
+  /** Approve a destructive op (sensitive-file edit / destructive shell). Default: deny. */
+  onApproveDestructive?: (description: string) => Promise<boolean>;
+  /** Approve a write outside the workspace cwd. Default: deny. */
+  onApproveOutsideCwd?: (toolName: string, path: string) => Promise<boolean>;
   /** Event sink. Default: JSONL writeEvent to stdout (only when events=true). */
   onEvent?: (event: HeadlessEvent) => void;
   /** Tab identity for WorkspaceCoordinator. Default: "headless". */

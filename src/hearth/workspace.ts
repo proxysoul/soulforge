@@ -8,7 +8,7 @@ import { loadConfig, loadProjectConfig, mergeConfigs } from "../config/index.js"
 import { SessionManager } from "../core/sessions/manager.js";
 import type { SessionMeta, TabMeta } from "../core/sessions/types.js";
 import type { AppConfig, ForgeMode, InteractiveCallbacks } from "../types/index.js";
-import { buildHearthCallbacks } from "./callbacks.js";
+import { buildHearthApprovals, buildHearthCallbacks } from "./callbacks.js";
 import { TabLoop } from "./tab-loop.js";
 import type { ChatBinding, HearthConfig, Surface } from "./types.js";
 
@@ -79,6 +79,12 @@ export class ChatWorkspace {
         tabId,
         log: this.log,
       });
+    const approvals = buildHearthApprovals({
+      surface: this.surface,
+      externalId: this.binding.externalId,
+      tabId,
+      log: this.log,
+    });
 
     const loop = new TabLoop({
       tabId,
@@ -89,6 +95,8 @@ export class ChatWorkspace {
       model: this.binding.defaultModel,
       mode: forgeMode ?? this.binding.mode,
       callbacks,
+      onApproveDestructive: approvals.onApproveDestructive,
+      onApproveOutsideCwd: approvals.onApproveOutsideCwd,
       mergedConfig: this.mergedConfig,
       sessionId: this.sessionId,
       onEvent: this.onTabEvent,

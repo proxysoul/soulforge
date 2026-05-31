@@ -30,6 +30,8 @@ export interface TabLoopOptions {
   sessionId?: string;
   onEvent?: (ev: HeadlessEvent) => void;
   onExit?: (reason: "normal" | "error" | "aborted", err?: Error) => void;
+  onApproveDestructive?: (description: string) => Promise<boolean>;
+  onApproveOutsideCwd?: (toolName: string, path: string) => Promise<boolean>;
 }
 
 interface QueuedPrompt {
@@ -80,6 +82,8 @@ export class TabLoop {
       readPrompt: () => this.readPrompt(),
       signal: this.abortCtl.signal,
       callbacks: this.options.callbacks,
+      onApproveDestructive: this.options.onApproveDestructive,
+      onApproveOutsideCwd: this.options.onApproveOutsideCwd,
       tabId: this.tabId,
       tabLabel: this.tabLabel,
       onEvent: (ev) => {
