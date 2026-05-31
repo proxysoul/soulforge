@@ -898,12 +898,52 @@ export function createForgeAgent({
 
   const coreSet = activeDeferredTools ? new Set(CORE_TOOL_NAMES) : undefined;
 
+  // Mode-deny gate: wrap each tool's execute so a tool disallowed by the active
+  // MODE returns an instructive deny result instead of running. The full tool
+  // schema stays in the request (cache-stable across mode switches — see
+  // discussion #85); restriction is enforced at call time, not by omitting the
+  // schema. Reads only the frozen closure values (isRestricted / planExecution
+  // / the *Set constants) — no shared mutable state, so it is inherently
+  // race-free and identical across TUI / headless / hearth (all go through
+  // createForgeAgent). activeTools still handles the genuinely-dynamic filters
+  // (addon-absent, agent-deferred, user /tools) below.
+  const modeAllows = (name: string): boolean => {
+    if (isRestricted) return restrictedSet.has(name);
+    if (planExecution) return planExecSet.has(name);
+    return true;
+  };
+  const modeDenyReason = (name: string): string => {
+    if (isRestricted) {
+      return `Tool "${name}" is disabled in ${forgeMode} mode (read-only/analysis only). Use read/navigate/soul_* to investigate, or plan to propose changes. To make edits, the user must switch out of ${forgeMode} mode.`;
+    }
+    return `Tool "${name}" is not available during plan execution. The plan already contains the intended changes — use edit_file/multi_edit/shell/project and update_plan_step to execute them.`;
+  };
+  if (isRestricted || planExecution) {
+    for (const [name, def] of Object.entries(allTools)) {
+      if (modeAllows(name)) continue;
+      const tool = def as { execute?: (...a: unknown[]) => unknown };
+      if (typeof tool.execute !== "function") continue;
+      // Rebuild the entry as a fresh object (spread) with only execute swapped
+      // for a deny stub — never mutate the source tool object in place. Some
+      // entries (MCP tools from the singleton manager, spark-shared forgeTools)
+      // alias objects that outlive this agent; in-place mutation would leak the
+      // stub across tabs/modes. The schema fields are copied verbatim, so the
+      // serialized tools prefix stays byte-identical to non-restricted mode.
+      (allTools as Record<string, unknown>)[name] = {
+        ...(def as Record<string, unknown>),
+        execute: () =>
+          Promise.resolve({
+            success: false,
+            output: modeDenyReason(name),
+            error: "mode_restricted",
+          }),
+      };
+    }
+  }
+
   const computeActiveTools = (): (keyof typeof allTools)[] | undefined => {
     // Strip addon-gated tools globally (e.g. `editor` when neovim addon absent).
     const addonFiltered = allToolNames.filter((name) => isToolAvailable(name as string));
-
-    if (isRestricted) return addonFiltered.filter((name) => restrictedSet.has(name));
-    if (planExecution) return addonFiltered.filter((name) => planExecSet.has(name));
 
     let names = addonFiltered;
 

@@ -1,12 +1,14 @@
 /**
  * Mode-specific prompt overlays.
  * Each mode appends additional instructions to the base family prompt.
- * Modes that restrict tools (architect, socratic, challenge, plan) also
- * override activeTools in forge.ts — the prompt here is for behavioral guidance.
+ * Modes that restrict tools (architect, socratic, challenge, plan) keep the
+ * full tool schema (cache-stable) and deny disallowed tools at execution time
+ * in forge.ts — the prompt here is for behavioral guidance.
  */
 import type { ForgeMode } from "../../../types/index.js";
 
-const READ_ONLY = "Read-only mode — no edit, shell, or git tools available.";
+const READ_ONLY =
+  "Read-only mode. Edit/shell/git tools stay visible but are disabled here — calling one returns a denial, not an action. Don't attempt them; investigate or plan instead.";
 
 const PLAN_FULL = `PLAN MODE — research then plan. No implementation tools.
 ${READ_ONLY}
