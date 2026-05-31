@@ -2,6 +2,26 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.19.0] — 2026-05-31
+
+### Bug Fixes
+
+- **forge**: mode inject latches on mode name + frozen turn-mode
+- **llm**: set correct app identity headers for OpenRouter and LLM Gateway
+- **soulmap**: trigram search falls back to full scan on un-populated index
+### Documentation
+
+- **soulmap**: teach agents when/why to use soul_query
+### Features
+
+- **forge**: inject mode as cache-stable message, not cached prefix
+- **forge**: mode-gate tools at execution, keep schema cache-stable
+- **soulmap**: stable symbol monikers + polyglot structural_edit tool
+- **soulmap**: trigram search, gitignore, soul_query pipeline, hash CAS, scan gating
+- **structural-edit**: vendor ast-grep so it's always available in prod
+### Testing
+
+- **forge**: cover mode tool gating — cache-stable schema + execution deny
 ## [2.18.6] — 2026-05-30
 
 ### Bug Fixes
