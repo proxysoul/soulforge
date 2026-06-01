@@ -3,6 +3,7 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { attach } from "neovim";
 import type { NvimConfigMode } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import { configDir, isCompiledBinary, userDataDir } from "../platform/index.js";
 import { makeIpcSocketPath, shouldCleanupSocketFile } from "../platform/socket.js";
 import { trackBunProcess, trackProcess } from "../process-tracker.js";
@@ -99,7 +100,7 @@ export async function launchNeovim(
   const BUFFER_MAX = 64_000; // ~64KB — enough for a full screen redraw
 
   const proc = Bun.spawn([effectivePath, ...args], {
-    cwd: process.cwd(),
+    cwd: getCwd(),
     env,
     terminal: {
       cols,
@@ -288,7 +289,7 @@ export function bootstrapNeovimPlugins(nvimPath: string): void {
       "+qa",
     ],
     {
-      cwd: process.cwd(),
+      cwd: getCwd(),
       stdio: "ignore",
       env: { ...process.env, NVIM_APPNAME: "soulforge" },
     },

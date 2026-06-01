@@ -2,6 +2,7 @@ import { access, stat as statAsync } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { isBinaryFile } from "isbinaryfile";
 import type { ToolResult } from "../../types";
+import { getCwd } from "../cwd.js";
 import { readBufferContent } from "../editor/instance";
 import { getIntelligenceClient } from "../intelligence/index.js";
 import type { SymbolKind } from "../intelligence/types.js";
@@ -13,7 +14,7 @@ import { emitFileRead } from "./file-events.js";
 import { contentHash } from "./tool-utils.js";
 
 function toRelPath(abs: string): string {
-  const cwd = process.cwd();
+  const cwd = getCwd();
   return abs.startsWith(`${cwd}/`) ? abs.slice(cwd.length + 1) : abs;
 }
 
@@ -47,7 +48,7 @@ async function buildSymbolOutline(
   try {
     const client = getIntelligenceClient();
     if (!client) return "";
-    const cwd = process.cwd();
+    const cwd = getCwd();
     const rel = filePath.startsWith(cwd) ? filePath.slice(cwd.length + 1) : filePath;
     const symbols = await client.getFileSymbolRanges(rel);
 
@@ -324,13 +325,13 @@ async function readSymbolFromFile(filePath: string, args: ReadFileArgs): Promise
     language = await client.routerDetectLanguage(filePath);
   } else {
     const { getIntelligenceRouter } = await import("../intelligence/index.js");
-    const router = getIntelligenceRouter(process.cwd());
+    const router = getIntelligenceRouter(getCwd());
     language = router.detectLanguage(filePath);
   }
 
   // readScope/readSymbol have no client proxy — use router directly
   const { getIntelligenceRouter } = await import("../intelligence/index.js");
-  const router = getIntelligenceRouter(process.cwd());
+  const router = getIntelligenceRouter(getCwd());
 
   if (args.target === "scope") {
     const scopeStart = args.startLine;

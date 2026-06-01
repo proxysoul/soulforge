@@ -4,6 +4,7 @@ import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ContextManager } from "../../core/context/manager.js";
+import { getCwd } from "../../core/cwd.js";
 import {
   type InstalledSkill,
   installSkill,
@@ -163,7 +164,7 @@ export function SkillSearch({ visible, contextManager, onClose, onSystemMessage 
   const [scopeCursor, setScopeCursor] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isInProject = existsSync(join(process.cwd(), ".git"));
+  const isInProject = existsSync(join(getCwd(), ".git"));
   const { width: termCols, height: termRows } = useTerminalDimensions();
 
   const containerRows = termRows - 2;

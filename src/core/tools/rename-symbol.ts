@@ -1,6 +1,7 @@
 import { readFile, stat as statAsync, writeFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import { getIntelligenceClient, getIntelligenceRouter } from "../intelligence/index.js";
 import type { FileEdit } from "../intelligence/types.js";
 import { isForbidden } from "../security/forbidden.js";
@@ -391,7 +392,7 @@ async function locateSymbol(
         `\\b(interface|type|class|function|enum|struct|trait|def|func)\\s+${escaped}\\b`,
         ".",
       ],
-      { cwd: process.cwd(), stdout: "pipe", stderr: "ignore", windowsHide: true },
+      { cwd: getCwd(), stdout: "pipe", stderr: "ignore", windowsHide: true },
     );
     const text = await new Response(proc.stdout).text();
     const matches = text.trim().split("\n").filter(Boolean);
@@ -410,7 +411,7 @@ async function locateSymbol(
 async function findProjectRoot(file: string): Promise<string> {
   const { dirname, join } = require("node:path") as typeof import("node:path");
   let dir = dirname(file);
-  const cwd = process.cwd();
+  const cwd = getCwd();
   while (dir.length >= cwd.length) {
     for (const marker of [
       "tsconfig.json",
@@ -446,7 +447,7 @@ async function findRemainingReferences(symbol: string, definitionFile: string): 
         `\\b${escaped}\\b`,
         projectRoot,
       ],
-      { cwd: process.cwd(), stdout: "pipe", stderr: "ignore" },
+      { cwd: getCwd(), stdout: "pipe", stderr: "ignore" },
     );
     const text = await new Response(proc.stdout).text();
     return text
@@ -472,7 +473,7 @@ export const renameSymbolTool = {
     "[TIER-3] Rename a symbol across all files atomically via LSP. Safer than find-and-replace.",
   execute: async (args: RenameSymbolArgs): Promise<ToolResult> => {
     try {
-      const router = getIntelligenceRouter(process.cwd());
+      const router = getIntelligenceRouter(getCwd());
       const client = getIntelligenceClient();
 
       const located = await locateSymbol(router, args.symbol, args.file);

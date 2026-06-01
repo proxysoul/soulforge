@@ -1,3 +1,4 @@
+import { getCwd } from "../cwd.js";
 import { getIntelligenceRouter } from "../intelligence/index.js";
 import type { TrackedResult } from "../workers/intelligence-client.js";
 
@@ -7,7 +8,7 @@ export async function fallbackTracked<T>(
   operation: string & keyof import("../intelligence/types.js").IntelligenceBackend,
   fn: (b: import("../intelligence/types.js").IntelligenceBackend) => Promise<T | null>,
 ): Promise<TrackedResult<T>> {
-  const router = getIntelligenceRouter(process.cwd());
+  const router = getIntelligenceRouter(getCwd());
   const language = router.detectLanguage(file);
   return router.executeWithFallbackTracked(language, operation, fn);
 }

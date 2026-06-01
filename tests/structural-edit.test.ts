@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { structuralEditTool } from "../src/core/tools/structural-edit.js";
+import { setCwd } from "../src/core/cwd.js";
 
 const origCwd = process.cwd();
 let dir: string;
@@ -31,11 +32,11 @@ function hasAstGrep(): boolean {
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "struct-edit-"));
-  process.chdir(dir);
+  setCwd(dir);
 });
 
 afterAll(() => {
-  process.chdir(origCwd);
+  setCwd(origCwd);
   rmSync(dir, { recursive: true, force: true });
 });
 

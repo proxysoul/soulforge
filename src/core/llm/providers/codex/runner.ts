@@ -14,6 +14,7 @@ import type {
   LanguageModelV2StreamPart,
   LanguageModelV2Usage,
 } from "@ai-sdk/provider";
+import { getCwd } from "../../../cwd.js";
 import { trackProcess } from "../../../process-tracker.js";
 
 export interface CodexRunnerCall {
@@ -306,7 +307,7 @@ class CodexCliRunner implements CodexRunner {
       "--config",
       'approval_policy="never"',
       "--cd",
-      process.cwd(),
+      getCwd(),
       "--output-schema",
       schemaPath,
       "--model",

@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { getCwd } from "../../core/cwd.js";
 import { classifyPath, type OutsideKind } from "../../core/security/outside-cwd.js";
 import { getThemeTokens } from "../../core/theme/index.js";
 import { canonicalizePath, isInsideCwd } from "../../core/utils/path-display.js";
@@ -13,7 +14,7 @@ function isObj(v: unknown): v is Record<string, unknown> {
 
 /** Shorten absolute paths under the current working directory to relative form for display. */
 function relPath(p: string): string {
-  const cwd = process.cwd();
+  const cwd = getCwd();
   if (p === cwd) return ".";
   if (p.startsWith(`${cwd}/`)) return p.slice(cwd.length + 1);
   return p;
@@ -563,8 +564,8 @@ function checkPath(p: string): OutsideKind | null {
   if (!p) return null;
   if (!p.startsWith("/") && !p.startsWith("~")) return null;
   const resolved = resolve(p);
-  if (isInsideCwd(resolved, process.cwd())) return null;
-  return classifyPath(canonicalizePath(resolved), process.cwd());
+  if (isInsideCwd(resolved, getCwd())) return null;
+  return classifyPath(canonicalizePath(resolved), getCwd());
 }
 
 export function detectOutsideCwd(toolName: string, args?: string): OutsideKind | null {

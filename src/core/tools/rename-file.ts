@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, stat as statAsync, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import { getIntelligenceClient, getIntelligenceRouter } from "../intelligence/index.js";
 import { isForbidden } from "../security/forbidden.js";
 import { pushEdit } from "./edit-stack.js";
@@ -19,7 +20,7 @@ export const renameFileTool = {
   execute: async (args: RenameFileArgs): Promise<ToolResult> => {
     const from = resolve(args.from);
     const to = resolve(args.to);
-    const cwd = process.cwd();
+    const cwd = getCwd();
 
     try {
       await statAsync(from);

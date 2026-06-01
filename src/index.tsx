@@ -3,6 +3,7 @@ import type { createRoot as CreateRoot } from "@opentui/react";
 import { startTransition, useCallback, useEffect, useState } from "react";
 import type { App as AppComponent } from "./components/App.js";
 import type { ContextManager } from "./core/context/manager.js";
+import { getCwd } from "./core/cwd.js";
 import { killAllNvimProcesses } from "./core/editor/neovim.js";
 import { icon } from "./core/icons.js";
 import { killAllLspSync } from "./core/intelligence/backends/lsp/pid-tracker.js";
@@ -307,7 +308,7 @@ function AppRoot({ opts }: { opts: StartOptions }) {
       const { checkPrerequisites } = await import("./core/setup/prerequisites.js");
 
       const newConfig = loadConfig();
-      const newProjectConfig = loadProjectConfig(process.cwd());
+      const newProjectConfig = loadProjectConfig(getCwd());
       const [newProviders, newPrereqs] = await Promise.all([
         checkProviders(),
         Promise.resolve(checkPrerequisites()),

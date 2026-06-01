@@ -1,6 +1,7 @@
 import { TextAttributes } from "@opentui/core";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentStatsEvent, SubagentStep } from "../../core/agents/subagent-events.js";
+import { getCwd } from "../../core/cwd.js";
 import { icon as getIcon, icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
 import {
@@ -775,7 +776,7 @@ const ToolRow = memo(
     const multiReadContent =
       multiReadFiles && multiReadFiles.length >= 2
         ? (() => {
-            const cwd = process.cwd();
+            const cwd = getCwd();
             const detailMap = new Map(multiReadFiles.map((f) => [f.path, f.detail]));
 
             // Standalone (not in tree): flat file list, no tree connectors

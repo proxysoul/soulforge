@@ -1,6 +1,7 @@
 import { stat as statAsync } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import { getIntelligenceClient, getIntelligenceRouter } from "../intelligence/index.js";
 import type { CallHierarchyItem, SourceLocation, SymbolInfo } from "../intelligence/types.js";
 import { isForbidden } from "../security/forbidden.js";
@@ -125,7 +126,7 @@ async function autoResolveFile(
     const tracked = await client.routerFindWorkspaceSymbols(symbol);
     results = tracked?.value ?? null;
   } else {
-    const router = getIntelligenceRouter(process.cwd());
+    const router = getIntelligenceRouter(getCwd());
     const language = router.detectLanguage();
     results = await router.executeWithFallback(language, "findWorkspaceSymbols", (b) =>
       b.findWorkspaceSymbols ? b.findWorkspaceSymbols(symbol) : Promise.resolve(null),
@@ -156,7 +157,7 @@ async function autoResolveFile(
     const proc = Bun.spawn(
       [rgBin(), "--files-with-matches", "--glob", RG_FILE_TYPES, pattern, "."],
       {
-        cwd: process.cwd(),
+        cwd: getCwd(),
         stdout: "pipe",
         stderr: "ignore",
         windowsHide: true,
@@ -184,7 +185,7 @@ async function autoResolveFile(
     const proc = Bun.spawn(
       [rgBin(), "--files-with-matches", "--glob", RG_FILE_TYPES, importPattern, "."],
       {
-        cwd: process.cwd(),
+        cwd: getCwd(),
         stdout: "pipe",
         stderr: "ignore",
         windowsHide: true,
@@ -213,7 +214,7 @@ async function buildAnnotation(
   if (!repoMap.getFileBlastRadius || !repoMap.getFileCoChanges) return null;
 
   try {
-    const cwd = process.cwd();
+    const cwd = getCwd();
     const rel = filePath.startsWith(`${cwd}/`) ? filePath.slice(cwd.length + 1) : filePath;
 
     const [blastRadius, coChanges] = await Promise.all([
@@ -275,7 +276,7 @@ export const navigateTool = {
             };
           }
         } else if (resolved && "candidates" in resolved) {
-          const cwd = process.cwd();
+          const cwd = getCwd();
           const display = resolved.candidates.map((c) =>
             c.startsWith(cwd) ? c.slice(cwd.length + 1) : c,
           );
@@ -691,7 +692,7 @@ async function formatReferencesWithScope(
     else byFile.set(r.file, [r.line]);
   }
 
-  const cwd = process.cwd();
+  const cwd = getCwd();
   const rel = (f: string) => (f.startsWith(`${cwd}/`) ? f.slice(cwd.length + 1) : f);
 
   type Range = { name: string; kind: string; line: number; endLine: number | null };

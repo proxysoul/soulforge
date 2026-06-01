@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, loadProjectConfig } from "../../../../config/index.js";
+import { getCwd } from "../../../cwd.js";
 import { commandExists, configDir, IS_WIN, userDataDir } from "../../../platform/index.js";
 import type { Language } from "../../types.js";
 
@@ -146,7 +147,7 @@ function resolveCommand(cmd: string): string | null {
 
 /** Check if a server command is disabled by user config */
 function isServerDisabled(cmd: string): boolean {
-  const cwd = process.cwd();
+  const cwd = getCwd();
   const global = loadConfig();
   const project = loadProjectConfig(cwd);
   const disabled = project?.disabledLspServers ?? global.disabledLspServers ?? [];

@@ -6,6 +6,7 @@ import { loadConfig } from "../../config/index.js";
 import { logBackgroundError } from "../../stores/errors.js";
 import type { AgentFeatures } from "../../types/index.js";
 import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
+import { getCwd } from "../cwd.js";
 import { getModelContextWindow } from "../llm/models.js";
 import { buildProviderOptions, supportsProgrammaticToolCalling } from "../llm/provider-options.js";
 import { wrapWithBusCache } from "../tools/bus-cache.js";
@@ -335,7 +336,7 @@ export async function createAgent(
         : null,
     };
     import("node:fs").then(({ mkdirSync, writeFileSync }) => {
-      const dir = `${process.cwd()}/.soulforge/api-export/subagents/${task.agentId}`;
+      const dir = `${getCwd()}/.soulforge/api-export/subagents/${task.agentId}`;
       mkdirSync(dir, { recursive: true });
       writeFileSync(`${dir}/config.json`, JSON.stringify(configData, null, 2), "utf-8");
     });
@@ -473,7 +474,7 @@ export function buildSubagentTools(models: SubagentModels) {
         const bus = new AgentBus(cacheRef.current);
         const activeTabId = getActiveTaskTab();
         const dispatchTabId = activeTabId ?? "default";
-        await cleanupDispatchDir(process.cwd(), dispatchTabId, toolCallId);
+        await cleanupDispatchDir(getCwd(), dispatchTabId, toolCallId);
         if (activeTabId) getWorkspaceCoordinator().agentStarted(activeTabId);
         let editingDone = false;
         let dependentWarning = "";
@@ -481,7 +482,7 @@ export function buildSubagentTools(models: SubagentModels) {
           const WEB_MARKER = "web";
           const warnings: string[] = [];
           const repoMap = models.repoMap;
-          const cwd = process.cwd();
+          const cwd = getCwd();
 
           // ── Normalize: map new schema (files) to internal (targetFiles) ──
           let args = {

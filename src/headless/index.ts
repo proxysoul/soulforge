@@ -1,6 +1,8 @@
 import { loadConfig, loadProjectConfig, mergeConfigs } from "../config/index.js";
+import { getCwd } from "../core/cwd.js";
 import { getProviderSecretEntries, registerCustomProviders } from "../core/llm/providers/index.js";
 import { registerProviderSecrets } from "../core/secrets.js";
+import { applyCwd } from "../core/utils/resolve-cwd.js";
 import type { AppConfig } from "../types/index.js";
 import { VERSION } from "./constants.js";
 import { listModels, listProviders, setKey } from "./providers.js";
@@ -10,9 +12,9 @@ import type { HeadlessAction } from "./types.js";
 export { parseHeadlessArgs } from "./parse.js";
 export type { HeadlessAction, HeadlessChatOptions, HeadlessRunOptions } from "./types.js";
 
-async function initConfig(cwd?: string): Promise<AppConfig> {
+async function initConfig(): Promise<AppConfig> {
   const config = loadConfig();
-  const projectConfig = loadProjectConfig(cwd ?? process.cwd());
+  const projectConfig = loadProjectConfig(getCwd());
   const merged = mergeConfigs(config, projectConfig);
   if (merged.keyPriority) {
     const { setDefaultKeyPriority } = await import("../core/secrets.js");
@@ -31,9 +33,11 @@ export async function runHeadless(action: HeadlessAction): Promise<void> {
     return;
   }
 
-  const cwd =
-    action.type === "run" ? action.opts.cwd : action.type === "chat" ? action.opts.cwd : undefined;
-  const config = await initConfig(cwd);
+  // Apply --cwd before config / repo map / tools read process.cwd(). When
+  // launched via boot.tsx this is already done; idempotent re-apply covers
+  // direct entry (tests, daemon-embedded chat).
+  applyCwd(action.type === "run" || action.type === "chat" ? action.opts.cwd : undefined);
+  const config = await initConfig();
 
   switch (action.type) {
     case "list-providers":

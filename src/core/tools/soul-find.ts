@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { relative, resolve } from "node:path";
 import type { ToolResult } from "../../types";
+import { getCwd } from "../cwd.js";
 import { isForbidden } from "../security/forbidden.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
 
@@ -19,7 +20,7 @@ export const soulFindTool = {
     return async (args: SoulFindArgs): Promise<ToolResult> => {
       const { query } = args;
       const limit = args.limit ?? 20;
-      const cwd = process.cwd();
+      const cwd = getCwd();
 
       const repoMapResults = repoMap?.isReady
         ? await searchIntelligenceClient(repoMap, query, cwd, limit)
@@ -420,7 +421,7 @@ function listFiles(typeFilter: string | undefined): Promise<string[]> {
     args.push("--max-results", "500");
     args.push(".");
 
-    const proc = spawn("fd", args, { cwd: process.cwd(), timeout: 10_000 });
+    const proc = spawn("fd", args, { cwd: getCwd(), timeout: 10_000 });
     const chunks: string[] = [];
     proc.stdout.on("data", (d: Buffer) => chunks.push(d.toString()));
 
@@ -449,7 +450,7 @@ function fallbackFind(typeFilter: string | undefined): Promise<string[]> {
       args.push("(", ...nameArgs, ")");
     }
 
-    const proc = spawn("find", args, { cwd: process.cwd(), timeout: 10_000 });
+    const proc = spawn("find", args, { cwd: getCwd(), timeout: 10_000 });
     const chunks: string[] = [];
     proc.stdout.on("data", (d: Buffer) => chunks.push(d.toString()));
 

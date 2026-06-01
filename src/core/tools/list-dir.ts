@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import { isForbidden } from "../security/forbidden.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
 
@@ -26,7 +27,7 @@ export const listDirTool = {
     "List directory contents with file metadata. Accepts a single path or array of paths to list multiple directories in one call. Use depth for recursive listing.",
   execute: async (args: ListDirArgs, repoMap?: IntelligenceClient): Promise<ToolResult> => {
     try {
-      const cwd = process.cwd();
+      const cwd = getCwd();
       const depth = Math.min(Math.max(args.depth ?? 1, 1), 5);
 
       // Normalize paths: support single string, array, or default to cwd

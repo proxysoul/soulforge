@@ -14,6 +14,7 @@ import type {
 } from "../../types/index.js";
 import { compressImageForApi } from "../../utils/image-compress.js";
 import type { ContextManager } from "../context/manager.js";
+import { getCwd } from "../cwd.js";
 import {
   type CacheTTL,
   detectModelFamily,
@@ -609,7 +610,7 @@ function buildForgePrepareStep(
         }),
       };
       import("node:fs").then(({ mkdirSync, writeFileSync }) => {
-        const dir = `${process.cwd()}/.soulforge/api-export`;
+        const dir = `${getCwd()}/.soulforge/api-export`;
         mkdirSync(dir, { recursive: true });
         writeFileSync(
           `${dir}/forge-step-${String(stepNumber).padStart(2, "0")}.json`,

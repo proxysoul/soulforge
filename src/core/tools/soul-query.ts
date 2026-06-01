@@ -1,5 +1,6 @@
 import { relative, resolve } from "node:path";
 import type { ToolResult } from "../../types";
+import { getCwd } from "../cwd.js";
 import { isForbidden } from "../security/forbidden.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
 import { readFileTool } from "./read-file.js";
@@ -64,7 +65,7 @@ export const soulQueryTool = {
 
   createExecute: (repoMap?: IntelligenceClient) => {
     return async (args: QueryArgs): Promise<ToolResult> => {
-      const cwd = process.cwd();
+      const cwd = getCwd();
       const pipeline = args.pipeline ?? [];
       if (pipeline.length === 0) {
         return {

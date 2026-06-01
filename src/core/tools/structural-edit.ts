@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import { findOnPath, IS_WIN } from "../platform/index.js";
 import { isForbidden } from "../security/forbidden.js";
 import { getVendoredPath } from "../setup/install.js";
@@ -150,7 +151,7 @@ export const structuralEditTool = {
     "matched against the syntax tree, not text — robust to whitespace/formatting. For .ts/.tsx/.js/.jsx " +
     "use ast_edit instead (type-aware ts-morph). Set preview=true to see the diff without writing.",
   execute: async (args: StructuralEditArgs): Promise<ToolResult> => {
-    const cwd = process.cwd();
+    const cwd = getCwd();
     const abs = resolve(cwd, args.file);
 
     const forbidden = isForbidden(abs);

@@ -259,6 +259,7 @@ function ShutdownSplash({
   );
 }
 
+import { getCwd } from "../core/cwd.js";
 import {
   getCachedProviderStatuses,
   type ProviderStatus,
@@ -606,7 +607,7 @@ export function App({
     }
   }, [config.onboardingComplete, forceWizard, resumeSessionId]);
 
-  const cwd = process.cwd();
+  const cwd = getCwd();
 
   const saveToScope = useCallback(
     (patch: Partial<AppConfig>, toScope: ConfigScope, fromScope?: ConfigScope) => {

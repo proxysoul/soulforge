@@ -1,6 +1,7 @@
 import type { ModelMessage } from "@ai-sdk/provider-utils";
 import type { PrepareStepFunction, StopCondition } from "ai";
 import { stepCountIs } from "ai";
+import { getCwd } from "../cwd.js";
 import { renderTaskList } from "../tools/task-list.js";
 import type { AgentBus } from "./agent-bus.js";
 import { AbnormalFinishError, isAbnormalFinish } from "./stream-options.js";
@@ -555,7 +556,7 @@ export function buildPrepareStep({
 
       const json = JSON.stringify(exportData, null, 2);
       import("node:fs").then(({ mkdirSync, writeFileSync }) => {
-        const dir = `${process.cwd()}/.soulforge/api-export`;
+        const dir = `${getCwd()}/.soulforge/api-export`;
         mkdirSync(dir, { recursive: true });
         const subDir = agentId ? `${dir}/subagents/${agentId}` : dir;
         mkdirSync(subDir, { recursive: true });

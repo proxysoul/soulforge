@@ -39,6 +39,7 @@ export function getMaxConcurrentAgents(): number {
 }
 
 import { recordModelCall } from "../../stores/model-events.js";
+import { getCwd } from "../cwd.js";
 import { runWithEditOrigin } from "../tools/file-events.js";
 import { getToolTimeoutMs } from "../tools/tool-timeout.js";
 
@@ -629,7 +630,7 @@ export async function runAgentTask(
           result,
           agentFindings,
           doneResult.summary,
-          process.cwd(),
+          getCwd(),
           task.tabId,
         );
       } catch {}
@@ -650,9 +651,7 @@ export async function runAgentTask(
               const cachedContent = bus.getFileContent(editedPath);
               if (cachedContent == null) return;
               try {
-                const abs = isAbsolute(editedPath)
-                  ? editedPath
-                  : resolvePath(process.cwd(), editedPath);
+                const abs = isAbsolute(editedPath) ? editedPath : resolvePath(getCwd(), editedPath);
                 const diskContent = await readFile(abs, "utf-8");
                 if (cachedContent === diskContent) {
                   noopEdits.push(editedPath);

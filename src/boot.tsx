@@ -17,6 +17,12 @@ reapOrphanedLspProcesses();
 hydrateCompiledRuntime();
 
 const cliArgs = process.argv.slice(2);
+
+// Honour --cwd before any module reads process.cwd(). One process = one cwd:
+// every downstream consumer (config, repo map / soul map, intelligence,
+// memory, all tools) inherits it for free via process.cwd().
+resolveCwdFromArgv(cliArgs);
+
 const hasCli =
   cliArgs.includes("--headless") ||
   cliArgs.includes("--list-providers") ||
@@ -125,7 +131,9 @@ if (IS_COMPILED) {
   }
 }
 
+import { getCwd } from "./core/cwd.js";
 import { applyTheme, getThemeTokens, watchThemes } from "./core/theme/index.js";
+import { resolveCwdFromArgv } from "./core/utils/resolve-cwd.js";
 import { pickWordmark } from "./core/utils/splash.js";
 import { logBackgroundError } from "./stores/errors.js";
 
@@ -441,7 +449,7 @@ for (let i = 0; i < args.length; i++) {
 
 status("Reading the scrolls");
 const config = loadConfig();
-const projectConfig = loadProjectConfig(process.cwd());
+const projectConfig = loadProjectConfig(getCwd());
 initNerdFont(config.nerdFont);
 
 {
@@ -471,7 +479,7 @@ initNerdFont(config.nerdFont);
 // Pre-init ContextManager async — yields between heavy sync steps so the spinner stays alive.
 const repoMapEnabled = (projectConfig?.repoMap ?? config.repoMap) !== false;
 const contextManagerReady = import("./core/context/manager.js").then(({ ContextManager }) =>
-  ContextManager.createAsync(process.cwd(), (step) => status(step), { repoMapEnabled }),
+  ContextManager.createAsync(getCwd(), (step) => status(step), { repoMapEnabled }),
 );
 
 // Detect nvim — DO NOT auto-install. Neovim is an opt-in addon now:
@@ -561,7 +569,7 @@ status("Kicking the neurons awake", "Waking the tree-sitter");
 // duplicate LSP servers on both main thread and worker.
 contextManagerReady
   .then(() => import("./core/intelligence/index.js"))
-  .then(({ warmupIntelligence }) => warmupIntelligence(process.cwd(), config.codeIntelligence))
+  .then(({ warmupIntelligence }) => warmupIntelligence(getCwd(), config.codeIntelligence))
   .catch((err) => {
     logBackgroundError(
       "boot",

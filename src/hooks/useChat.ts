@@ -28,6 +28,7 @@ import {
 } from "../core/compaction/index.js";
 import type { ContextManager } from "../core/context/manager.js";
 import { getWorkspaceCoordinator } from "../core/coordination/WorkspaceCoordinator.js";
+import { getCwd } from "../core/cwd.js";
 import { setCoAuthorEnabled } from "../core/git/status.js";
 import { hasToolHooks, runHooks } from "../core/hooks/index.js";
 import {
@@ -3052,10 +3053,7 @@ export function useChat({
                   try {
                     const g = globalThis as unknown as Record<string, string>;
                     g.__cacheLog = (g.__cacheLog ?? "") + line;
-                    Bun.write(
-                      `${process.cwd()}/.soulforge/api-export/cache-steps.log`,
-                      g.__cacheLog,
-                    );
+                    Bun.write(`${getCwd()}/.soulforge/api-export/cache-steps.log`, g.__cacheLog);
                   } catch {}
                 }
                 const base = baseTokenUsageRef.current;

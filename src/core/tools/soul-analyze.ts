@@ -1,5 +1,6 @@
 import { extname, relative } from "node:path";
 import type { ToolResult } from "../../types";
+import { getCwd } from "../cwd.js";
 import {
   IMPORT_TRACKABLE_LANGUAGES,
   INDEXABLE_EXTENSIONS,
@@ -36,7 +37,7 @@ export const soulAnalyzeTool = {
 
   createExecute: (repoMap?: IntelligenceClient) => {
     return async (args: SoulAnalyzeArgs): Promise<ToolResult> => {
-      const cwd = process.cwd();
+      const cwd = getCwd();
 
       if (!repoMap?.isReady) {
         // Grep fallback for actions that can be approximated

@@ -265,6 +265,7 @@ function SystemMessage({ msg, animate = true }: { msg: ChatMessage; animate?: bo
   );
 }
 
+import { getCwd } from "../../core/cwd.js";
 import { useHover } from "../../hooks/useHover.js";
 import { RAIL_BORDER } from "../ui/borders.js";
 import { HighlightedToolResult } from "./highlighted-result.js";
@@ -385,7 +386,7 @@ function ToolCallRow({
   const multiReadContent =
     multiReadFiles && multiReadFiles.length >= 2
       ? (() => {
-          const cwd = process.cwd();
+          const cwd = getCwd();
           const detailMap = new Map(multiReadFiles.map((f) => [f.path, f.detail]));
           const entries = multiReadFiles.map((f) => ({
             path: f.path,
@@ -527,7 +528,7 @@ function WritePlanCall({
   const [markdown, setMarkdown] = useState<string | null>(null);
   useEffect(() => {
     if (!planFile) return;
-    readFile(join(process.cwd(), planFile), "utf-8")
+    readFile(join(getCwd(), planFile), "utf-8")
       .then(setMarkdown)
       .catch(() => setMarkdown(null));
   }, [planFile]);
@@ -977,7 +978,7 @@ function renderSegments(
             );
           }
           if (g.type === "batch") {
-            const cwd = process.cwd();
+            const cwd = getCwd();
             // Extract all paths from batch calls (edits use args.path, reads use args.files)
             interface BatchFile {
               path: string;

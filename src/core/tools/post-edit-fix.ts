@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { getCwd } from "../cwd.js";
 import { getIntelligenceClient, getIntelligenceRouter } from "../intelligence/index.js";
 import type { FormatEdit, RefactorResult } from "../intelligence/types.js";
 import { pushEdit } from "./edit-stack.js";
@@ -17,7 +18,7 @@ import { emitFileEdited } from "./file-events.js";
 async function autoFixFile(filePath: string, tabId?: string): Promise<string[]> {
   const absPath = resolve(filePath);
   const client = getIntelligenceClient();
-  const router = getIntelligenceRouter(process.cwd());
+  const router = getIntelligenceRouter(getCwd());
   const language = client
     ? await client.routerDetectLanguage(absPath)
     : router.detectLanguage(absPath);

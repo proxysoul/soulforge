@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types";
+import { getCwd } from "../cwd.js";
 import { getIntelligenceClient } from "../intelligence/index.js";
 import type { FileOutline, SymbolInfo } from "../intelligence/types.js";
 import { isForbidden } from "../security/forbidden.js";
@@ -44,7 +45,7 @@ export const grepTool = {
     const rawOutput = await new Promise<string>((res) => {
       const rgBin = getVendoredPath("rg") ?? "rg";
       const proc = spawn(rgBin, rgArgs, {
-        cwd: process.cwd(),
+        cwd: getCwd(),
         timeout: 10_000,
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
@@ -74,7 +75,7 @@ export const grepTool = {
           if (glob) fallbackArgs.push("--include", glob);
 
           const grepProc = spawn("grep", fallbackArgs, {
-            cwd: process.cwd(),
+            cwd: getCwd(),
             timeout: 10_000,
             stdio: ["ignore", "pipe", "pipe"],
             detached: true,
@@ -154,7 +155,7 @@ export async function enrichWithSymbolContext(output: string): Promise<string> {
           ol = tracked?.value ?? null;
         } else {
           const { getIntelligenceRouter } = await import("../intelligence/index.js");
-          const router = getIntelligenceRouter(process.cwd());
+          const router = getIntelligenceRouter(getCwd());
           const lang = router.detectLanguage(abs);
           ol = await router.executeWithFallback(lang, "getFileOutline", (b) =>
             b.getFileOutline ? b.getFileOutline(abs) : Promise.resolve(null),

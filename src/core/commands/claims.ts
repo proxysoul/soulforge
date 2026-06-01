@@ -1,13 +1,14 @@
 import { relative } from "node:path";
 import type { InfoPopupLine } from "../../components/modals/InfoPopup.js";
 import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
+import { getCwd } from "../cwd.js";
 import { icon } from "../icons.js";
 import { getThemeTokens } from "../theme/index.js";
 import type { CommandContext, CommandHandler } from "./types.js";
 import { sysMsg } from "./utils.js";
 
 function displayPath(absPath: string): string {
-  const cwd = process.cwd();
+  const cwd = getCwd();
   return absPath.startsWith(cwd) ? relative(cwd, absPath) : absPath;
 }
 

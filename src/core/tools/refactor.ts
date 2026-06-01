@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import {
   type CodeIntelligenceRouter,
   getIntelligenceClient,
@@ -123,7 +124,7 @@ export const refactorTool = {
     "[TIER-3] LSP code transformations — extract function, organize imports. Atomic multi-file updates. Set apply=false to preview.",
   execute: async (args: RefactorArgs): Promise<ToolResult> => {
     try {
-      const router = getIntelligenceRouter(process.cwd());
+      const router = getIntelligenceRouter(getCwd());
       const file = args.file ? resolve(args.file) : undefined;
       if (file) {
         const blocked = isForbidden(file);

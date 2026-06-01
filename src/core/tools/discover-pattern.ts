@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import { getIntelligenceClient, getIntelligenceRouter } from "../intelligence/index.js";
 import { isForbidden } from "../security/forbidden.js";
 
@@ -23,7 +24,7 @@ export const discoverPatternTool = {
   execute: async (args: DiscoverPatternArgs): Promise<ToolResult> => {
     try {
       const client = getIntelligenceClient();
-      const router = getIntelligenceRouter(process.cwd());
+      const router = getIntelligenceRouter(getCwd());
       const file = args.file ? resolve(args.file) : undefined;
       const language = router.detectLanguage(file);
 

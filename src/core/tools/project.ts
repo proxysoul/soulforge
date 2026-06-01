@@ -1,6 +1,7 @@
 import { access, readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import { bunShellArgs } from "../platform/index.js";
 import { compressShellOutputFull } from "./shell-compress.js";
 import { saveTee, truncateWithTee } from "./tee.js";
@@ -803,7 +804,7 @@ export const projectTool = {
     "Actions: check (typecheck+lint+test in parallel), test, build, lint, format, typecheck, run, list. " +
     "Use check after edits for full verification in one call. Fix only the failed step, then re-run just that action.",
   execute: async (args: ProjectArgs): Promise<ToolResult> => {
-    const cwd = args.cwd ? join(process.cwd(), args.cwd) : process.cwd();
+    const cwd = args.cwd ? join(getCwd(), args.cwd) : getCwd();
 
     if (args.action === "list") {
       const packages = await discoverPackages(cwd);

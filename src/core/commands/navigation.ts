@@ -2,6 +2,7 @@ import type { CommandPickerOption } from "../../components/modals/CommandPicker.
 import { confirm, openSelect } from "../../components/ui/dialogs/index.js";
 import { useTerminalStore } from "../../stores/terminals.js";
 import { useUIStore } from "../../stores/ui.js";
+import { getCwd } from "../cwd.js";
 import { emitDraftRestore, getStashDB } from "../history/index.js";
 import { icon } from "../icons.js";
 import { ghosttyDisabled, IS_WIN } from "../platform/index.js";
@@ -294,7 +295,7 @@ export function matchNavPrefix(cmd: string): CommandHandler | null {
   return null;
 }
 async function handleStash(_input: string, ctx: CommandContext): Promise<void> {
-  const cwd = process.cwd();
+  const cwd = getCwd();
   let entries = getStashDB().list(cwd);
   if (entries.length === 0) {
     sysMsg(ctx, "No stashed drafts. Press Alt+S in the input to stash one.");

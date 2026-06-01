@@ -2,6 +2,7 @@ import { mkdir, readFile, stat as statAsync, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { analyzeFile } from "../analysis/complexity.js";
+import { getCwd } from "../cwd.js";
 import { markToolWrite, reloadBuffer } from "../editor/instance.js";
 import type { SurgicalOperation } from "../intelligence/backends/ts-morph.js";
 import { TsMorphBackend } from "../intelligence/backends/ts-morph.js";
@@ -189,7 +190,7 @@ export const astEditTool = {
           if (deltas.length > 0) output += ` (${deltas.join(", ")})`;
           output = await appendAutoFormatResult(filePath, content, output, args.tabId);
           output = await appendPostEditDiagnostics(diagsPromise, filePath, output);
-          const cwdHint = process.cwd();
+          const cwdHint = getCwd();
           const relHint = filePath.startsWith(`${cwdHint}/`)
             ? filePath.slice(cwdHint.length + 1)
             : filePath;
@@ -223,7 +224,7 @@ export const astEditTool = {
       // CAS: snapshot disk content before ts-morph touches anything
       const contentOnDisk = await readFile(filePath, "utf-8");
 
-      const cwd = process.cwd();
+      const cwd = getCwd();
       const backend = getBackend(cwd);
 
       // Delegate entirely to ts-morph surgical engine
@@ -283,7 +284,7 @@ export const astEditTool = {
       // Consume any pending nudge (no-op after first fire per session)
       await consumeAstEditNudge(filePath);
 
-      const cwdHint = process.cwd();
+      const cwdHint = getCwd();
       const relHint = filePath.startsWith(`${cwdHint}/`)
         ? filePath.slice(cwdHint.length + 1)
         : filePath;

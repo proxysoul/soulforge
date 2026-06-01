@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { getCwd } from "../cwd.js";
 import type { ConflictInfo } from "./types.js";
 import { getWorkspaceCoordinator } from "./WorkspaceCoordinator.js";
 
@@ -11,7 +12,7 @@ export function formatConflictWarning(conflicts: ConflictInfo[]): string | null 
 
   const lines = conflicts.map((c) => {
     const ago = formatTimeAgo(c.lastEditAt);
-    const cwd = process.cwd();
+    const cwd = getCwd();
     const displayPath = c.path.startsWith(cwd) ? c.path.slice(cwd.length + 1) : c.path;
     return `⚠️ File ${displayPath} is being edited by Tab "${c.ownerTabLabel}" (${String(c.editCount)} edit${c.editCount !== 1 ? "s" : ""}, last ${ago}).`;
   });

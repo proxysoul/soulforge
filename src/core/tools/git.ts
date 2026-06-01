@@ -1,6 +1,7 @@
 import { relative } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
+import { getCwd } from "../cwd.js";
 import {
   getGitDiff,
   getGitLog,
@@ -29,7 +30,7 @@ import {
 import { memoryHintComposite } from "../memory/hints.js";
 import { truncateWithTee } from "./tee.js";
 
-const cwd = process.cwd();
+const cwd = getCwd();
 const MAX_GIT_OUTPUT = 32_000;
 
 async function capGitOutput(output: string, label: string): Promise<string> {

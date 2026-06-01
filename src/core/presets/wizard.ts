@@ -1,4 +1,5 @@
 import * as p from "@clack/prompts";
+import { getCwd } from "../cwd.js";
 import { resolvePresets } from "./loader.js";
 import { appendPresets, listPresets, type PresetScope } from "./persist.js";
 import { fetchRegistry } from "./registry.js";
@@ -6,7 +7,7 @@ import { fetchRegistry } from "./registry.js";
 export async function runPresetsWizard(): Promise<number> {
   p.intro("soulforge presets");
 
-  const cwd = process.cwd();
+  const cwd = getCwd();
   const alreadyGlobal = new Set(listPresets("global"));
   const alreadyProject = new Set(listPresets("project", cwd));
 

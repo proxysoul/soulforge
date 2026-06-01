@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ToolResult } from "../../types";
+import { getCwd } from "../cwd.js";
 import { commandExists, IS_WIN } from "../platform/index.js";
 import { isForbidden } from "../security/forbidden.js";
 
@@ -32,7 +33,7 @@ function runFd(bin: string, pattern: string, basePath: string): Promise<ToolResu
       bin,
       ["--glob", pattern, basePath, "--max-results", "50", "--max-depth", "8"],
       {
-        cwd: process.cwd(),
+        cwd: getCwd(),
         timeout: 10_000,
       },
     );
@@ -61,7 +62,7 @@ function runFind(pattern: string, basePath: string): Promise<ToolResult> {
       return;
     }
     const proc = spawn("find", [basePath, "-name", pattern, "-maxdepth", "5"], {
-      cwd: process.cwd(),
+      cwd: getCwd(),
       timeout: 10_000,
     });
     const chunks: string[] = [];

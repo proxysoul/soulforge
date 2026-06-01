@@ -10,6 +10,7 @@ import {
   prependWarning,
 } from "../coordination/tool-wrapper.js";
 import { getWorkspaceCoordinator } from "../coordination/WorkspaceCoordinator.js";
+import { getCwd } from "../cwd.js";
 import { hasToolHooks, runHooks } from "../hooks/index.js";
 import { MemoryManager } from "../memory/manager.js";
 import {
@@ -2108,7 +2109,7 @@ export function buildSubagentExploreTools(opts?: {
   repoMap?: IntelligenceClient;
   tabId?: string;
 }) {
-  const subagentCwd = process.cwd();
+  const subagentCwd = getCwd();
   return {
     read: tool({
       ...TEXT_OUTPUT,

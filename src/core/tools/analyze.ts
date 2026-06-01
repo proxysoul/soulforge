@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import { getIntelligenceClient, getIntelligenceRouter } from "../intelligence/index.js";
 import { isForbidden } from "../security/forbidden.js";
 import { fallbackTracked } from "./intelligence-helpers.js";
@@ -274,7 +275,7 @@ export const analyzeTool = {
             try {
               oldContent = await new Promise<string>((res, rej) => {
                 const proc = spawn("git", ["show", `HEAD:${file}`], {
-                  cwd: process.cwd(),
+                  cwd: getCwd(),
                   stdio: ["ignore", "pipe", "pipe"],
                 });
                 const chunks: Buffer[] = [];
@@ -311,7 +312,7 @@ export const analyzeTool = {
             const tracked = await client.routerGetFileOutline(file);
             oldOutline = tracked?.value ?? null;
           } else {
-            const router = getIntelligenceRouter(process.cwd());
+            const router = getIntelligenceRouter(getCwd());
             const language = router.detectLanguage(file);
             oldOutline = await router.executeWithFallback(language, "getFileOutline", (b) => {
               if (!b.getFileOutline) return Promise.resolve(null);

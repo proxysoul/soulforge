@@ -1,6 +1,7 @@
 import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
+import { getCwd } from "../cwd.js";
 import { getIntelligenceClient, getIntelligenceRouter } from "../intelligence/index.js";
 import type { Language } from "../intelligence/types.js";
 import { isForbidden } from "../security/forbidden.js";
@@ -293,7 +294,7 @@ export const rustHandler: LangImports = {
   },
 
   computePath(_fromFile: string, toFile: string): string {
-    return relative(process.cwd(), toFile)
+    return relative(getCwd(), toFile)
       .replace(/^src\//, "crate::")
       .replace(/\/mod\.rs$/, "")
       .replace(/\.rs$/, "")
@@ -527,7 +528,7 @@ async function grepSymbol(symbol: string, root: string): Promise<string[]> {
         `\\b${esc(symbol)}\\b`,
         root,
       ],
-      { cwd: process.cwd(), stdout: "pipe", stderr: "ignore", windowsHide: true },
+      { cwd: getCwd(), stdout: "pipe", stderr: "ignore", windowsHide: true },
     );
     const text = await new Response(proc.stdout).text();
     return text
@@ -583,7 +584,7 @@ export const moveSymbolTool = {
 
       const sourceContent = await readFile(from, "utf-8");
       const sourceLines = sourceContent.split("\n");
-      const router = getIntelligenceRouter(process.cwd());
+      const router = getIntelligenceRouter(getCwd());
       const client = getIntelligenceClient();
       const language = router.detectLanguage(from);
       const handler = getLangHandler(language);
@@ -854,7 +855,7 @@ export const moveSymbolTool = {
         };
       }
 
-      const cwd = process.cwd();
+      const cwd = getCwd();
       const allModified = [...new Set([to, from, ...updatedFiles])];
       const output: string[] = [
         `Moved '${args.symbol}' from ${relative(cwd, from)} → ${relative(cwd, to)}`,

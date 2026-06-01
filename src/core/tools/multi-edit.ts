@@ -2,6 +2,7 @@ import { readFile, stat as statAsync } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { analyzeFile } from "../analysis/complexity.js";
+import { getCwd } from "../cwd.js";
 import { markToolWrite, reloadBuffer } from "../editor/instance.js";
 import { memoryHintComposite } from "../memory/hints.js";
 import { atomicWriteFile } from "../platform/index.js";
@@ -258,7 +259,7 @@ export const multiEditTool = {
       const nudge = await consumeAstEditNudge(filePath);
       if (nudge) output += `\n${nudge}`;
 
-      const cwd = process.cwd();
+      const cwd = getCwd();
       const rel = filePath.startsWith(`${cwd}/`) ? filePath.slice(cwd.length + 1) : filePath;
       output += memoryHintComposite({ paths: [rel], context: "edit", tabId: args.tabId });
 

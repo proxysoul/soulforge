@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { getCwd } from "../cwd.js";
 
 export interface SkillSearchResult {
   id: string;
@@ -131,9 +132,9 @@ export function listInstalledSkills(): InstalledSkill[] {
     { path: join(homedir(), ".soulforge", "skills"), scope: "global" },
     { path: join(homedir(), ".agents", "skills"), scope: "global" },
     { path: join(homedir(), ".claude", "skills"), scope: "global" },
-    { path: join(process.cwd(), ".soulforge", "skills"), scope: "project" },
-    { path: join(process.cwd(), ".agents", "skills"), scope: "project" },
-    { path: join(process.cwd(), ".claude", "skills"), scope: "project" },
+    { path: join(getCwd(), ".soulforge", "skills"), scope: "project" },
+    { path: join(getCwd(), ".agents", "skills"), scope: "project" },
+    { path: join(getCwd(), ".claude", "skills"), scope: "project" },
   ];
 
   for (const dir of dirs) {

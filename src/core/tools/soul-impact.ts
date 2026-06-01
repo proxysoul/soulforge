@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { ToolResult } from "../../types";
+import { getCwd } from "../cwd.js";
 import { isForbidden } from "../security/forbidden.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
 import { execFileAsync } from "./util.js";
@@ -27,7 +28,7 @@ export const soulImpactTool = {
         };
       }
 
-      const cwd = process.cwd();
+      const cwd = getCwd();
       const relPath = args.file.startsWith("/") ? relative(cwd, args.file) : args.file;
 
       // Fallback to grep when soul map not ready

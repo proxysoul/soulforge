@@ -2,6 +2,7 @@ import { mkdir, readFile, stat as statAsync } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ToolResult } from "../../types";
 import { analyzeFile } from "../analysis/complexity";
+import { getCwd } from "../cwd.js";
 import { markToolWrite, reloadBuffer } from "../editor/instance";
 import { memoryHintComposite } from "../memory/hints.js";
 import { atomicWriteFile } from "../platform/index.js";
@@ -444,6 +445,6 @@ export const editFileTool = {
   },
 };
 function toRelEditPath(abs: string): string {
-  const cwd = process.cwd();
+  const cwd = getCwd();
   return abs.startsWith(`${cwd}/`) ? abs.slice(cwd.length + 1) : abs;
 }

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { ToolResult } from "../../types";
+import { getCwd } from "../cwd.js";
 import { isForbidden } from "../security/forbidden.js";
 import { getVendoredPath } from "../setup/install.js";
 import type { IntelligenceClient } from "../workers/intelligence-client.js";
@@ -171,7 +172,7 @@ function filterForbiddenLines(output: string): string {
 
 function runCount(bin: string, args: string[]): Promise<ToolResult> {
   return new Promise((resolve) => {
-    const proc = spawn(bin, args, { cwd: process.cwd(), timeout: 15_000 });
+    const proc = spawn(bin, args, { cwd: getCwd(), timeout: 15_000 });
     const chunks: string[] = [];
     proc.stdout.on("data", (d: Buffer) => chunks.push(d.toString()));
 
@@ -221,7 +222,7 @@ function runCount(bin: string, args: string[]): Promise<ToolResult> {
 
 async function runSearch(bin: string, args: string[]): Promise<ToolResult> {
   const rawOutput = await new Promise<string>((resolve) => {
-    const proc = spawn(bin, args, { cwd: process.cwd(), timeout: 10_000 });
+    const proc = spawn(bin, args, { cwd: getCwd(), timeout: 10_000 });
     const chunks: string[] = [];
     let totalBytes = 0;
     proc.stdout.on("data", (d: Buffer) => {

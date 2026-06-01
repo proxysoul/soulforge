@@ -1,3 +1,4 @@
+import { getCwd } from "../cwd.js";
 import { readBufferContent } from "../editor/instance.js";
 import { autoFormatAfterEdit } from "./auto-format.js";
 import { updateLastAfterHash } from "./edit-stack.js";
@@ -17,7 +18,7 @@ export function startPreEditDiagnostics(filePath: string): Promise<DiagnosticsCo
     .then(async (intel) => {
       if (!intel.isIntelligenceReady()) return null;
       const client = intel.getIntelligenceClient();
-      const router = intel.getIntelligenceRouter(process.cwd());
+      const router = intel.getIntelligenceRouter(getCwd());
       const language = client
         ? await client.routerDetectLanguage(filePath)
         : router.detectLanguage(filePath);
@@ -104,7 +105,7 @@ export async function appendCloneHints(filePath: string, output: string): Promis
     if (!intel.isIntelligenceReady()) return output;
     const client = intel.getIntelligenceClient();
     if (!client) return output;
-    const relPath = relative(process.cwd(), filePath);
+    const relPath = relative(getCwd(), filePath);
     const dupes = await Promise.race([
       client.getFileDuplicates(relPath),
       new Promise<null>((r) => setTimeout(() => r(null), 500)),

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RepoMap } from "../src/core/intelligence/repo-map.js";
 import { soulQueryTool } from "../src/core/tools/soul-query.js";
+import { setCwd } from "../src/core/cwd.js";
 
 const TMP = join(tmpdir(), `soul-query-${Date.now()}`);
 const ORIG_CWD = process.cwd();
@@ -17,14 +18,15 @@ beforeAll(async () => {
   );
   writeFileSync(join(TMP, "src", "other.ts"), "export function unrelated() { return 2; }\n");
   writeFileSync(join(TMP, "src", "notes.md"), "# rareTokenABC docs\n");
-  // chdir so the tool's process.cwd()-relative resolution matches the fixture
-  process.chdir(TMP);
+  // setCwd keeps the global cwd holder + process.cwd() in lockstep so the
+  // tool's getCwd()-relative resolution matches the fixture
+  setCwd(TMP);
   repoMap = new RepoMap(TMP);
   await repoMap.scan();
 });
 
 afterAll(() => {
-  process.chdir(ORIG_CWD);
+  setCwd(ORIG_CWD);
   repoMap?.close();
   rmSync(TMP, { recursive: true, force: true });
 });

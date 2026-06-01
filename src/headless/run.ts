@@ -5,6 +5,7 @@ import { normalizePath } from "../core/agents/agent-bus.js";
 import { createForgeAgent } from "../core/agents/index.js";
 import type { SharedCacheRef } from "../core/agents/subagent-tools.js";
 import { ContextManager } from "../core/context/manager.js";
+import { getCwd } from "../core/cwd.js";
 import { resolveModel } from "../core/llm/provider.js";
 import { buildProviderOptions } from "../core/llm/provider-options.js";
 import { disposeMCPManager } from "../core/mcp/index.js";
@@ -69,7 +70,8 @@ async function setupAgent(
   },
   merged: AppConfig,
 ): Promise<AgentEnv> {
-  const cwd = opts.cwd ?? process.cwd();
+  // getCwd() is authoritative — runHeadless/boot already applied --cwd.
+  const cwd = getCwd();
   const mode = opts.mode ?? "default";
   const showProgress = !opts.json && !opts.events && !opts.quiet;
 
