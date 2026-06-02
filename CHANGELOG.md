@@ -2,6 +2,28 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.0] — 2026-06-02
+
+### Bug Fixes
+
+- **hearth**: wire remote callbacks into Discord surface
+- **hearth**: cancel pending remote callbacks on abort/close
+- **hearth**: route ask_user/plan-review/approvals through the bridge
+- **post-edit-fix**: use 1-indexed lines for format edit offsets
+- **search**: guard rg pattern with -- separator
+- **tabs**: persist tab close immediately so it survives restart
+### Documentation
+
+- **soul-map**: unify terminology — Soul Map (artifact) vs repo-map engine
+### Features
+
+- **cwd**: wire --cwd through one global holder
+- **headless**: wire full agent capabilities into setupAgent
+### Miscellaneous
+
+- **deps**: upgrade @opentui to 0.3.1
+- **hearth**: sort imports in tab-loop
+- **lint**: use optional chaining for nullable guards
 ## [2.19.0] — 2026-05-31
 
 ### Bug Fixes
