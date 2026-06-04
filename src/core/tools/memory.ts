@@ -315,6 +315,9 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
         try {
           recordMemoryAction(resolved.id);
         } catch {}
+        try {
+          manager.recordRecallAcross([{ scope: resolved.scope, id: resolved.id }]);
+        } catch {}
         return { success: true, output: formatRecordFull(resolved) };
       }
 
@@ -359,6 +362,9 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
           readScope,
         });
         if (hits.length === 0) return { success: true, output: "No matching memories found." };
+        try {
+          manager.recordRecallAcross(hits.map((h) => ({ scope: h.scope, id: h.record.id })));
+        } catch {}
         return {
           success: true,
           output: hits

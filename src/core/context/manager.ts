@@ -248,6 +248,13 @@ export class ContextManager {
       this.recallCache = { key: cacheKey, pair: null };
       return null;
     }
+    // Usage accounting covers EVERY recalled id, every turn — recall is
+    // consumption. The `fresh` filter below gates only re-injection (avoid
+    // re-showing the same stub), not whether the memory counts as used.
+    this.memoryManager.recordRecallAcross(
+      results.map((r) => ({ scope: r.scope, id: r.record.id })),
+    );
+
     const fresh = results.filter((r) => !this.surfacedMemoryIds.has(r.record.id));
     if (fresh.length === 0) {
       this.recallCache = { key: cacheKey, pair: null };
@@ -275,8 +282,6 @@ export class ContextManager {
       lines.push("(call memory(action:'get', id:<8-char prefix>) to read full details)");
     }
     lines.push("</recalled_memories>");
-
-    this.memoryManager.recordRecallAcross(surfacedIds);
 
     const userMessage = lines.join("\n");
     const assistantAck = MEMORY_RECALL_ACK(surfacedIds.length);
