@@ -2,6 +2,12 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.4] — 2026-06-04
+
+### Bug Fixes
+
+- **memory**: bump last_used_at on every recall/get/search
+- **providers**: trim opencode zen/go to live-API-driven model lists
 ## [2.20.3] — 2026-06-03
 
 ### Bug Fixes
