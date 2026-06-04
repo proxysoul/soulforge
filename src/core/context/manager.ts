@@ -395,7 +395,22 @@ export class ContextManager {
               this.setSemanticSummaries(persisted === "off" ? "ast" : persisted),
             );
         }
-        await Promise.all([semanticTask, this.warmRepoMapCache()]);
+        try {
+          await Promise.all([semanticTask, this.warmRepoMapCache()]);
+        } catch (e) {
+          // A failed semantic/cache task must not strand the UI on the
+          // "waiting for soul map..." stub. Surface the error and reset the
+          // semantic status so /repo-map doesn't show a frozen "generating".
+          logBackgroundError(
+            "context-manager",
+            `post-scan semantic/cache task failed: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          const store = useRepoMapStore.getState();
+          if (store.semanticProgress.includes("waiting for soul map")) {
+            store.setSemanticStatus("off");
+            store.setSemanticProgress("");
+          }
+        }
       } else {
         this.repoMapReady = false;
         this.syncRepoMapStore("error");
