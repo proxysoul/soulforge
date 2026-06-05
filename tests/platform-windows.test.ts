@@ -348,3 +348,266 @@ describe("platform shim: console (Windows TTY only)", () => {
     if (unhook) unhook();
   });
 });
+
+describe("clipboard image read on Windows", () => {
+  // Source-level guard: keep this contract even though the implementation
+  // moved from per-paste `execFile` to a persistent `spawn` daemon. If a
+  // future refactor reverts to `-OutFile <path>` argv tricks, the test
+  // surfaces the regression on POSIX hosts without needing a Windows runner.
+  if (!IS_WIN) {
+    test("contract: no -OutFile/WriteAllBytes path in source (uses daemon)", async () => {
+      const src = await Bun.file(
+        new URL("../src/core/platform/clipboard.ts", import.meta.url),
+      ).text();
+      // The old (broken) pattern: param([Parameter(Mandatory)][string]$OutFile)
+      // followed by argv `..., "-OutFile", tmpFile`. Either side is suspect
+      // on its own; both together is the bug.
+      expect(src).not.toMatch(/param\(\[Parameter\(Mandatory\)\]\[string\]\$OutFile\)/);
+      expect(src).not.toMatch(/"-OutFile",\s*tmpFile/);
+      // The persistent daemon writes base64 to stdout instead of a temp file.
+      expect(src).toMatch(/WindowsClipboardDaemon|startClipboardDaemon/);
+    });
+    return;
+  }
+
+  test("regression: in-flight reuse — concurrent calls share one read", async () => {
+    // Windows Terminal fires BOTH a keydown and a bracketed-paste event for
+    // the same Ctrl+V. The InputBox keydown handler and paste-event listener
+    // both call readClipboardImage(). Without a module-level in-flight cache,
+    // both callers would each send `READ` to the daemon — the daemon
+    // serialises one-at-a-time, so the second blocks until the first
+    // completes (~100-200ms). Sharing the in-flight promise collapses both
+    // into a single round-trip.
+    const { mock } = await import("bun:test");
+    const cp = await import("node:child_process");
+    const { EventEmitter } = await import("node:events");
+    const { PassThrough } = await import("node:stream");
+
+    const fakePng = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    ]);
+
+    // Per-test state — every fakeSpawn invocation gets fresh streams, so
+    // each call to readClipboardImage() that needs a respawn starts from
+    // READY again. The first test call uses a delayed response to expose
+    // the in-flight cache.
+    let readCount = 0;
+    const makeFakeProc = () => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const emitter = new EventEmitter();
+      // Pretend PS is already past the Add-Type JIT and emit READY on the
+      // next tick. The daemon's onStdout handler resolves start() on the
+      // first line — so without this the test hangs.
+      queueMicrotask(() => stdout.write("READY\n"));
+      // On every READ\n on stdin, write back an OK response one tick later.
+      // (one-tick delay is the compressed analogue of the real ~100-200ms
+      // PowerShell round-trip; enough to keep p1's in-flight pending while
+      // p2 is queued.)
+      stdin.on("data", (chunk: Buffer) => {
+        const text = chunk.toString();
+        if (text.includes("READ")) {
+          readCount++;
+          queueMicrotask(() => {
+            stdout.write(`OK ${fakePng.toString("base64")}\nEND\n`);
+          });
+        }
+      });
+      const proc = Object.assign(emitter, {
+        stdin,
+        stdout,
+        stderr,
+        pid: 0,
+        kill: () => {
+          queueMicrotask(() => emitter.emit("exit", null, "SIGTERM"));
+          return true;
+        },
+      });
+      return proc;
+    };
+
+    // Track every spawn() call so we can assert how many daemons were started.
+    let spawnCount = 0;
+    const fakeSpawn = (..._args: unknown[]) => {
+      spawnCount++;
+      return makeFakeProc();
+    };
+
+    mock.module("node:child_process", () => ({
+      ...cp,
+      spawn: fakeSpawn,
+    }));
+
+    try {
+      const { readClipboardImage } = await import(
+        `../src/core/platform/clipboard.ts?t=${Date.now()}`
+      );
+      // Fire two concurrent reads. The dispatcher must collapse the second
+      // into the first's in-flight promise — only one READ reaches the
+      // daemon's stdin.
+      const p1 = readClipboardImage();
+      // Yield so p1's async dispatcher reaches `await this.start()` and
+      // sends READ before p2 runs. Without this, both run synchronously
+      // and p2 sees `inFlightImage` still undefined.
+      await Promise.resolve();
+      const p2 = readClipboardImage();
+      const [r1, r2] = await Promise.all([p1, p2]);
+      expect(spawnCount).toBe(1);
+      expect(readCount).toBe(1);
+      expect(r1).not.toBeNull();
+      expect(r2).not.toBeNull();
+      // Both promises resolve to the same result object — same in-flight ref.
+      expect(r1).toBe(r2);
+
+      // After the in-flight settles, the cache must be cleared so the next
+      // genuine paste can re-run (a fresh READ to the same daemon).
+      const p3 = readClipboardImage();
+      const r3 = await p3;
+      expect(readCount).toBe(2);
+      expect(r3).not.toBeNull();
+      // p3 should be a new result object (not the in-flight cache).
+      expect(r3).not.toBe(r1);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("regression: daemon waits for READY before serving reads", async () => {
+    // Without the READY sentinel, the first read would race with PS's
+    // Add-Type JIT. If the daemon resolved start() on spawn() return, the
+    // caller would write `READ` to a PS that hasn't loaded the clipboard
+    // assembly yet — GetImage() throws, the daemon returns NO, and the
+    // image appears to be missing.
+    const { mock } = await import("bun:test");
+    const cp = await import("node:child_process");
+    const { EventEmitter } = await import("node:events");
+    const { PassThrough } = await import("node:stream");
+
+    const fakePng = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    ]);
+
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    const emitter = new EventEmitter();
+
+    // Deliberately delay READY by 50ms — long enough that the read() call
+    // would block on start() if start() correctly waits for the sentinel.
+    // If start() were to resolve eagerly, the test would record READ
+    // arriving before READY, surfacing the race.
+    setTimeout(() => stdout.write("READY\n"), 50);
+
+    let readSeen = false;
+    stdin.on("data", (chunk: Buffer) => {
+      if (chunk.toString().includes("READ")) {
+        readSeen = true;
+        queueMicrotask(() => {
+          stdout.write(`OK ${fakePng.toString("base64")}\nEND\n`);
+        });
+      }
+    });
+
+    const fakeSpawn = () =>
+      Object.assign(emitter, {
+        stdin,
+        stdout,
+        stderr,
+        pid: 0,
+        kill: () => true,
+      });
+
+    mock.module("node:child_process", () => ({ ...cp, spawn: fakeSpawn }));
+
+    try {
+      const { readClipboardImage } = await import(
+        `../src/core/platform/clipboard.ts?t=${Date.now()}`
+      );
+      const t0 = Date.now();
+      const result = await readClipboardImage();
+      const elapsed = Date.now() - t0;
+
+      expect(result).not.toBeNull();
+      expect(result?.mediaType).toBe("image/png");
+      // READ must arrive only AFTER READY was emitted, so it must take
+      // >= ~45ms (the READY delay minus timing jitter).
+      expect(readSeen).toBe(true);
+      expect(elapsed).toBeGreaterThanOrEqual(40);
+    } finally {
+      mock.restore();
+    }
+  });
+
+  test("regression: daemon respawns after process exit", async () => {
+    // If the PowerShell process dies mid-session (e.g. user kills it,
+    // machine goes to sleep, the PS host crashes), the next read should
+    // transparently respawn — not hang on a dead pipe.
+    //
+    // Test tactic: fake spawn() emits `exit` on its emitter 50ms after
+    // the fake proc starts. The first read's start() resolves on READY,
+    // the proc stays alive long enough to respond, then exits. The
+    // second read respawns to recover from the dead pipe.
+    const { mock } = await import("bun:test");
+    const cp = await import("node:child_process");
+    const { EventEmitter } = await import("node:events");
+    const { PassThrough } = await import("node:stream");
+
+    const fakePng = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    ]);
+
+    let spawnCount = 0;
+    const fakeSpawn = () => {
+      spawnCount++;
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const emitter = new EventEmitter();
+      queueMicrotask(() => stdout.write("READY\n"));
+      stdin.on("data", (chunk: Buffer) => {
+        if (chunk.toString().includes("READ")) {
+          queueMicrotask(() => {
+            stdout.write(`OK ${fakePng.toString("base64")}\nEND\n`);
+          });
+        }
+      });
+      // Let the first read complete, THEN kill the proc. The next read
+      // must respawn to recover from the dead pipe.
+      setTimeout(() => {
+        emitter.emit("exit", null, null);
+      }, 50);
+      return Object.assign(emitter, {
+        stdin,
+        stdout,
+        stderr: new PassThrough(),
+        pid: 0,
+        kill: () => true,
+      });
+    };
+
+    mock.module("node:child_process", () => ({ ...cp, spawn: fakeSpawn }));
+
+    try {
+      const { readClipboardImage } = await import(
+        `../src/core/platform/clipboard.ts?t=${Date.now()}`
+      );
+      // First read — spawns, READY fires, READ gets a response, r1
+      // resolves. The fake proc is still alive at this point.
+      const r1 = await readClipboardImage();
+      expect(r1).not.toBeNull();
+      expect(spawnCount).toBe(1);
+
+      // Wait for the fake proc's setTimeout(50ms) to fire and emit exit.
+      // Until then the daemon is still "alive" and the next read would
+      // happily reuse it.
+      await new Promise((r) => setTimeout(r, 80));
+
+      // Second read — the daemon is dead, so a new spawn must happen.
+      const r2 = await readClipboardImage();
+      expect(r2).not.toBeNull();
+      expect(spawnCount).toBe(2);
+    } finally {
+      mock.restore();
+    }
+  });
+});

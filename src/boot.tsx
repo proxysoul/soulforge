@@ -564,6 +564,15 @@ const [bootProviders, bootPrereqs] = await Promise.all([
 // Fire-and-forget — populates caches in background so Ctrl+L opens instantly.
 prewarmAllModels();
 
+// Fire-and-forget — keep a long-lived PowerShell process ready to serve
+// clipboard image reads via stdin/stdout. After the one-time ~500-1500ms
+// boot startup, each Ctrl+V image paste is ~50-200ms (just GetImage +
+// PNG encode), not the 2-3s spawn-per-paste cost. On non-Windows no-op.
+{
+  const { startClipboardDaemon } = await import("./core/platform/clipboard.js");
+  startClipboardDaemon();
+}
+
 status("Kicking the neurons awake", "Waking the tree-sitter");
 // Ensure setIntelligenceClient() has run before warmup to avoid spawning
 // duplicate LSP servers on both main thread and worker.
