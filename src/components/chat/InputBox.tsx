@@ -146,7 +146,18 @@ export const InputBox = memo(function InputBox({
   // Image attachments from clipboard paste
   const pendingImages = useRef<ImageAttachment[]>([]);
   const imageCounter = useRef(0);
-  const imageLoadingRef = useRef(false);
+  // Per-handler mutexes. Sharing a single flag between the keydown handler
+  // and the paste event handler caused Ctrl+V/Alt+V to bail when the user
+  // had just pasted text — the paste handler set the flag and the keydown
+  // handler bailed on the same flag for up to 3s (cold PowerShell).
+  const keydownImageLoadingRef = useRef(false);
+  const pasteImageLoadingRef = useRef(false);
+  // Visual feedback while a clipboard read is in flight. Without this, the
+  // 2-3s PowerShell cold-start (Add-Type JIT on first call) looks like
+  // "nothing happened" — the user spams Ctrl+V, the mutex bails each press,
+  // and the first one eventually lands after they gave up. Showing "reading
+  // image…" tells them the app is working and to wait.
+  const [clipboardReading, setClipboardReading] = useState(false);
 
   const showBusy = isLoading || isCompacting;
 
@@ -162,22 +173,11 @@ export const InputBox = memo(function InputBox({
   const tip = useMemo(() => pickTip(Date.now() + tipTick * 12_000), [tipTick]);
 
   // textarea width = container - border(2) - paddingX(2) - prompt(2) = containerWidth - 6
-  // When busy hint is shown, subtract its width too
+  // When busy/clipboard hints are shown, subtract their widths too.
+  // (containerWidth / hintWidth / textareaWidth are recomputed below, after
+  // showAutocomplete is declared, so the right-side hints don't fight the
+  // autocomplete dropdown for the same row.)
   const containerWidth = widthPct != null ? Math.floor((termWidth * widthPct) / 100) : termWidth;
-  const hintWidth = showBusy ? 8 : 0; // " ^X stop" = 8 chars
-  const textareaWidth = Math.max(10, containerWidth - 6 - hintWidth);
-
-  // Calculate visual lines manually (virtualLineCount is viewport-constrained — chicken-and-egg)
-  const calcVisualLines = useCallback(
-    (text: string) => {
-      let n = 0;
-      for (const line of text.split("\n")) {
-        n += line.length === 0 ? 1 : Math.ceil(line.length / textareaWidth);
-      }
-      return n;
-    },
-    [textareaWidth],
-  );
 
   const historyCacheRef = useRef<string[]>([]);
   const historyIdx = useRef(-1);
@@ -269,6 +269,23 @@ export const InputBox = memo(function InputBox({
   const commandToken = value.toLowerCase();
   const showAutocomplete =
     value.startsWith("/") && focused && !fuzzyMode && historyIdx.current === -1;
+  // Subtract the right-side hint widths (" · reading image…" / " ^X stop")
+  // so the textarea doesn't push them off the right edge of the container.
+  const clipboardHintWidth = clipboardReading ? 18 : 0;
+  const stopHintWidth = showBusy && !showAutocomplete ? 8 : 0;
+  const hintWidth = clipboardHintWidth + stopHintWidth;
+  const textareaWidth = Math.max(10, containerWidth - 6 - hintWidth);
+  // Calculate visual lines manually (virtualLineCount is viewport-constrained — chicken-and-egg)
+  const calcVisualLines = useCallback(
+    (text: string) => {
+      let n = 0;
+      for (const line of text.split("\n")) {
+        n += line.length === 0 ? 1 : Math.ceil(line.length / textareaWidth);
+      }
+      return n;
+    },
+    [textareaWidth],
+  );
   const matches = useMemo(() => {
     if (!showAutocomplete) return [];
     const cmds = getCommands();
@@ -406,7 +423,7 @@ export const InputBox = memo(function InputBox({
 
       // Block submit while clipboard image probe is in-flight —
       // ensures the image attachment lands before the message is sent
-      if (imageLoadingRef.current) return;
+      if (keydownImageLoadingRef.current || pasteImageLoadingRef.current) return;
 
       // Expand any collapsed paste blocks before submitting
       let finalInput = input;
@@ -503,13 +520,49 @@ export const InputBox = memo(function InputBox({
     setVisualLines(calcVisualLines(valueRef.current));
   }, [calcVisualLines]);
 
-  // Intercept paste — collapse 4+ line text pastes
+  // Intercept paste — collapse 4+ line text pastes, and probe the clipboard
+  // for image data on every paste event. The image probe is independent of
+  // the text-paste collapsing — even a 1-line text paste can carry an image
+  // (e.g. pasting from a screenshot tool writes both the path text and the
+  // PNG to the clipboard). We do NOT preventDefault on the image branch so
+  // the text still lands in the textarea.
   useEffect(() => {
     const handler = (event: PasteEvent) => {
       if (!isFocused) return;
       const text = decodePasteBytes(event.bytes).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
       const pastedLines = text.split("\n");
+
+      // Probe clipboard for image data — separate mutex from the keydown
+      // handler so a Ctrl+V via Vim keyhook that ALSO fires a paste event
+      // doesn't serialise through the same flag.
+      if (!pasteImageLoadingRef.current) {
+        pasteImageLoadingRef.current = true;
+        setClipboardReading(true);
+        readClipboardImageAsync()
+          .then(async (clipImg) => {
+            pasteImageLoadingRef.current = false;
+            setClipboardReading(false);
+            if (!clipImg) return;
+            const ta = textareaRef.current;
+            if (!ta) return;
+            const { data, mediaType } = await compressImageForApi(clipImg.data, clipImg.mediaType);
+            const idx = ++imageCounter.current;
+            const label = `image-${String(idx)}`;
+            pendingImages.current.push({
+              label,
+              base64: data.toString("base64"),
+              mediaType,
+            });
+            ta.insertText(`[${label}] `);
+            syncImageExtmarks(ta);
+          })
+          .catch((err) => {
+            pasteImageLoadingRef.current = false;
+            setClipboardReading(false);
+            logBackgroundError("clipboard", `Image paste failed: ${toErrorMessage(err)}`);
+          });
+      }
 
       // 1-3 lines: let textarea handle normally
       if (pastedLines.length <= 3) return;
@@ -538,12 +591,14 @@ export const InputBox = memo(function InputBox({
     // empty sequence for image clipboards, and embedded-Neovim/Vim key hooks can
     // swallow Ctrl+V before it reaches us — Alt+V is the documented escape hatch.
     if (isFocused && (evt.ctrl || evt.meta) && evt.name === "v") {
-      if (imageLoadingRef.current) return;
-      imageLoadingRef.current = true;
+      if (keydownImageLoadingRef.current) return;
+      keydownImageLoadingRef.current = true;
+      setClipboardReading(true);
 
       readClipboardImageAsync()
         .then(async (clipImg) => {
-          imageLoadingRef.current = false;
+          keydownImageLoadingRef.current = false;
+          setClipboardReading(false);
           if (!clipImg) {
             // Silent no-op looks like "paste is broken". Leave a breadcrumb in
             // the background-error log (surfaced via /errors) so it's diagnosable.
@@ -565,7 +620,8 @@ export const InputBox = memo(function InputBox({
           syncImageExtmarks(ta);
         })
         .catch((err) => {
-          imageLoadingRef.current = false;
+          keydownImageLoadingRef.current = false;
+          setClipboardReading(false);
           logBackgroundError("clipboard", `Image paste failed: ${toErrorMessage(err)}`);
         });
       return;
@@ -964,7 +1020,11 @@ export const InputBox = memo(function InputBox({
                 backgroundColor="transparent"
                 textColor={t.textPrimary}
               />
-              {showBusy && !showAutocomplete ? (
+              {clipboardReading ? (
+                <text fg={t.textDim} flexShrink={0}>
+                  {" · reading image…"}
+                </text>
+              ) : showBusy && !showAutocomplete ? (
                 <text fg={t.error} attributes={TextAttributes.BOLD} flexShrink={0}>
                   {" ^X stop"}
                 </text>
