@@ -207,3 +207,33 @@ export function removeInstalledSkill(skill: InstalledSkill): boolean {
   } catch {}
   return false;
 }
+
+/**
+ * Auto-load named skills into context at session start, skipping the manual
+ * `skills(load)` step. Skills that aren't installed or are already active are
+ * skipped. Decoupled from ContextManager via callbacks. Returns names loaded.
+ */
+export function autoLoadSkills(
+  names: string[],
+  addSkill: (name: string, content: string) => void,
+  isActive: (name: string) => boolean,
+): string[] {
+  if (names.length === 0) return [];
+  const installed = listInstalledSkills();
+  const loaded: string[] = [];
+  for (const name of names) {
+    if (isActive(name)) continue;
+    const match = installed.find((s) => s.name === name);
+    if (!match) continue;
+    try {
+      const content = loadSkill(match.path);
+      if (content.trim()) {
+        addSkill(name, content);
+        loaded.push(name);
+      }
+    } catch {
+      // SKILL.md unreadable/deleted between scan and read — skip, don't abort.
+    }
+  }
+  return loaded;
+}

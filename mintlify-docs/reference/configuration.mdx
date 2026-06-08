@@ -216,6 +216,16 @@ Auto-load project rules from AI-tool markdown files:
 
 Toggle in TUI with `/instructions`.
 
+## Skills
+
+Auto-load installed skills into the agent's context at session start, skipping the manual `skills(load)` step:
+
+```json
+{ "autoLoadSkills": ["karpathy-guidelines", "caveman"] }
+```
+
+Names match the on-disk skill directory under `~/.claude/skills`, `~/.agents/skills`, or `~/.soulforge/skills` (and project-local equivalents). Skills that aren't installed or are already active are skipped. Browse and install more with `Ctrl+S`.
+
 ## Privacy
 
 Block files from the agent:

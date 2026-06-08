@@ -41,6 +41,7 @@ function getConfigFile(): string {
 export const DEFAULT_CONFIG: AppConfig = {
   defaultModel: "none",
   routerRules: [],
+  autoLoadSkills: [],
   editor: {
     command: "nvim",
     args: [],

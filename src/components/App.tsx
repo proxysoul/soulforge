@@ -30,6 +30,7 @@ import { disposeMCPManager, getMCPManager } from "../core/mcp/index.js";
 import { initForbidden } from "../core/security/forbidden.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import { getMissingRequired } from "../core/setup/prerequisites.js";
+import { autoLoadSkills } from "../core/skills/manager.js";
 import { suspendAndRun } from "../core/terminal/suspend.js";
 import { useTheme } from "../core/theme/index.js";
 import { restoreSessionImages } from "../core/tools/show-image.js";
@@ -659,6 +660,19 @@ export function App({
     () => preloadedContextManager ?? new ContextManager(cwd),
     [cwd, preloadedContextManager],
   );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-time auto-load at session start
+  useEffect(() => {
+    const names = effectiveConfig.autoLoadSkills;
+    if (names && names.length > 0) {
+      autoLoadSkills(
+        names,
+        (name, content) => contextManager.addSkill(name, content),
+        (name) => contextManager.getActiveSkills().includes(name),
+      );
+    }
+  }, []);
+
   const sessionManager = useMemo(() => new SessionManager(cwd), [cwd]);
   sessionManagerRef.current = sessionManager;
 
