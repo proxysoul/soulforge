@@ -16,6 +16,17 @@ installGlobalFetch();
 reapOrphanedLspProcesses();
 hydrateCompiledRuntime();
 
+// Windows: force the attached console to UTF-8 (code page 65001) so OpenTUI's
+// box-drawing characters and any non-ASCII text render correctly instead of
+// mojibake under a legacy OEM code page (e.g. 866/1251). No-op on other OSes.
+if (process.platform === "win32") {
+  try {
+    Bun.spawnSync(["chcp.com", "65001"], { stdout: "ignore", stderr: "ignore" });
+  } catch {
+    // chcp unavailable — leave the console code page as-is.
+  }
+}
+
 const cliArgs = process.argv.slice(2);
 
 // Honour --cwd before any module reads process.cwd(). One process = one cwd:
