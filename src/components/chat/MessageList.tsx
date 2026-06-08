@@ -1603,7 +1603,9 @@ function ToolExpandedDetail({
   const t = useTheme();
   const props = buildFinalToolRowProps(tc);
   const effectiveDiffStyle = diffStyle ?? "default";
-  const fullResult = tc.result?.output ?? tc.result?.error ?? "";
+  // props.fullResult is already normalized (MCP envelope → plain text); fall back
+  // to the error string when there is no output.
+  const fullResult = props.fullResult ?? tc.result?.error ?? "";
   const hasDiff = !!props.diff;
   // imageArt is rendered by FinalResponseWrapper directly under the row — skip here to avoid duplicate render.
   const hasImage = false;

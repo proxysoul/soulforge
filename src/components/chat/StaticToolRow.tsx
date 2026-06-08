@@ -478,6 +478,49 @@ export function buildLiveToolRowProps(
   };
 }
 
+/**
+ * Extract the human-readable command from an MCP tool's input args so the rail
+ * shows what it actually ran (e.g. `adb devices -l`) instead of an empty arg.
+ */
+function mcpArgSummary(args: Record<string, unknown>): string {
+  const pick = args.command ?? args.args ?? args.cmd;
+  if (typeof pick === "string" && pick.trim()) return pick.trim();
+  return Object.entries(args)
+    .filter(([, v]) => typeof v !== "object" || v === null)
+    .map(([k, v]) => `${k}=${String(v)}`)
+    .join(" ");
+}
+
+/**
+ * MCP tool results arrive as a serialized envelope
+ * `{"content":[{"type":"text","text":"…"}],"isError":false}`. Show the text, not
+ * the JSON wrapper. Output that is not such an envelope is returned unchanged.
+ */
+function extractMcpText(output: string): string {
+  if (!output) return output;
+  const head = output.trimStart();
+  if (head[0] !== "{" && head[0] !== "[") return output;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (parsed && typeof parsed === "object" && "content" in parsed) {
+      const content = (parsed as { content: unknown }).content;
+      if (Array.isArray(content)) {
+        const text = content
+          .map((p) =>
+            p && typeof p === "object" && "text" in p
+              ? String((p as { text: unknown }).text ?? "")
+              : "",
+          )
+          .join("");
+        if (text) return text;
+      }
+    }
+  } catch {
+    // not JSON — leave as-is
+  }
+  return output;
+}
+
 /** Build props from a completed ToolCall (final/MessageList path) */
 export function buildFinalToolRowProps(tc: {
   name: string;
@@ -498,7 +541,12 @@ export function buildFinalToolRowProps(tc: {
 }): StaticToolRowProps {
   const toolDisplay = resolveToolDisplay(tc.name);
   const argsJson = JSON.stringify(tc.args);
-  const resultJson = tc.result ? JSON.stringify(tc.result) : undefined;
+  // MCP tools surface input/result through a generic envelope; normalize so the
+  // rail shows the real command + plain-text output instead of raw JSON.
+  const isMcp = tc.name.startsWith("mcp__");
+  const displayResult =
+    isMcp && tc.result ? { ...tc.result, output: extractMcpText(tc.result.output) } : tc.result;
+  const resultJson = displayResult ? JSON.stringify(displayResult) : undefined;
 
   // Detect code execution for completed shell calls
   let finalCodeExec: ReturnType<typeof detectCodeExecution> = null;
@@ -513,7 +561,8 @@ export function buildFinalToolRowProps(tc: {
     toolDisplay.category = finalCodeDisplay.category;
   }
 
-  const argStr = formatArgs(tc.name, argsJson);
+  let argStr = formatArgs(tc.name, argsJson);
+  if (isMcp) argStr = mcpArgSummary(tc.args);
   const outsideKind = detectOutsideCwd(tc.name, argsJson);
   const isEdit = EDIT_TOOL_NAMES.has(tc.name);
 
@@ -557,7 +606,7 @@ export function buildFinalToolRowProps(tc: {
   const { suffix, suffixColor } = computeSuffix(
     tc.name,
     resultJson,
-    tc.result ?? null,
+    displayResult ?? null,
     isEdit,
     !!editResultText,
   );
@@ -582,6 +631,7 @@ export function buildFinalToolRowProps(tc: {
     suffixColor,
     diff,
     imageArt: tc.imageArt,
-    fullResult: tc.result?.output && tc.result.output.length > 0 ? tc.result.output : undefined,
+    fullResult:
+      displayResult?.output && displayResult.output.length > 0 ? displayResult.output : undefined,
   };
 }
