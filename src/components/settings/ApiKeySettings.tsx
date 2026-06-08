@@ -39,10 +39,13 @@ interface KeyItem {
 }
 
 function buildKeyItems(): KeyItem[] {
+  // Include custom providers: they have an `envVar` but no explicit `secretKey`,
+  // so key off `secretKey ?? envVar` (matching getProviderSecretEntries). This is
+  // what makes factory/zai-style custom providers appear in the keys UI.
   return getAllProviders()
-    .filter((p): p is typeof p & { secretKey: string } => !!(p.envVar && p.secretKey))
+    .filter((p) => !!p.envVar)
     .map((p) => ({
-      id: p.secretKey as SecretKey,
+      id: (p.secretKey ?? p.envVar) as SecretKey,
       label: p.name,
       envVar: p.envVar,
       url: p.keyUrl,

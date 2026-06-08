@@ -131,12 +131,15 @@ export interface ProviderSecretEntry {
   keyUrl?: string;
 }
 
-/** Derive secret key entries from all registered providers (single source of truth). */
+/** Derive secret key entries from all registered providers (single source of truth).
+ *  `secretKey` falls back to `envVar` when a provider doesn't set one explicitly
+ *  (custom providers) — per the ProviderDefinition contract — so they register a
+ *  secret entry and become key-manageable like built-ins. */
 export function getProviderSecretEntries(): ProviderSecretEntry[] {
   return allProviders
-    .filter((p): p is typeof p & { secretKey: string } => !!(p.envVar && p.secretKey))
+    .filter((p) => !!p.envVar)
     .map((p) => ({
-      secretKey: p.secretKey,
+      secretKey: p.secretKey ?? p.envVar,
       envVar: p.envVar,
       providerId: p.id,
       label: p.name,
