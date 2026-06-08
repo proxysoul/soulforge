@@ -8,8 +8,14 @@ Config lives in two files. Project wins.
 
 | Scope | Path |
 |-------|------|
-| Global | `~/.soulforge/config.json` |
+| Global | `~/.soulforge/config.json` (Windows: `%LOCALAPPDATA%\SoulForge\config.json`) |
 | Project | `.soulforge/config.json` |
+
+<Note>
+On Windows the global config, secrets, and addons live under
+`%LOCALAPPDATA%\SoulForge\` (e.g. `C:\Users\<you>\AppData\Local\SoulForge\config.json`),
+**not** `~/.soulforge`. macOS and Linux use `~/.soulforge`.
+</Note>
 
 ## Full example
 
