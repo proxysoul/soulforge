@@ -66,6 +66,10 @@ export interface CustomProviderConfig {
   id: string;
   name?: string;
   baseURL: string;
+  /** Wire format. "openai" (default) uses an OpenAI-compatible client; "anthropic"
+   *  uses an Anthropic-compatible client — for APIs that expose an Anthropic
+   *  /v1/messages endpoint (e.g. z.ai's GLM Coding Plan at /api/anthropic). */
+  format?: "openai" | "anthropic";
   envVar?: string;
   models?: (string | ProviderModelInfo)[];
   modelsAPI?: string | false;

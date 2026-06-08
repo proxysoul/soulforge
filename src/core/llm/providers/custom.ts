@@ -1,3 +1,4 @@
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { getProviderApiKey } from "../../secrets.js";
 import { buildOpenAICompatReasoningBody, createReasoningFetchWrapper } from "./reasoning-fetch.js";
@@ -85,6 +86,12 @@ export function buildCustomProvider(config: CustomProviderConfig): ProviderDefin
     customReasoning: config.reasoning,
 
     createModel(modelId: string) {
+      // Anthropic-compatible providers (e.g. z.ai GLM Coding Plan) speak the
+      // /v1/messages wire format — route them through the Anthropic client.
+      if (config.format === "anthropic") {
+        const apiKey = envVar ? (getProviderApiKey(envVar) ?? "") : "";
+        return createAnthropic({ baseURL: config.baseURL, apiKey })(modelId);
+      }
       const apiKey = envVar ? (getProviderApiKey(envVar) ?? "") : "custom";
       const client = createOpenAICompatible({
         name: config.id,
@@ -96,6 +103,9 @@ export function buildCustomProvider(config: CustomProviderConfig): ProviderDefin
     },
 
     async fetchModels(): Promise<ProviderModelInfo[] | null> {
+      // Anthropic-compatible endpoints have no OpenAI-style /models list — rely
+      // on the configured `models` (fallbackModels) instead.
+      if (config.format === "anthropic") return null;
       const modelsUrl = resolveModelsAPIUrl(config);
       if (!modelsUrl) return null;
 

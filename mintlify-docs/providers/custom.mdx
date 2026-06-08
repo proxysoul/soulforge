@@ -36,7 +36,8 @@ soulforge --model together/meta-llama/Llama-3-70b-chat-hf
 | Field | Required | What it does |
 |-------|----------|--------------|
 | `id` | yes | Used in model strings (`together/llama-3`) |
-| `baseURL` | yes | OpenAI-compatible endpoint |
+| `baseURL` | yes | OpenAI-compatible endpoint (or an Anthropic `/v1/messages` base when `format: "anthropic"`) |
+| `format` | — | Wire format: `"openai"` (default) or `"anthropic"` for `/v1/messages` APIs like z.ai's GLM Coding Plan |
 | `name` | — | Display name |
 | `envVar` | — | Env var for the key (omit for auth-less servers) |
 | `models` | — | Fallback model list (strings or `{id, name, contextWindow}`) |
