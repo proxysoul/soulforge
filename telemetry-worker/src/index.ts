@@ -26,6 +26,9 @@ const EVENTS = new Set(["session_start", "session_end"]);
 const OSES = new Set(["darwin", "linux", "win32"]);
 const ARCHES = new Set(["arm64", "x64", "other"]);
 const INSTALLS = new Set(["npm", "pnpm", "yarn", "bun", "brew", "binary", "unknown"]);
+const MODES = new Set(["default", "architect", "socratic", "challenge", "plan", "auto"]);
+const TERMINALS = new Set(["kitty", "ghostty", "iterm", "vscode", "wezterm", "warp", "tmux", "other"]);
+const REPOMAP = new Set(["on", "skipped"]);
 // Model family is bucketed client-side (detectModelFamily). The worker enforces
 // a SHAPE only — not a fixed allow-list — so a new provider family surfaces
 // automatically instead of being dropped into a blank/other bucket.
@@ -41,6 +44,8 @@ const SEMVER_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[\w.]{1,16})?$/;
 // SHAPE (lowercase, bounded charset/length) as defense in depth.
 const PROVIDER_RE = /^[a-z][a-z0-9-]{0,23}$/;
 const MODEL_RE = /^[a-z0-9][a-z0-9.\-]{0,47}$/;
+// runtime: bun-1 / node-22 — engine name + major version only.
+const RUNTIME_RE = /^(?:bun|node|other)(?:-\d{1,3})?$/;
 
 /** Must be exactly one of the allow-listed values — no coercion. */
 function inSet(v: string | null, set: Set<string>): v is string {
@@ -85,6 +90,10 @@ export default {
     const family = q.get("mf"); // model family only, never the model/key
     const provider = q.get("pv"); // provider id or "custom" — never a URL
     const model = q.get("md"); // public base model name or "other"
+    const mode = q.get("mo"); // agent mode: default/architect/plan/auto
+    const terminal = q.get("tm"); // coarse terminal bucket
+    const runtime = q.get("rt"); // bun-N / node-N
+    const repomap = q.get("rm"); // "on" | "skipped"
 
     // Reject (don't record) anything malformed. A real client always passes;
     // junk/spoofed pings are dropped so they never inflate counts. install,
@@ -101,7 +110,11 @@ export default {
       (install == null || INSTALLS.has(install)) &&
       (family == null || FAMILY_RE.test(family)) &&
       (provider == null || PROVIDER_RE.test(provider)) &&
-      (model == null || MODEL_RE.test(model));
+      (model == null || MODEL_RE.test(model)) &&
+      (mode == null || MODES.has(mode)) &&
+      (terminal == null || TERMINALS.has(terminal)) &&
+      (runtime == null || RUNTIME_RE.test(runtime)) &&
+      (repomap == null || REPOMAP.has(repomap));
 
     if (!valid) {
       // 204 (not 400) so we leak nothing about what was wrong.
@@ -115,6 +128,7 @@ export default {
     env.USAGE.writeDataPoint({
       // blobs: low-cost string dimensions. All values are validated above.
       // blob1..10: event,surface,os,arch,version,install,family,country,provider,model
+      // blob11..14: mode,terminal,runtime,repomap
       blobs: [
         event,
         surface,
@@ -126,6 +140,10 @@ export default {
         country,
         provider ?? "",
         model ?? "",
+        mode ?? "",
+        terminal ?? "",
+        runtime ?? "",
+        repomap ?? "",
       ],
       // indexes: the dedup key — distinct ids per window = active users
       indexes: [id],

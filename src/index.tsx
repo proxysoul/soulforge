@@ -427,7 +427,8 @@ export async function start(opts: StartOptions): Promise<void> {
   }
 
   try {
-    const { sendBeacon, maybeShowTelemetryNotice } = await import("./core/telemetry.js");
+    const { sendBeacon, maybeShowTelemetryNotice, detectTerminalBucket, detectRuntime } =
+      await import("./core/telemetry.js");
     const { detectModelFamily, telemetryModelInfo } = await import(
       "./core/llm/provider-options.js"
     );
@@ -445,6 +446,10 @@ export async function start(opts: StartOptions): Promise<void> {
         family: hasModel ? detectModelFamily(cfg.defaultModel) : undefined,
         provider: info?.provider,
         model: info?.model,
+        mode: cfg.defaultForgeMode ?? "default",
+        terminal: detectTerminalBucket(),
+        runtime: detectRuntime(),
+        repomap: process.env.SOULFORGE_NO_REPOMAP === "1" ? "skipped" : "on",
       },
       cfg.telemetry,
     );

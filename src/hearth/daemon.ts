@@ -158,11 +158,16 @@ export class HearthDaemon {
     await this.startSocket();
 
     try {
-      const { sendBeacon } = await import("../core/telemetry.js");
+      const { sendBeacon, detectRuntime } = await import("../core/telemetry.js");
       const { CURRENT_VERSION, detectInstallMethod } = await import("../core/version.js");
       const { loadConfig } = await import("../config/index.js");
       sendBeacon(
-        { surface: "hearth", version: CURRENT_VERSION, install: detectInstallMethod() },
+        {
+          surface: "hearth",
+          version: CURRENT_VERSION,
+          install: detectInstallMethod(),
+          runtime: detectRuntime(),
+        },
         loadConfig().telemetry,
       );
     } catch {}

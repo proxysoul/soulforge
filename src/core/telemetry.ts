@@ -118,7 +118,37 @@ export interface BeaconFields {
   provider?: string;
   /** Public base model name (claude-sonnet-4-5/…) or "other". Never custom names. */
   model?: string;
+  /** Agent mode (default/architect/plan/auto). Optional. */
+  mode?: string;
+  /** Coarse terminal bucket (kitty/ghostty/iterm/vscode/other). Optional. */
+  terminal?: string;
+  /** JS runtime + major version (bun-1/node-22). Optional. */
+  runtime?: string;
+  /** Whether the repo-map scan was skipped this session ("on"|"skipped"). Optional. */
+  repomap?: string;
   event?: "session_start" | "session_end";
+}
+
+/** Coarse, non-identifying terminal bucket from env. No PII, no fingerprint. */
+export function detectTerminalBucket(): string {
+  const term = process.env.TERM_PROGRAM?.toLowerCase() ?? "";
+  if (process.env.KITTY_WINDOW_ID || term === "kitty") return "kitty";
+  if (term === "ghostty") return "ghostty";
+  if (process.env.ITERM_SESSION_ID || term === "iterm.app" || term === "iterm2") return "iterm";
+  if (term === "vscode") return "vscode";
+  if (process.env.WEZTERM_PANE !== undefined || term === "wezterm") return "wezterm";
+  if (term === "warp") return "warp";
+  if (process.env.TMUX) return "tmux";
+  return "other";
+}
+
+/** JS runtime + MAJOR version only (bun-1 / node-22). No build/patch detail. */
+export function detectRuntime(): string {
+  const bun = process.versions.bun;
+  if (bun) return `bun-${bun.split(".")[0]}`;
+  const node = process.versions.node;
+  if (node) return `node-${node.split(".")[0]}`;
+  return "other";
 }
 
 /**
@@ -140,7 +170,11 @@ export function sendBeacon(fields: BeaconFields, configEnabled?: boolean): void 
     if (fields.install) params.set("im", fields.install.slice(0, 16));
     if (fields.family) params.set("mf", fields.family.slice(0, 20));
     if (fields.provider) params.set("pv", fields.provider.slice(0, 24));
-    if (fields.model) params.set("md", fields.model.slice(0, 32));
+    if (fields.model) params.set("md", fields.model.slice(0, 40));
+    if (fields.mode) params.set("mo", fields.mode.slice(0, 16));
+    if (fields.terminal) params.set("tm", fields.terminal.slice(0, 16));
+    if (fields.runtime) params.set("rt", fields.runtime.slice(0, 16));
+    if (fields.repomap) params.set("rm", fields.repomap.slice(0, 8));
 
     const url = `${endpoint()}?${params.toString()}`;
     // Don't await — fire and forget. Abort quickly so it never lingers.
