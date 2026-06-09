@@ -62,7 +62,13 @@ export function spawnShell(commandLine: string, options?: SpawnOptions): ReturnT
   const opts: SpawnOptions = options ?? {};
   if (IS_WIN) {
     const cmd = process.env.COMSPEC ?? "cmd.exe";
-    return spawn(cmd, ["/d", "/s", "/c", commandLine], { ...opts, windowsHide: true });
+    // Force the console code page to UTF-8 (65001) before running the command.
+    // Otherwise cmd.exe emits output in the OEM code page (e.g. cp866 / cp850),
+    // which we then decode as UTF-8 → garbled non-ASCII output. `>nul` swallows
+    // chcp's "Active code page" banner; `&` runs the command regardless of
+    // chcp's exit status.
+    const utf8Command = `chcp 65001>nul & ${commandLine}`;
+    return spawn(cmd, ["/d", "/s", "/c", utf8Command], { ...opts, windowsHide: true });
   }
   return spawn("sh", ["-c", commandLine], opts);
 }

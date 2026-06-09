@@ -4,6 +4,7 @@ import type { ToolResult } from "../../types";
 import { getCwd } from "../cwd.js";
 import { getIntelligenceClient } from "../intelligence/index.js";
 import type { FileOutline, SymbolInfo } from "../intelligence/types.js";
+import { IS_WIN } from "../platform/index.js";
 import { isForbidden } from "../security/forbidden.js";
 import { getVendoredPath } from "../setup/install.js";
 
@@ -49,7 +50,7 @@ export const grepTool = {
         cwd: getCwd(),
         timeout: 10_000,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
+        detached: !IS_WIN,
       });
 
       const chunks: string[] = [];
@@ -79,7 +80,7 @@ export const grepTool = {
             cwd: getCwd(),
             timeout: 10_000,
             stdio: ["ignore", "pipe", "pipe"],
-            detached: true,
+            detached: !IS_WIN,
           });
 
           const grepChunks: string[] = [];

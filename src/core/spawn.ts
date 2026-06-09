@@ -82,12 +82,19 @@ export const SAFE_STDIO: SpawnOptions["stdio"] = ["ignore", "pipe", "pipe"];
 /**
  * Spawn options that fully isolate a child from the TUI:
  * - stdin ignored (no inherited fd)
- * - detached: true → child becomes its own process group / session leader on POSIX,
+ * - detached (POSIX only) → child becomes its own process group / session leader,
  *   so it has no controlling terminal and cannot read /dev/tty.
  *   Prevents tools like `security`, `ssh`, `sudo`, `gpg`, `pass`, etc.
  *   from prompting the user (and hanging) when stdin is closed.
+ *
+ * On Windows `detached: true` means something unrelated — the child is created
+ * with its own console (DETACHED_PROCESS). Combined with `windowsHide` + piped
+ * stdio that detaches the child's standard handles from the pipes we read, so
+ * command output never reaches the model. Windows has no /dev/tty, so the POSIX
+ * rationale doesn't apply; keep detached off there. Process-tree kill on Windows
+ * goes through `taskkill /T` and doesn't need a detached process group.
  */
 export const SAFE_SPAWN_OPTS: Pick<SpawnOptions, "stdio" | "detached"> = {
   stdio: SAFE_STDIO,
-  detached: true,
+  detached: !IS_WIN,
 };
