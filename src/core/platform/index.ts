@@ -67,6 +67,77 @@ export function spawnShell(commandLine: string, options?: SpawnOptions): ReturnT
   return spawn("sh", ["-c", commandLine], opts);
 }
 
+// ── Console output decoding (Windows code-page aware) ─────────────
+
+let _consoleOutputCP: number | null = null;
+
+/**
+ * Active console output code page. On Windows, cmd.exe and most console
+ * programs emit bytes in this code page (the OEM page — e.g. 866 on Russian
+ * Windows, 437 on US), NOT UTF-8. Cached for the process lifetime; any lookup
+ * failure (and every non-Windows platform) resolves to 65001 (UTF-8).
+ */
+function consoleOutputCP(): number {
+  if (_consoleOutputCP !== null) return _consoleOutputCP;
+  if (!IS_WIN) {
+    _consoleOutputCP = 65001;
+    return _consoleOutputCP;
+  }
+  try {
+    // chcp.com prints e.g. "Active code page: 866" — the label is localized but
+    // the trailing number is always ASCII, so read raw bytes and grab the digits.
+    const r = spawnSync("chcp.com", [], { windowsHide: true, timeout: 2000 });
+    const out = r.stdout ? r.stdout.toString("latin1") : "";
+    const m = out.match(/(\d{3,5})\s*$/);
+    _consoleOutputCP = m?.[1] ? Number.parseInt(m[1], 10) : 65001;
+  } catch {
+    _consoleOutputCP = 65001;
+  }
+  return _consoleOutputCP;
+}
+
+/** Windows code page → WHATWG TextDecoder label (only pages TextDecoder supports). */
+const CP_TO_DECODER: Record<number, string> = {
+  866: "ibm866",
+  874: "windows-874",
+  1250: "windows-1250",
+  1251: "windows-1251",
+  1252: "windows-1252",
+  1253: "windows-1253",
+  1254: "windows-1254",
+  1255: "windows-1255",
+  1256: "windows-1256",
+  1257: "windows-1257",
+  1258: "windows-1258",
+  20866: "koi8-r",
+  21866: "koi8-u",
+  28595: "iso-8859-5",
+};
+
+/**
+ * Decode child-process output using the active console output code page.
+ *
+ * cmd.exe writes its output in the console's OEM code page (e.g. cp866 on
+ * Russian Windows), not UTF-8. Decoding those bytes blindly as UTF-8 yields
+ * mojibake — the model then sees garbled shell output. POSIX output is always
+ * UTF-8. Code pages TextDecoder cannot handle (e.g. cp437 / cp850) fall back to
+ * UTF-8, which is no worse than the previous always-UTF-8 behaviour.
+ */
+export function decodeConsoleOutput(buf: Buffer): string {
+  if (!IS_WIN) return buf.toString("utf8");
+  const cp = consoleOutputCP();
+  if (cp === 65001) return buf.toString("utf8");
+  const label = CP_TO_DECODER[cp];
+  if (label) {
+    try {
+      // Cast: the runtime's TextDecoder may not support every legacy label
+      // (e.g. bun lacks windows-1251); unsupported labels throw → UTF-8 fallback.
+      return new TextDecoder(label as ConstructorParameters<typeof TextDecoder>[0]).decode(buf);
+    } catch {}
+  }
+  return buf.toString("utf8");
+}
+
 // ── Process management ──────────────────────────────────────────
 
 /**

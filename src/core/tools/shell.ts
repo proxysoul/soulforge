@@ -1,6 +1,6 @@
 import stripAnsi from "strip-ansi";
 import type { ToolResult } from "../../types";
-import { killTree, spawnShell } from "../platform/index.js";
+import { decodeConsoleOutput, killTree, spawnShell } from "../platform/index.js";
 import { isForbidden } from "../security/forbidden.js";
 // TODO(beta): inline image rendering — disabled until suspend/resume bridge is stable
 // import { canRenderImages, renderImages } from "../terminal/image.js";
@@ -45,8 +45,8 @@ async function runPreCommitChecks(cwd: string): Promise<string | null> {
       stdout: string;
       stderr: string;
     }>((resolve) => {
-      const chunks: string[] = [];
-      const errChunks: string[] = [];
+      const chunks: Buffer[] = [];
+      const errChunks: Buffer[] = [];
       let lintBytes = 0;
       let settled = false;
       const proc = spawnShell(lintCmd, {
@@ -74,20 +74,24 @@ async function runPreCommitChecks(cwd: string): Promise<string | null> {
         killProc("SIGKILL");
         finish({
           exitCode: null,
-          stdout: chunks.join(""),
+          stdout: decodeConsoleOutput(Buffer.concat(chunks)),
           stderr: `Pre-commit lint timed out after ${String(LINT_TIMEOUT_MS / 1000)}s`,
         });
       }, LINT_TIMEOUT_MS + 3_000);
       proc.stdout?.on("data", (d: Buffer) => {
         lintBytes += d.length;
-        if (lintBytes <= MAX_COLLECT_BYTES) chunks.push(d.toString());
+        if (lintBytes <= MAX_COLLECT_BYTES) chunks.push(d);
       });
       proc.stderr?.on("data", (d: Buffer) => {
         lintBytes += d.length;
-        if (lintBytes <= MAX_COLLECT_BYTES) errChunks.push(d.toString());
+        if (lintBytes <= MAX_COLLECT_BYTES) errChunks.push(d);
       });
       proc.on("close", (code) =>
-        finish({ exitCode: code, stdout: chunks.join(""), stderr: errChunks.join("") }),
+        finish({
+          exitCode: code,
+          stdout: decodeConsoleOutput(Buffer.concat(chunks)),
+          stderr: decodeConsoleOutput(Buffer.concat(errChunks)),
+        }),
       );
       proc.on("error", () => finish({ exitCode: 1, stdout: "", stderr: "lint process error" }));
     });
@@ -340,8 +344,8 @@ export const shellTool = {
     const timeout = args.timeout ?? getToolTimeoutMs();
 
     return new Promise((resolve) => {
-      const chunks: string[] = [];
-      const errChunks: string[] = [];
+      const chunks: Buffer[] = [];
+      const errChunks: Buffer[] = [];
       let stdoutBytes = 0;
       let stderrBytes = 0;
       let settled = false;
@@ -376,7 +380,7 @@ export const shellTool = {
             cleanupAbortListener?.();
             resolve({
               success: false,
-              output: sanitizeOutput(chunks.join("")),
+              output: sanitizeOutput(decodeConsoleOutput(Buffer.concat(chunks))),
               error: `Command timed out after ${String(timeout / 1000)}s and could not be terminated (possible stuck process tree)`,
             });
           }, 2000);
@@ -399,11 +403,11 @@ export const shellTool = {
 
       proc.stdout?.on("data", (data: Buffer) => {
         stdoutBytes += data.length;
-        if (stdoutBytes <= MAX_COLLECT_BYTES) chunks.push(data.toString());
+        if (stdoutBytes <= MAX_COLLECT_BYTES) chunks.push(data);
       });
       proc.stderr?.on("data", (data: Buffer) => {
         stderrBytes += data.length;
-        if (stderrBytes <= MAX_COLLECT_BYTES) errChunks.push(data.toString());
+        if (stderrBytes <= MAX_COLLECT_BYTES) errChunks.push(data);
       });
 
       proc.on("close", async (code: number | null) => {
@@ -411,7 +415,7 @@ export const shellTool = {
         settled = true;
         clearTimeout(hardKillTimer);
         cleanupAbortListener?.();
-        let raw = sanitizeOutput(chunks.join(""));
+        let raw = sanitizeOutput(decodeConsoleOutput(Buffer.concat(chunks)));
         if (stdoutBytes > MAX_COLLECT_BYTES) {
           raw += `\n[output truncated — ${String(Math.round(stdoutBytes / 1024))}KB total, showing first ${String(Math.round(MAX_COLLECT_BYTES / 1024))}KB]`;
         }
@@ -427,7 +431,7 @@ export const shellTool = {
           compressed = compressLocal(raw);
         }
         let stdout = compressed.text;
-        const stderr = sanitizeOutput(errChunks.join(""));
+        const stderr = sanitizeOutput(decodeConsoleOutput(Buffer.concat(errChunks)));
 
         if (compressed.original) {
           const teeFile = await saveTee("shell-full", compressed.original);
