@@ -2,6 +2,21 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.9] — 2026-06-09
+
+### Bug Fixes
+
+- **chat**: stop selection clearing on release + duplicate streaming lines
+### Documentation
+
+- **prompts**: frame Soul Map as ranked index, not ground truth
+### Features
+
+- **telemetry**: add mode, terminal, runtime, repomap fields
+- **telemetry**: report all public models via shape gate
+### Testing
+
+- **prompts**: match navigate() assertion in soul map usage text
 ## [2.20.8] — 2026-06-08
 
 ### Bug Fixes
