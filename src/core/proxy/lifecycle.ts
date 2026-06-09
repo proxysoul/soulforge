@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -618,6 +619,15 @@ export function runProxyLogin(
   ensureConfig();
 
   const flag = providerFlag ?? "-claude-login";
+
+  // Credential files for the provider we're logging in as, captured before
+  // the login runs. `<flag>` exits 0 after writing a `<prefix>*.json` file to
+  // AUTH_DIR (it does NOT start a server), so a new/updated file is the
+  // authoritative signal that auth actually succeeded — independent of
+  // whether the proxy server is currently healthy.
+  const prefix = PROXY_PROVIDERS.find((p) => p.flag === flag)?.prefix ?? "";
+  const credSnapshot = snapshotProviderCreds(prefix);
+
   const proc = spawn(binary, ["-config", PROXY_CONFIG_PATH, flag], {
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -637,12 +647,31 @@ export function runProxyLogin(
 
   const promise = new Promise<{ ok: boolean }>((resolve) => {
     proc.on("close", async (code) => {
-      if (code === 0) {
-        const result = await ensureProxy();
-        resolve({ ok: result.ok });
-      } else {
+      // Auth success is decided by the credential file, NOT by code alone and
+      // NOT by proxy health: a stale running proxy answers /v1/models with the
+      // API key regardless of upstream auth, so ensureProxy() can't tell us
+      // whether THIS login worked.
+      const authed = code === 0 && credsChangedSince(prefix, credSnapshot);
+      if (!authed) {
         resolve({ ok: false });
+        return;
       }
+
+      // Credentials landed. Force the live server to pick them up: a proxy
+      // that was already running loaded its auth files at startup, before this
+      // new credential file existed, so it would otherwise keep serving with
+      // stale upstream auth. bounceProxy() stops it, waits for the port to
+      // free, and starts fresh. Report auth success regardless of the bounce
+      // outcome — the credentials are saved either way.
+      try {
+        const healthy = await bounceProxy();
+        if (!healthy) {
+          onOutput("Credentials saved, but the proxy did not come back up. Run /proxy restart.");
+        }
+      } catch {
+        onOutput("Credentials saved, but restarting the proxy failed. Run /proxy restart.");
+      }
+      resolve({ ok: true });
     });
     proc.on("error", (err) => {
       onOutput(`Login failed: ${err.message}`);
@@ -823,4 +852,40 @@ function parseNetstatPidsForPort(out: string, port: string): number[] {
     if (Number.isFinite(pid) && pid > 0) pids.push(pid);
   }
   return pids;
+}
+/**
+ * Map of `<prefix>*.json` credential filenames → mtimeMs, taken before a
+ * login runs. Compared afterwards by credsChangedSince() to detect whether
+ * the login wrote or refreshed a credential file. Empty prefix matches
+ * nothing, so an unknown provider flag never reports a false positive.
+ */
+function snapshotProviderCreds(prefix: string): Map<string, number> {
+  const snap = new Map<string, number>();
+  if (!prefix || !existsSync(AUTH_DIR)) return snap;
+  for (const f of readdirSync(AUTH_DIR)) {
+    if (!f.startsWith(prefix) || !f.endsWith(".json")) continue;
+    try {
+      snap.set(f, statSync(join(AUTH_DIR, f)).mtimeMs);
+    } catch {}
+  }
+  return snap;
+}
+
+/**
+ * True if a credential file for `prefix` appeared, or an existing one's mtime
+ * advanced, since the snapshot. This is the authoritative proof that a login
+ * succeeded — CLIProxyAPI's `<flag>` exits 0 after saving creds, and a fresh
+ * or rewritten file is the only reliable signal it actually did.
+ */
+function credsChangedSince(prefix: string, before: Map<string, number>): boolean {
+  if (!prefix || !existsSync(AUTH_DIR)) return false;
+  for (const f of readdirSync(AUTH_DIR)) {
+    if (!f.startsWith(prefix) || !f.endsWith(".json")) continue;
+    const prev = before.get(f);
+    if (prev === undefined) return true; // new credential file
+    try {
+      if (statSync(join(AUTH_DIR, f)).mtimeMs > prev) return true; // refreshed
+    } catch {}
+  }
+  return false;
 }

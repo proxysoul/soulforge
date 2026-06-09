@@ -32,10 +32,11 @@ export function parseOpusVersion(base: string): { major: number; minor: number }
   return { major: Number(m[1] ?? m[3]), minor: m[2] ? Number(m[2]) : 0 };
 }
 
-/** Opus 4.7+ rejects temperature/top_p/top_k — return false for those models. */
+/** Opus 4.7+ and Claude 5-gen (Fable 5 / Mythos 5) reject temperature/top_p/top_k. */
 export function supportsTemperature(modelId: string): boolean {
   const base = extractBaseModel(modelId);
   if (!base.startsWith("claude")) return true;
+  if (isClaude5Plus(base)) return false;
   const v = parseOpusVersion(base);
   if (!v) return true;
   return v.major < 5 && (v.major < 4 || v.minor < 7);
@@ -43,7 +44,17 @@ export function supportsTemperature(modelId: string): boolean {
 /** Opus 4.7+ only supports adaptive thinking — rejects type:"enabled" with budget_tokens. */
 export function isAdaptiveOnly(modelId: string): boolean {
   const base = extractBaseModel(modelId);
+  if (isClaude5Plus(base)) return true;
   const v = parseOpusVersion(base);
   if (!v) return false;
   return v.major >= 5 || (v.major === 4 && v.minor >= 7);
+}
+/** Claude 5-generation models (Fable 5, Mythos 5, and successors) are adaptive-only and reject temperature/top_p/top_k. */
+export function isClaude5Plus(base: string): boolean {
+  // Named 5-gen models that don't carry an opus-N.N version token.
+  if (/(?:fable|mythos)-(\d+)/.test(base)) {
+    const m = base.match(/(?:fable|mythos)-(\d+)/);
+    return m ? Number(m[1]) >= 5 : false;
+  }
+  return false;
 }
