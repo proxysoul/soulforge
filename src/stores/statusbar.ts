@@ -630,17 +630,44 @@ function getPerPidRssKB(pids: number[]): Promise<Map<number, number>> {
  * number, which matches what Activity Monitor displays.
  *
  * On macOS: read the footprint via the Mach task_info VM bookkeeping by
- * falling back through vmmap → ps rss. vmmap owns the accurate number
- * but costs ~80ms, so we only hit it on the main process and only when
- * the compressed portion is non-trivial.
+ * falling back through vmmap → ps rss. vmmap owns the accurate number but is
+ * expensive — it walks the whole VM map and briefly stalls the task. Running
+ * it on every 2s poll froze the UI on a fixed cadence (#102), so we cache the
+ * footprint and refresh it at most once per FOOTPRINT_TTL_MS, off the poll's
+ * await path. The poll never blocks on vmmap; it returns the freshest value we
+ * already have (rss until the first refresh lands).
  *
  * On Linux/Windows: RSS already includes everything meaningful.
  */
+const FOOTPRINT_TTL_MS = 30_000;
+let footprintCacheMB: number | null = null;
+let footprintCacheAt = 0;
+let footprintRefreshInFlight = false;
+
 async function getMainFootprintMB(): Promise<number> {
   const rssMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
   if (process.platform !== "darwin") return rssMB;
-  const footprint = await macFootprintMB(process.pid);
-  return footprint ?? rssMB;
+
+  const now = Date.now();
+  if (footprintCacheMB === null || now - footprintCacheAt >= FOOTPRINT_TTL_MS) {
+    // Fire-and-forget — never await vmmap on the poll path.
+    void refreshFootprintMB();
+  }
+  return footprintCacheMB ?? rssMB;
+}
+
+async function refreshFootprintMB(): Promise<void> {
+  if (footprintRefreshInFlight) return;
+  footprintRefreshInFlight = true;
+  try {
+    const mb = await macFootprintMB(process.pid);
+    // Stamp the time either way: on failure, back off for the TTL instead of
+    // hammering vmmap on every subsequent poll.
+    footprintCacheAt = Date.now();
+    if (mb != null) footprintCacheMB = mb;
+  } finally {
+    footprintRefreshInFlight = false;
+  }
 }
 
 function macFootprintMB(pid: number): Promise<number | null> {
