@@ -525,6 +525,9 @@ export function resetStatusBarStore(): void {
     memPollTimer = null;
     memPollStarted = false;
   }
+  footprintCacheMB = null;
+  footprintCacheAt = 0;
+  footprintRefreshInFlight = false;
   useStatusBarStore.setState({
     tokenUsage: { ...ZERO_USAGE },
     activeModel: "none",
