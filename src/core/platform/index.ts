@@ -188,7 +188,9 @@ export function safeRename(tmpPath: string, targetPath: string): void {
  */
 export function bunShellArgs(commandLine: string): string[] {
   if (IS_WIN) {
-    return [process.env.COMSPEC ?? "cmd.exe", "/d", "/s", "/c", commandLine];
+    // Prefix `chcp 65001` so cmd.exe produces UTF-8 output — see spawnShell() above.
+    const utf8Command = `chcp 65001>nul & ${commandLine}`;
+    return [process.env.COMSPEC ?? "cmd.exe", "/d", "/s", "/c", utf8Command];
   }
   return ["sh", "-c", commandLine];
 }
