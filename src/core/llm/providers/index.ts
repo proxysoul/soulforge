@@ -22,6 +22,7 @@ export { proxy } from "./proxy.js";
 export type { CustomProviderConfig, ProviderDefinition, ProviderModelInfo } from "./types.js";
 export { vercelGatewayProvider } from "./vercel-gateway.js";
 export { xai } from "./xai.js";
+export { zai } from "./zai.js";
 
 import { anthropic } from "./anthropic.js";
 import { bedrock } from "./bedrock.js";
@@ -47,6 +48,7 @@ import { proxy } from "./proxy.js";
 import type { CustomProviderConfig, ProviderDefinition } from "./types.js";
 import { vercelGatewayProvider } from "./vercel-gateway.js";
 import { xai } from "./xai.js";
+import { zai } from "./zai.js";
 
 const BUILTIN_PROVIDERS: ProviderDefinition[] = [
   llmgateway,
@@ -62,6 +64,7 @@ const BUILTIN_PROVIDERS: ProviderDefinition[] = [
   bedrock,
   fireworks,
   minimax,
+  zai,
   nim,
   codex,
   copilot,

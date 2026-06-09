@@ -146,6 +146,7 @@ const PROVIDER_CONSTRAINTS: Record<string, ProviderConstraints> = {
   groq: COMPAT_ONLY,
   fireworks: COMPAT_ONLY,
   minimax: COMPAT_ONLY,
+  zai: COMPAT_ONLY,
   copilot: COMPAT_ONLY,
   "github-models": COMPAT_ONLY,
   "opencode-zen": { ...GATEWAY_FULL, compatReasoningBody: true },

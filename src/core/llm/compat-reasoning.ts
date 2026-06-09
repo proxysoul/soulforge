@@ -22,6 +22,7 @@ const COMPAT_PROVIDERS = new Set([
   "groq",
   "fireworks",
   "minimax",
+  "zai",
   "copilot",
   "github-models",
   "opencode-go",
