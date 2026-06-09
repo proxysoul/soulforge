@@ -1,5 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { loadConfig } from "../../../config/index.js";
 import { getActiveProxyApiKey } from "../../proxy/key-resolver.js";
 import { ensureProxy, stopProxy } from "../../proxy/lifecycle.js";
@@ -25,8 +25,11 @@ export const proxy: ProviderDefinition = {
 
   createModel(modelId: string) {
     // Claude → Anthropic SDK (proxy serves /v1/messages)
-    // Everything else → OpenAI SDK chat completions (proxy serves /v1/chat/completions)
-    // Must use .chat() — default uses Responses API (/v1/responses) which proxy can't translate for all providers
+    // Everything else → OpenAI-compatible chat completions (proxy serves /v1/chat/completions).
+    // Use @ai-sdk/openai-compatible (.chatModel), NOT @ai-sdk/openai: the compatible
+    // provider surfaces the upstream `reasoning_content` field (Gemini/GLM/… thoughts)
+    // as reasoning parts — @ai-sdk/openai drops it — and it targets chat-completions
+    // rather than the Responses API (/v1/responses) the proxy can't translate for all providers.
     // Read the key at createModel time so discoveries done by ensureProxy
     // (e.g. brew config's first non-placeholder entry) are picked up. The
     // AI SDK captures `apiKey` at factory-call time, so this must not be a
@@ -35,15 +38,16 @@ export const proxy: ProviderDefinition = {
     if (isAnthropicModel(modelId)) {
       return createAnthropic({ baseURL, apiKey })(modelId);
     }
-    // Non-Claude routed through OpenAI SDK — inject reasoning body params for
-    // upstream providers (xAI, Gemini, GLM, etc.) that accept reasoning_effort.
+    // Non-Claude routed through the OpenAI-compatible SDK — inject reasoning body
+    // params for upstream providers (xAI, Gemini, GLM, etc.) that accept reasoning_effort.
     const reasoningBody = getCompatReasoningBody(`proxy/${modelId}`, loadConfig());
     const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
-    return createOpenAI({
+    return createOpenAICompatible({
+      name: "proxy",
       baseURL,
       apiKey,
       ...(reasoningFetch ? { fetch: reasoningFetch as typeof fetch } : {}),
-    }).chat(modelId);
+    }).chatModel(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {
