@@ -47,7 +47,24 @@ export const proxy: ProviderDefinition = {
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {
-    return null;
+    // The local proxy (CLIProxyAPI) exposes an OpenAI-style /models listing that
+    // aggregates whatever its backends serve. Pull it so new models (e.g.
+    // claude-fable-5) appear without a soulforge release. Any failure (proxy not
+    // up, no /models route, offline) → null → fallbackModels is used.
+    try {
+      const apiKey = getActiveProxyApiKey();
+      const res = await fetch(`${baseURL}/models`, {
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as { data?: Array<{ id?: unknown }> };
+      const ids = (json.data ?? [])
+        .map((m) => m?.id)
+        .filter((id): id is string => typeof id === "string");
+      return ids.length > 0 ? ids.map((id) => ({ id, name: id })) : null;
+    } catch {
+      return null;
+    }
   },
 
   // Hide the proxy provider from `/model` and Ctrl+L until the addon is
@@ -67,6 +84,7 @@ export const proxy: ProviderDefinition = {
   },
 
   fallbackModels: [
+    { id: "claude-fable-5", name: "Claude Fable 5" },
     { id: "claude-opus-4-8", name: "Claude Opus 4.8" },
     { id: "claude-opus-4-7", name: "Claude Opus 4.7" },
     { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
@@ -84,6 +102,7 @@ export const proxy: ProviderDefinition = {
   // Specific overrides first → shared patterns → generic catch-alls last.
   contextWindows: [
     // Claude (both dot/hyphen styles)
+    ["claude-fable-5", 1_000_000],
     ["claude-opus-4-8", 1_000_000],
     ["claude-opus-4.8", 1_000_000],
     ["claude-opus-4-7", 1_000_000],
