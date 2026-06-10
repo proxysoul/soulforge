@@ -725,6 +725,52 @@ function macFootprintMB(pid: number): Promise<number | null> {
   });
 }
 
+/**
+ * Per-PID RSS (nvim / proxy / LSP children) carries the SAME spawn cost as the
+ * macOS footprint probe, on EVERY platform: `getPerPidRssKB` execs `ps` (POSIX)
+ * or `wmic` (Windows), and spawning any subprocess from a multi-gigabyte parent
+ * stalls the event loop while the OS provisions the child — COW page-table setup
+ * proportional to the parent's address space on macOS/Linux, plus `wmic`'s heavy
+ * cold-start on Windows. PR #103 throttled `vmmap` but left this spawn firing on
+ * the 2s poll, so the freeze persisted (now from `ps`/`wmic` instead of vmmap).
+ *
+ * Cache it the same way: serve the last map synchronously, refresh at most once
+ * per RSS_TTL_MS off the poll's path, and refresh eagerly when the child-PID set
+ * changes (new LSP / nvim) so a freshly-spawned server still shows up promptly.
+ */
+const RSS_TTL_MS = 30_000;
+let rssCache = new Map<number, number>();
+let rssCacheAt = 0;
+let rssCacheKey = "";
+let rssRefreshInFlight = false;
+
+function pidSetKey(pids: number[]): string {
+  return [...pids].sort((a, b) => a - b).join(",");
+}
+
+function getCachedPerPidRssKB(pids: number[]): Map<number, number> {
+  const key = pidSetKey(pids);
+  const now = Date.now();
+  if (rssCacheKey !== key || rssCacheAt === 0 || now - rssCacheAt >= RSS_TTL_MS) {
+    // Fire-and-forget — never spawn `ps`/`wmic` on the poll path.
+    void refreshPerPidRssKB(pids, key);
+  }
+  return rssCache;
+}
+
+async function refreshPerPidRssKB(pids: number[], key: string): Promise<void> {
+  if (rssRefreshInFlight) return;
+  rssRefreshInFlight = true;
+  try {
+    const map = await getPerPidRssKB(pids);
+    rssCache = map;
+    rssCacheAt = Date.now();
+    rssCacheKey = key;
+  } finally {
+    rssRefreshInFlight = false;
+  }
+}
+
 let memPollStarted = false;
 let memPollTimer: ReturnType<typeof setInterval> | null = null;
 export function startMemoryPoll(intervalMs = 2000) {
@@ -742,19 +788,20 @@ export function startMemoryPoll(intervalMs = 2000) {
       useStatusBarStore.getState().setProcessRss({ mainMB, nvimMB: 0, proxyMB: 0, lspMB: 0 });
       return;
     }
-    getPerPidRssKB(allPids).then((rssMap) => {
-      const kbToMB = (pid: number | null) =>
-        pid != null ? Math.round((rssMap.get(pid) ?? 0) / 1024) : 0;
-      let lspMB = 0;
-      for (const pid of groups.lsp) {
-        lspMB += Math.round((rssMap.get(pid) ?? 0) / 1024);
-      }
-      useStatusBarStore.getState().setProcessRss({
-        mainMB,
-        nvimMB: kbToMB(groups.nvim),
-        proxyMB: kbToMB(groups.proxy),
-        lspMB,
-      });
+    // Read the cached RSS map synchronously; the spawn (if any) happens
+    // off-path inside getCachedPerPidRssKB, never on this 2s tick.
+    const rssMap = getCachedPerPidRssKB(allPids);
+    const kbToMB = (pid: number | null) =>
+      pid != null ? Math.round((rssMap.get(pid) ?? 0) / 1024) : 0;
+    let lspMB = 0;
+    for (const pid of groups.lsp) {
+      lspMB += Math.round((rssMap.get(pid) ?? 0) / 1024);
+    }
+    useStatusBarStore.getState().setProcessRss({
+      mainMB,
+      nvimMB: kbToMB(groups.nvim),
+      proxyMB: kbToMB(groups.proxy),
+      lspMB,
     });
   }, intervalMs);
 }
