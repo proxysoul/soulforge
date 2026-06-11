@@ -28,6 +28,22 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      # Compile gate — runs on every push + PR, not just at release. Cross-compiles
+      # every shipped target so a dependency bump that breaks Bun's static module
+      # resolution (e.g. @opentui/core 0.4.x's hardcoded platform import()
+      # specifiers) fails HERE, on main, instead of silently at release time.
+      # SOULFORGE_SKIP_SMOKE=1 skips the native-dep download + binary exec — this
+      # only asserts the bundle resolves and compiles for each target (~5s each).
+      - name: Compile gate (cross-targets)
+        env:
+          SOULFORGE_SKIP_SMOKE: "1"
+        run: |
+          set -e
+          for target in bun-darwin-arm64 bun-darwin-x64 bun-linux-x64 bun-linux-arm64 bun-windows-x64; do
+            echo "==> compiling $target"
+            bun scripts/build.ts --compile --target="$target" --outfile="/tmp/sf-$target"
+          done
+
       # Tests skipped on CI to keep PR feedback fast. Run locally with
       # `bun test` before pushing if your change touches test-covered code.
 
@@ -71,7 +87,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Force-install win32 optional deps
-        run: bun add --optional @opentui/core-win32-x64@0.2.15 || true
+        run: |
+          ver=$(bun -e "console.log(require('./node_modules/@opentui/core/package.json').version)")
+          bun add --optional "@opentui/core-win32-x64@${ver}" || true
 
       - name: Install PowerShell
         run: |
