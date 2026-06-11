@@ -2,6 +2,12 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.12] — 2026-06-11
+
+### Features
+
+- **llm**: send per-chat session id to providers for sticky routing
+- **minimax**: add MiniMax M3 model
 ## [2.20.11] — 2026-06-09
 
 ## [2.20.10] — 2026-06-09
