@@ -97,9 +97,13 @@ module.exports = { native };
 const opentuiNativePlugin: BunPlugin = {
   name: "opentui-native",
   setup(build) {
-    // Match both shapes — older OpenTUI used `/index.ts`, current builds use
-    // bare specifier (`@opentui/core-${platform}-${arch}`).
-    build.onResolve({ filter: /^@opentui\/core-[a-z]+-[a-z0-9]+(\/index\.ts)?$/ }, (args) => ({
+    // Match every platform package shape:
+    //   @opentui/core-darwin-arm64            (older + current bare specifier)
+    //   @opentui/core-linux-x64-musl          (0.4.x added libc-suffixed variants)
+      //   @opentui/core-linux-arm64/index.ts    (legacy /index.ts form)
+      // The trailing segment may itself contain hyphens (x64-musl), so match any
+    // non-slash run after the `core-` prefix.
+    build.onResolve({ filter: /^@opentui\/core-[a-z0-9-]+(\/index\.ts)?$/ }, (args) => ({
       path: args.path,
       namespace: "opentui-native",
     }));
@@ -264,7 +268,12 @@ if (isCompile) {
   const phase2 = await Bun.build({
     entrypoints: [`${tmpDir}/soulforge.js`],
     target: "bun",
-    plugins: [devtoolsStubPlugin],
+    // opentuiNativePlugin MUST run here too: @opentui/core@0.4.x emits 8
+    // hardcoded static `import("@opentui/core-<platform>")` specifiers
+    // (not the old ${process.platform} template literal the regex patch
+    // targets). Without the resolver, Phase 2 compile tries to statically
+    // resolve cross-platform packages that aren't installed → build fails.
+    plugins: [devtoolsStubPlugin, opentuiNativePlugin],
     compile: {
       target: (compileTarget ?? hostCompileTarget) as never,
       execArgv: [
