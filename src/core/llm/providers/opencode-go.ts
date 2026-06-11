@@ -58,7 +58,7 @@ export const opencodeGo: ProviderDefinition = {
     { id: "kimi-k2.6", name: "Kimi K2.6" },
     { id: "minimax-m3", name: "MiniMax M3" },
     { id: "mimo-v2.5-pro", name: "MiMo V2.5 Pro" },
-    { id: "qwen3.7-max", name: "Qwen3.7 Max" },
+    { id: "qwen3.7-plus", name: "Qwen3.7 Plus" },
     { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro" },
     { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
   ],
