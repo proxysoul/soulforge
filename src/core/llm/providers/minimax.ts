@@ -13,7 +13,7 @@ export const minimax: ProviderDefinition = {
   secretKey: "minimax-api-key",
   keyUrl: "platform.minimaxi.com",
   asciiIcon: "M",
-  description: "M2 series models",
+  description: "M3 / M2 series models",
 
   createModel(modelId: string) {
     const apiKey = getProviderApiKey("MINIMAX_API_KEY");
@@ -34,6 +34,8 @@ export const minimax: ProviderDefinition = {
   },
 
   fallbackModels: [
+    { id: "MiniMax-M3", name: "MiniMax M3" },
+    { id: "MiniMax-M3-highspeed", name: "MiniMax M3 HighSpeed" },
     { id: "MiniMax-M2.7", name: "MiniMax M2.7" },
     { id: "MiniMax-M2.7-highspeed", name: "MiniMax M2.7 HighSpeed" },
     { id: "MiniMax-M2.5", name: "MiniMax M2.5" },
@@ -45,6 +47,8 @@ export const minimax: ProviderDefinition = {
 
   // from https://platform.minimax.io/docs/api-reference/text-openai-api#supported-models
   contextWindows: [
+    ["MiniMax-M3", 1_000_000],
+    ["MiniMax-M3-highspeed", 1_000_000],
     ["MiniMax-M2.7", 204_800],
     ["MiniMax-M2.7-highspeed", 204_800],
     ["MiniMax-M2.5", 204_800],
