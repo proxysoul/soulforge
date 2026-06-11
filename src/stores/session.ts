@@ -33,3 +33,22 @@ export function getAppSessionId(): string {
 export function setAppSessionId(id: string): void {
   useSessionStore.getState().setAppSessionId(id);
 }
+
+/**
+ * Active chat/conversation session id — the per-chat id sent to upstream
+ * gateways (e.g. LLMGateway `x-session-id`) to pin provider routing for
+ * prompt-cache locality. Set by each surface (TUI tab, hearth tab-loop,
+ * headless run) immediately before resolving the model for a turn.
+ *
+ * Distinct from the app/telemetry id: this is conversation-grained, so a
+ * cleared or new chat rotates it.
+ */
+let _activeSessionId: string | null = null;
+
+export function setActiveSessionId(id: string | null): void {
+  _activeSessionId = id;
+}
+
+export function getActiveSessionId(): string | null {
+  return _activeSessionId;
+}

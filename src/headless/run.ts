@@ -12,6 +12,7 @@ import { disposeMCPManager } from "../core/mcp/index.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import { onFileEdited } from "../core/tools/file-events.js";
 import { logBackgroundError } from "../stores/errors.js";
+import { setActiveSessionId } from "../stores/session.js";
 import type { AppConfig, ChatMessage, ForgeMode, InteractiveCallbacks } from "../types/index.js";
 import { DIM, EXIT_ABORT, EXIT_ERROR, EXIT_OK, EXIT_TIMEOUT, PURPLE, RST } from "./constants.js";
 import {
@@ -473,6 +474,9 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
   // Session resume
   let priorMessages: ModelMessage[] = [];
   let priorChatMessages: ChatMessage[] = [];
+  // Conversation id sent upstream (LLMGateway x-session-id) to pin provider
+  // routing. Resumed runs reuse the original id; fresh runs mint one.
+  let routingSessionId: string = crypto.randomUUID();
 
   if (opts.sessionId) {
     const fullId = env.sessionManager.findByPrefix(opts.sessionId);
@@ -486,6 +490,7 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
     if (data) {
       priorMessages = data.coreMessages;
       priorChatMessages = data.messages;
+      routingSessionId = fullId;
       if (showProgress) {
         stderrDim(
           `Resumed session ${fullId.slice(0, 8)} (${String(data.messages.length)} messages)`,
@@ -553,6 +558,8 @@ export async function runPrompt(opts: HeadlessRunOptions, merged: AppConfig): Pr
       abortController.abort();
     }, opts.timeout);
   }
+
+  setActiveSessionId(routingSessionId);
 
   const messages: ModelMessage[] = [...priorMessages, { role: "user" as const, content: prompt }];
 
@@ -738,10 +745,15 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
   // Session resume
   let history: ModelMessage[] = [];
   let chatHistory: ChatMessage[] = [];
+  // Conversation id sent upstream (x-session-id / x-session-affinity) to pin
+  // provider routing. Resume reuses the original id; otherwise the caller's
+  // sessionId (hearth workspace id) or a fresh per-run UUID.
+  let routingSessionId: string = opts.sessionId ?? crypto.randomUUID();
 
   if (opts.sessionId) {
     const fullId = env.sessionManager.findByPrefix(opts.sessionId);
     if (fullId) {
+      routingSessionId = fullId;
       const data = env.sessionManager.loadSessionMessages(fullId);
       if (data) {
         history = data.coreMessages;
@@ -845,6 +857,8 @@ export async function runChat(opts: HeadlessChatOptions, merged: AppConfig): Pro
       );
     }
   }
+
+  setActiveSessionId(routingSessionId);
 
   if (isEvents) emit({ type: "ready" });
   if (showProgress) process.stderr.write(`${PURPLE()}▸${RST} `);

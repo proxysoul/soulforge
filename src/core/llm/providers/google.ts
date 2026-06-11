@@ -1,5 +1,6 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { getProviderApiKey } from "../../secrets.js";
+import { withSessionHeaders } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 interface GoogleModel {
@@ -25,7 +26,9 @@ export const google: ProviderDefinition = {
     if (!apiKey) {
       throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set");
     }
-    return createGoogleGenerativeAI({ apiKey })(modelId);
+    return createGoogleGenerativeAI({ apiKey, fetch: withSessionHeaders() as typeof fetch })(
+      modelId,
+    );
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {

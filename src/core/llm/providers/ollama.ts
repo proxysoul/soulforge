@@ -1,7 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { loadConfig } from "../../../config/index.js";
 import { getCompatReasoningBody } from "../compat-reasoning.js";
-import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
+import { createSessionFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 interface OllamaModel {
@@ -23,7 +23,7 @@ export const ollama: ProviderDefinition = {
 
   createModel(modelId: string) {
     const reasoningBody = getCompatReasoningBody(`ollama/${modelId}`, loadConfig());
-    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+    const reasoningFetch = createSessionFetchWrapper(reasoningBody);
     const client = createOpenAI({
       baseURL: `${getOllamaHost()}/v1`,
       apiKey: "ollama",

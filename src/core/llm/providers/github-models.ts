@@ -2,7 +2,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
 import { getCompatReasoningBody } from "../compat-reasoning.js";
-import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
+import { createSessionFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 const ENV_VAR = "GITHUB_MODELS_API_KEY";
@@ -39,7 +39,7 @@ export const githubModels: ProviderDefinition = {
       );
     }
     const reasoningBody = getCompatReasoningBody(`github-models/${modelId}`, loadConfig());
-    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+    const reasoningFetch = createSessionFetchWrapper(reasoningBody);
     return createOpenAI({
       baseURL: BASE_URL,
       apiKey,

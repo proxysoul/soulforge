@@ -2,7 +2,7 @@ import { createGroq } from "@ai-sdk/groq";
 import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
 import { getCompatReasoningBody } from "../compat-reasoning.js";
-import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
+import { createSessionFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 interface GroqModel {
@@ -26,7 +26,7 @@ export const groq: ProviderDefinition = {
       throw new Error("GROQ_API_KEY is not set");
     }
     const reasoningBody = getCompatReasoningBody(`groq/${modelId}`, loadConfig());
-    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+    const reasoningFetch = createSessionFetchWrapper(reasoningBody);
     return createGroq({
       apiKey,
       ...(reasoningFetch ? { fetch: reasoningFetch as typeof fetch } : {}),

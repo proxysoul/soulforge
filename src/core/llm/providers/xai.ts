@@ -1,5 +1,6 @@
 import { createXai } from "@ai-sdk/xai";
 import { getProviderApiKey } from "../../secrets.js";
+import { withSessionHeaders } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 interface XaiModel {
@@ -22,7 +23,7 @@ export const xai: ProviderDefinition = {
     if (!apiKey) {
       throw new Error("XAI_API_KEY is not set");
     }
-    return createXai({ apiKey })(modelId);
+    return createXai({ apiKey, fetch: withSessionHeaders() as typeof fetch })(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {

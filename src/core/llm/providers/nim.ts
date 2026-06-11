@@ -2,7 +2,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
 import { getCompatReasoningBody } from "../compat-reasoning.js";
-import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
+import { createSessionFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 const BASE_URL = "https://integrate.api.nvidia.com/v1";
@@ -27,7 +27,7 @@ export const nim: ProviderDefinition = {
       throw new Error("NVIDIA_API_KEY is not set");
     }
     const reasoningBody = getCompatReasoningBody(`nim/${modelId}`, loadConfig());
-    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+    const reasoningFetch = createSessionFetchWrapper(reasoningBody);
     return createOpenAICompatible({
       name: "nim",
       baseURL: BASE_URL,

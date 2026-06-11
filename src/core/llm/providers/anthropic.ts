@@ -1,5 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { getProviderApiKey } from "../../secrets.js";
+import { withSessionHeaders } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 interface AnthropicModel {
@@ -24,7 +25,7 @@ export const anthropic: ProviderDefinition = {
     if (!apiKey) {
       throw new Error("ANTHROPIC_API_KEY is not set");
     }
-    return createAnthropic({ apiKey })(modelId);
+    return createAnthropic({ apiKey, fetch: withSessionHeaders() as typeof fetch })(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {

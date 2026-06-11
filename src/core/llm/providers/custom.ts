@@ -1,6 +1,6 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { getProviderApiKey } from "../../secrets.js";
-import { buildOpenAICompatReasoningBody, createReasoningFetchWrapper } from "./reasoning-fetch.js";
+import { buildOpenAICompatReasoningBody, createSessionFetchWrapper } from "./reasoning-fetch.js";
 import type {
   CustomProviderConfig,
   CustomReasoningConfig,
@@ -73,7 +73,7 @@ function buildReasoningBody(reasoning?: CustomReasoningConfig): Record<string, u
 export function buildCustomProvider(config: CustomProviderConfig): ProviderDefinition {
   const envVar = config.envVar ?? "";
   const reasoningBody = buildReasoningBody(config.reasoning);
-  const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+  const reasoningFetch = createSessionFetchWrapper(reasoningBody);
 
   return {
     id: config.id,

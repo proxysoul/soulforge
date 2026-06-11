@@ -63,7 +63,12 @@ import { logCompaction } from "../stores/compaction-logs.js";
 import { logBackgroundError } from "../stores/errors.js";
 import { recordModelCall } from "../stores/model-events.js";
 import { useRepoMapStore } from "../stores/repomap.js";
-import { getAppSessionId, setAppSessionId, useSessionStore } from "../stores/session.js";
+import {
+  getAppSessionId,
+  setActiveSessionId,
+  setAppSessionId,
+  useSessionStore,
+} from "../stores/session.js";
 import { accumulateModelUsage, useStatusBarStore, ZERO_USAGE } from "../stores/statusbar.js";
 import { useToolsStore } from "../stores/tools.js";
 import type {
@@ -254,6 +259,7 @@ export interface ChatInstance {
   forgeMode: import("../types/index.js").ForgeMode;
   setForgeMode: (mode: import("../types/index.js").ForgeMode) => void;
   cycleMode: () => import("../types/index.js").ForgeMode;
+  rotateRoutingSession: () => void;
 }
 
 export function useChat({
@@ -561,6 +567,14 @@ export function useChat({
   // from the current app id, adopt it (covers the resume path where the first
   // tab to mount carries the on-disk session). All saves target this id.
   const sessionIdRef = useRef<string>(initialState?.sessionId ?? getAppSessionId());
+  // Per-tab conversation id for upstream gateway routing (x-session-id /
+  // x-session-affinity). Distinct from the app-level persistence sessionId so
+  // each tab pins its own provider and /clear can rotate it without touching
+  // the save dir.
+  const routingSessionIdRef = useRef<string>(crypto.randomUUID());
+  const rotateRoutingSession = useCallback(() => {
+    routingSessionIdRef.current = crypto.randomUUID();
+  }, []);
   // Adopt restored session id once on mount — must NOT run during render
   // (would loop: zustand setter notifies subscribers → re-render → setState again).
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only adoption
@@ -2115,6 +2129,9 @@ export function useChat({
         try {
           setIsLoading(true);
           const modelId = activeModelRef.current;
+          // Pin upstream gateway routing to this tab's conversation id
+          // (x-session-id / x-session-affinity) for prompt-cache locality.
+          setActiveSessionId(routingSessionIdRef.current);
           const model = resolveModel(modelId);
 
           // Resolve subagent models from task router
@@ -4292,6 +4309,7 @@ export function useChat({
     lastStepOutput,
     chatChars,
     sessionId: sessionIdRef.current,
+    rotateRoutingSession,
     customTitle: customTitleRef.current,
     setCustomTitle,
     planFile: planFileName(sessionIdRef.current),

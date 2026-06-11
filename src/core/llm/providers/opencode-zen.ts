@@ -4,7 +4,7 @@ import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
 import { getCompatReasoningBody } from "../compat-reasoning.js";
 import { SHARED_CONTEXT_WINDOWS } from "./context-windows.js";
-import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
+import { createSessionFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 const BASE_URL = "https://opencode.ai/zen/v1";
@@ -28,7 +28,7 @@ export const opencodeZen: ProviderDefinition = {
     // Use @ai-sdk/openai-compatible to properly handle reasoning_content
     // Fixes 400 error: "thinking is enabled but reasoning_content is missing"
     const reasoningBody = getCompatReasoningBody(`opencode-zen/${modelId}`, loadConfig());
-    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+    const reasoningFetch = createSessionFetchWrapper(reasoningBody);
     const provider = createOpenAICompatible({
       name: "opencode-zen",
       baseURL: BASE_URL,

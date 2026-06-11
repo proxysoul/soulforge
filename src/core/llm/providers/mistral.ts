@@ -1,5 +1,6 @@
 import { createMistral } from "@ai-sdk/mistral";
 import { getProviderApiKey } from "../../secrets.js";
+import { withSessionHeaders } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 interface MistralModel {
@@ -23,7 +24,7 @@ export const mistral: ProviderDefinition = {
     if (!apiKey) {
       throw new Error("MISTRAL_API_KEY is not set");
     }
-    return createMistral({ apiKey })(modelId);
+    return createMistral({ apiKey, fetch: withSessionHeaders() as typeof fetch })(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {

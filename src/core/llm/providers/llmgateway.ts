@@ -3,7 +3,7 @@ import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
 import { getCompatReasoningBody } from "../compat-reasoning.js";
 import { SHARED_CONTEXT_WINDOWS } from "./context-windows.js";
-import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
+import { createSessionFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 export const llmgateway: ProviderDefinition = {
@@ -27,7 +27,7 @@ export const llmgateway: ProviderDefinition = {
     // Qwen, GLM, etc.). Claude is guarded inside getCompatReasoningBody and uses
     // native anthropic providerOptions instead.
     const reasoningBody = getCompatReasoningBody(`llmgateway/${modelId}`, loadConfig());
-    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+    const reasoningFetch = createSessionFetchWrapper(reasoningBody);
 
     const provider = createLLMGateway({
       apiKey,

@@ -4,6 +4,7 @@ import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
 import { CURRENT_VERSION } from "../../version.js";
 import { getCompatReasoningBody } from "../compat-reasoning.js";
+import { withSessionHeaders } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 const ENV_VAR = "COPILOT_API_KEY";
@@ -160,7 +161,7 @@ function createCopilotModel(modelId: string): LanguageModel {
     baseURL: COPILOT_API,
     apiKey: "copilot",
     headers: { ...COPILOT_HEADERS },
-    fetch: copilotFetch,
+    fetch: withSessionHeaders(copilotFetch) as typeof fetch,
   });
 
   return client.chat(modelId);

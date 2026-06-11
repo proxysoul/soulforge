@@ -1,5 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { getProviderApiKey } from "../../secrets.js";
+import { withSessionHeaders } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 interface OpenAIModel {
@@ -24,7 +25,7 @@ export const openai: ProviderDefinition = {
     if (!apiKey) {
       throw new Error("OPENAI_API_KEY is not set");
     }
-    return createOpenAI({ apiKey })(modelId);
+    return createOpenAI({ apiKey, fetch: withSessionHeaders() as typeof fetch })(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {

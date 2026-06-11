@@ -2,7 +2,7 @@ import { createFireworks } from "@ai-sdk/fireworks";
 import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
 import { getCompatReasoningBody } from "../compat-reasoning.js";
-import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
+import { createSessionFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 export const fireworks: ProviderDefinition = {
@@ -21,7 +21,7 @@ export const fireworks: ProviderDefinition = {
       throw new Error("FIREWORKS_API_KEY is not set");
     }
     const reasoningBody = getCompatReasoningBody(`fireworks/${modelId}`, loadConfig());
-    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+    const reasoningFetch = createSessionFetchWrapper(reasoningBody);
     return createFireworks({
       apiKey,
       ...(reasoningFetch ? { fetch: reasoningFetch as typeof fetch } : {}),

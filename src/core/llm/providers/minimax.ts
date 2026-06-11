@@ -2,7 +2,7 @@ import { createMinimax } from "vercel-minimax-ai-provider";
 import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
 import { getCompatReasoningBody } from "../compat-reasoning.js";
-import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
+import { createSessionFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 export const minimax: ProviderDefinition = {
@@ -21,7 +21,7 @@ export const minimax: ProviderDefinition = {
       throw new Error("MINIMAX_API_KEY is not set");
     }
     const reasoningBody = getCompatReasoningBody(`minimax/${modelId}`, loadConfig());
-    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+    const reasoningFetch = createSessionFetchWrapper(reasoningBody);
     return createMinimax({
       apiKey,
       ...(reasoningFetch ? { fetch: reasoningFetch as typeof fetch } : {}),

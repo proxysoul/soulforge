@@ -188,6 +188,9 @@ async function handleClear(_input: string, ctx: CommandContext): Promise<void> {
     modelBreakdown: {},
   });
   ctx.chat.setMessageQueue([]);
+  // New conversation → rotate the upstream routing id so gateways re-score
+  // provider selection instead of staying pinned to the cleared chat's.
+  ctx.chat.rotateRoutingSession();
   clearTasks(ctx.tabMgr.activeTabId);
   emitCacheReset();
   ctx.tabMgr.resetTabLabel(ctx.tabMgr.activeTabId);
