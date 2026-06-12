@@ -41,7 +41,8 @@ function restoreTerminal(): void {
     }
   } catch {}
   try {
-    process.stdout.write("\x1b[?25h\x1b[0m");
+    // ?2048l: disable in-band resize notifications enabled at startup.
+    process.stdout.write("\x1b[?2048l\x1b[?25h\x1b[0m");
   } catch {}
 }
 
@@ -401,12 +402,31 @@ export async function start(opts: StartOptions): Promise<void> {
   r.setMaxListeners(30);
   r.keyInput.setMaxListeners(30);
 
-  // Resize watchdog — SIGWINCH is not reliably delivered in some transports
-  // (Win32-OpenSSH client → sshd drops window-change, #91), so the renderer's
-  // SIGWINCH handler never fires even though the PTY size DID update. Poll the
-  // cheap TIOCGWINSZ-backed stdout dims and reconcile. No-op when sizes match;
-  // renderer.resize() is the documented hook for externally-driven resizes.
+  // Resize handling beyond SIGWINCH (#91) — some transports drop the signal
+  // entirely (Win32-OpenSSH client → sshd loses window-change), so the
+  // renderer's SIGWINCH handler never fires even though the PTY size updated.
+  //
+  // Primary: DEC mode 2048 in-band resize notifications (the mechanism modern
+  // TUIs use instead of SIGWINCH). The terminal reports size changes as a
+  // stdin escape sequence — CSI 48 ; rows ; cols ; hpix ; wpix t — which
+  // travels the same data stream as keystrokes, so it survives any transport
+  // that delivers input at all. Supported by kitty, ghostty, iTerm2, foot;
+  // unsupported terminals ignore the enable sequence — strictly additive.
   if (process.stdout.isTTY) {
+    r.addInputHandler((sequence: string) => {
+      const m = sequence.match(/^\x1b\[48;(\d+);(\d+)(?:;\d+;\d+)?t$/);
+      if (!m?.[1] || !m[2]) return false;
+      const rows = Number.parseInt(m[1], 10);
+      const cols = Number.parseInt(m[2], 10);
+      if (rows > 0 && cols > 0) r.resize(cols, rows);
+      return true;
+    });
+    process.stdout.write("\x1b[?2048h");
+
+    // Fallback: 1s watchdog reconciling TIOCGWINSZ-backed stdout dims for
+    // terminals without mode 2048 (xterm, Alacritty, Windows Terminal — the
+    // exact transport in #91). No-op when sizes match; renderer.resize() is
+    // the documented hook for externally-driven resizes.
     const resizePoll = setInterval(() => {
       try {
         const cols = process.stdout.columns;
