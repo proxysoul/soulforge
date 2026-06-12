@@ -437,9 +437,7 @@ export async function start(opts: StartOptions): Promise<void> {
         // class can't satisfy extend()'s precise generic. Bridge via `unknown`
         // to keep strict-mode happy without an `as any` escape hatch.
         type Extendable = Parameters<typeof extend>[0][string];
-        extend({
-          "ghostty-terminal": GhosttyTerminalRenderable as unknown as Extendable,
-        });
+        extend({ "ghostty-terminal": GhosttyTerminalRenderable as unknown as Extendable });
       } catch {}
     }
   }
