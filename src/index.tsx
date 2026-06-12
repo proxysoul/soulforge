@@ -424,10 +424,40 @@ export async function start(opts: StartOptions): Promise<void> {
     });
     process.stdout.write("\x1b[?2048h");
 
-    // Fallback: 1s watchdog reconciling TIOCGWINSZ-backed stdout dims for
-    // terminals without mode 2048 (xterm, Alacritty, Windows Terminal — the
-    // exact transport in #91). No-op when sizes match; renderer.resize() is
-    // the documented hook for externally-driven resizes.
+    // The renderer registers its own SIGWINCH handler, but it reads
+    // this.stdout.columns/rows inside the callback. On some runtimes
+    // (Bun ≥1.3) the TTY dimensions have not been updated yet when the
+    // signal fires, so the renderer sees stale values and no-ops.
+    // process.stdout's "resize" event is guaranteed to fire *after*
+    // the dims have been refreshed, so we drive the renderer from
+    // here as well.
+    process.stdout.on("resize", () => {
+      const cols = process.stdout.columns;
+      const rows = process.stdout.rows;
+      if (!cols || !rows) return;
+      if (cols !== r.terminalWidth || rows !== r.terminalHeight) {
+        r.resize(cols, rows);
+      }
+    });
+
+    // Belt-and-suspenders: SIGWINCH can race with the runtime's TTY
+    // dimension update. Give Bun/Node a few ms to refresh
+    // process.stdout.columns/rows before driving the renderer.
+    const onSigwinch = () => {
+      setTimeout(() => {
+        const cols = process.stdout.columns;
+        const rows = process.stdout.rows;
+        if (!cols || !rows) return;
+        if (cols !== r.terminalWidth || rows !== r.terminalHeight) {
+          r.resize(cols, rows);
+        }
+      }, 50);
+    };
+    process.on("SIGWINCH", onSigwinch);
+
+    // Fallback: 200ms watchdog reconciling TIOCGWINSZ-backed stdout
+    // dims for terminals without mode 2048 (xterm, Alacritty, Windows
+    // Terminal — the exact transport in #91). No-op when sizes match.
     const resizePoll = setInterval(() => {
       try {
         const cols = process.stdout.columns;
@@ -437,7 +467,7 @@ export async function start(opts: StartOptions): Promise<void> {
           r.resize(cols, rows);
         }
       } catch {}
-    }, 1000);
+    }, 200);
     resizePoll.unref?.();
   }
 
