@@ -20,6 +20,7 @@ import { getRestartSpec } from "./core/restart.js";
 import { flushEmergencySession } from "./core/sessions/emergency-save.js";
 import type { PrerequisiteStatus } from "./core/setup/prerequisites.js";
 import { closeAllTerminals } from "./core/terminal/manager.js";
+import { setupTerminalResize } from "./core/terminal/resize-handler.js";
 import { getThemeTokens, useTheme } from "./core/theme/index.js";
 import { garble } from "./core/utils/splash.js";
 import { resetStatusBarStore } from "./stores/statusbar.js";
@@ -413,62 +414,7 @@ export async function start(opts: StartOptions): Promise<void> {
   // that delivers input at all. Supported by kitty, ghostty, iTerm2, foot;
   // unsupported terminals ignore the enable sequence — strictly additive.
   if (process.stdout.isTTY) {
-    r.addInputHandler((sequence: string) => {
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC required to match the CSI resize report
-      const m = sequence.match(/^\x1b\[48;(\d+);(\d+)(?:;\d+;\d+)?t$/);
-      if (!m?.[1] || !m[2]) return false;
-      const rows = Number.parseInt(m[1], 10);
-      const cols = Number.parseInt(m[2], 10);
-      if (rows > 0 && cols > 0) r.resize(cols, rows);
-      return true;
-    });
-    process.stdout.write("\x1b[?2048h");
-
-    // The renderer registers its own SIGWINCH handler, but it reads
-    // this.stdout.columns/rows inside the callback. On some runtimes
-    // (Bun ≥1.3) the TTY dimensions have not been updated yet when the
-    // signal fires, so the renderer sees stale values and no-ops.
-    // process.stdout's "resize" event is guaranteed to fire *after*
-    // the dims have been refreshed, so we drive the renderer from
-    // here as well.
-    process.stdout.on("resize", () => {
-      const cols = process.stdout.columns;
-      const rows = process.stdout.rows;
-      if (!cols || !rows) return;
-      if (cols !== r.terminalWidth || rows !== r.terminalHeight) {
-        r.resize(cols, rows);
-      }
-    });
-
-    // Belt-and-suspenders: SIGWINCH can race with the runtime's TTY
-    // dimension update. Give Bun/Node a few ms to refresh
-    // process.stdout.columns/rows before driving the renderer.
-    const onSigwinch = () => {
-      setTimeout(() => {
-        const cols = process.stdout.columns;
-        const rows = process.stdout.rows;
-        if (!cols || !rows) return;
-        if (cols !== r.terminalWidth || rows !== r.terminalHeight) {
-          r.resize(cols, rows);
-        }
-      }, 50);
-    };
-    process.on("SIGWINCH", onSigwinch);
-
-    // Fallback: 200ms watchdog reconciling TIOCGWINSZ-backed stdout
-    // dims for terminals without mode 2048 (xterm, Alacritty, Windows
-    // Terminal — the exact transport in #91). No-op when sizes match.
-    const resizePoll = setInterval(() => {
-      try {
-        const cols = process.stdout.columns;
-        const rows = process.stdout.rows;
-        if (!cols || !rows) return;
-        if (cols !== r.terminalWidth || rows !== r.terminalHeight) {
-          r.resize(cols, rows);
-        }
-      } catch {}
-    }, 200);
-    resizePoll.unref?.();
+    setupTerminalResize(r);
   }
 
   // Register custom renderables for JSX usage
@@ -491,7 +437,9 @@ export async function start(opts: StartOptions): Promise<void> {
         // class can't satisfy extend()'s precise generic. Bridge via `unknown`
         // to keep strict-mode happy without an `as any` escape hatch.
         type Extendable = Parameters<typeof extend>[0][string];
-        extend({ "ghostty-terminal": GhosttyTerminalRenderable as unknown as Extendable });
+        extend({
+          "ghostty-terminal": GhosttyTerminalRenderable as unknown as Extendable,
+        });
       } catch {}
     }
   }
