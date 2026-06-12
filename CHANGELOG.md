@@ -2,6 +2,13 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.14] — 2026-06-12
+
+### Bug Fixes
+
+- **clipboard**: 100% copy/paste coverage across platforms, terminals, SSH and WSL
+- **opencode-go**: drop unsupported qwen3.7-max from fallback models
+- **statusbar**: replace vmmap with /usr/bin/footprint for macOS memory sampling
 ## [2.20.13] — 2026-06-11
 
 ### Bug Fixes
