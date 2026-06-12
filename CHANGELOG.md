@@ -2,6 +2,15 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.15] — 2026-06-12
+
+### Bug Fixes
+
+- **tui**: suppress biome control-char lint on mode 2048 resize regex
+- **tui**: poll terminal size to catch resizes when SIGWINCH is dropped
+### Features
+
+- **tui**: in-band resize notifications (mode 2048) with watchdog fallback
 ## [2.20.14] — 2026-06-12
 
 ### Bug Fixes
