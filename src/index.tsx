@@ -20,6 +20,7 @@ import { getRestartSpec } from "./core/restart.js";
 import { flushEmergencySession } from "./core/sessions/emergency-save.js";
 import type { PrerequisiteStatus } from "./core/setup/prerequisites.js";
 import { closeAllTerminals } from "./core/terminal/manager.js";
+import { setupTerminalResize } from "./core/terminal/resize-handler.js";
 import { getThemeTokens, useTheme } from "./core/theme/index.js";
 import { garble } from "./core/utils/splash.js";
 import { resetStatusBarStore } from "./stores/statusbar.js";
@@ -413,32 +414,7 @@ export async function start(opts: StartOptions): Promise<void> {
   // that delivers input at all. Supported by kitty, ghostty, iTerm2, foot;
   // unsupported terminals ignore the enable sequence — strictly additive.
   if (process.stdout.isTTY) {
-    r.addInputHandler((sequence: string) => {
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC required to match the CSI resize report
-      const m = sequence.match(/^\x1b\[48;(\d+);(\d+)(?:;\d+;\d+)?t$/);
-      if (!m?.[1] || !m[2]) return false;
-      const rows = Number.parseInt(m[1], 10);
-      const cols = Number.parseInt(m[2], 10);
-      if (rows > 0 && cols > 0) r.resize(cols, rows);
-      return true;
-    });
-    process.stdout.write("\x1b[?2048h");
-
-    // Fallback: 1s watchdog reconciling TIOCGWINSZ-backed stdout dims for
-    // terminals without mode 2048 (xterm, Alacritty, Windows Terminal — the
-    // exact transport in #91). No-op when sizes match; renderer.resize() is
-    // the documented hook for externally-driven resizes.
-    const resizePoll = setInterval(() => {
-      try {
-        const cols = process.stdout.columns;
-        const rows = process.stdout.rows;
-        if (!cols || !rows) return;
-        if (cols !== r.terminalWidth || rows !== r.terminalHeight) {
-          r.resize(cols, rows);
-        }
-      } catch {}
-    }, 1000);
-    resizePoll.unref?.();
+    setupTerminalResize(r);
   }
 
   // Register custom renderables for JSX usage
