@@ -2,6 +2,12 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.18] — 2026-06-23
+
+### Bug Fixes
+
+- **tui**: redundant terminal resize detection for dropped-SIGWINCH transports (#112)
+- **wizard**: scroll provider list to fit terminal, truncate rows to one line
 ## [2.20.17] — 2026-06-23
 
 ### Bug Fixes
