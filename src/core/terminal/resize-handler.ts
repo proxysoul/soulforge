@@ -5,7 +5,7 @@
  * 1. DEC mode 2048 in-band resize notifications (primary)
  * 2. process.stdout "resize" event (catches runtime-updated dims)
  * 3. Delayed SIGWINCH handler (catches stale-dim races)
- * 4. 200ms polling fallback (for terminals without mode 2048)
+ * 4. 1s polling fallback (for terminals without mode 2048)
  */
 
 export interface ResizeAwareRenderer {
@@ -57,7 +57,8 @@ export function setupTerminalResize(r: ResizeAwareRenderer): () => void {
   };
   process.on("SIGWINCH", onSigwinch);
 
-  // Fallback: 200ms watchdog for terminals without mode 2048
+  // Fallback: 1s watchdog for terminals without mode 2048. A last resort behind
+  // three event-driven mechanisms, so a relaxed interval keeps wakeups cheap.
   const resizePoll = setInterval(() => {
     try {
       const cols = process.stdout.columns;
@@ -67,7 +68,7 @@ export function setupTerminalResize(r: ResizeAwareRenderer): () => void {
         r.resize(cols, rows);
       }
     } catch {}
-  }, 200);
+  }, 1000);
   resizePoll.unref?.();
 
   // Cleanup

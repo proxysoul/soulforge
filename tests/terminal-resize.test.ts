@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { setupTerminalResize, type ResizeAwareRenderer } from "../src/core/terminal/resize-handler.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -7,37 +7,26 @@ function createMockRenderer(initialW = 80, initialH = 24): ResizeAwareRenderer {
   return {
     terminalWidth: initialW,
     terminalHeight: initialH,
-    resize: vi.fn(),
-    addInputHandler: vi.fn(),
+    resize: mock(),
+    addInputHandler: mock(),
   };
 }
 
-interface MockStdout {
-  isTTY: boolean;
-  columns: number;
-  rows: number;
-  write: ReturnType<typeof vi.fn>;
-  on: ReturnType<typeof vi.fn>;
-  removeListener: ReturnType<typeof vi.fn>;
-}
-
-type MockProcess = typeof process & {
-  stdout: MockStdout;
-  on: ReturnType<typeof vi.fn>;
-  removeListener: ReturnType<typeof vi.fn>;
-};
-
-// biome-ignore lint/suspicious/noExplicitAny: test-only process stub
-let mockProcess: any;
-// biome-ignore lint/suspicious/noExplicitAny: test-only stdout stub
+// biome-ignore lint/suspicious/noExplicitAny: test-only stubs
 let mockStdout: any;
+// biome-ignore lint/suspicious/noExplicitAny: test-only stubs
+let mockProcess: any;
+// biome-ignore lint/suspicious/noExplicitAny: saved globals
+let origProcess: any;
+// biome-ignore lint/suspicious/noExplicitAny: saved globals
+let origSetTimeout: any;
+// biome-ignore lint/suspicious/noExplicitAny: saved globals
+let origSetInterval: any;
 
-// biome-ignore lint/suspicious/noExplicitAny: test-only global replacement
-let origProcessStdout: any;
-// biome-ignore lint/suspicious/noExplicitAny: test-only global replacement
-let origProcessOn: any;
-// biome-ignore lint/suspicious/noExplicitAny: test-only global replacement
-let origProcessRemoveListener: any;
+// Captured timer callbacks — fired directly so tests stay deterministic
+// without fake timers (which bun:test does not support).
+let timeoutCb: (() => void) | null;
+let intervalCb: (() => void) | null;
 
 describe("setupTerminalResize", () => {
   beforeEach(() => {
@@ -45,34 +34,44 @@ describe("setupTerminalResize", () => {
       isTTY: true,
       columns: 80,
       rows: 24,
-      write: vi.fn(),
-      on: vi.fn(),
-      removeListener: vi.fn(),
+      write: mock(),
+      on: mock(),
+      removeListener: mock(),
     };
-
     mockProcess = {
+      ...process,
       stdout: mockStdout,
-      on: vi.fn(),
-      removeListener: vi.fn(),
+      on: mock(),
+      removeListener: mock(),
     };
 
-    origProcessStdout = process.stdout;
-    origProcessOn = process.on;
-    origProcessRemoveListener = process.removeListener;
-
+    origProcess = globalThis.process;
     // biome-ignore lint/suspicious/noExplicitAny: test-only process stub
     (globalThis as any).process = mockProcess;
+
+    timeoutCb = null;
+    intervalCb = null;
+    origSetTimeout = globalThis.setTimeout;
+    origSetInterval = globalThis.setInterval;
+    // biome-ignore lint/suspicious/noExplicitAny: capture-only timer stubs
+    (globalThis as any).setTimeout = (cb: () => void) => {
+      timeoutCb = cb;
+      return 0;
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: capture-only timer stubs
+    (globalThis as any).setInterval = (cb: () => void) => {
+      intervalCb = cb;
+      return { unref: () => {} };
+    };
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
-    // biome-ignore lint/suspicious/noExplicitAny: restoring global process
-    (globalThis as any).process = {
-      ...process,
-      stdout: origProcessStdout,
-      on: origProcessOn,
-      removeListener: origProcessRemoveListener,
-    };
+    // biome-ignore lint/suspicious/noExplicitAny: restore globals
+    (globalThis as any).process = origProcess;
+    // biome-ignore lint/suspicious/noExplicitAny: restore globals
+    (globalThis as any).setTimeout = origSetTimeout;
+    // biome-ignore lint/suspicious/noExplicitAny: restore globals
+    (globalThis as any).setInterval = origSetInterval;
   });
 
   test("enables DEC mode 2048 when stdout is a TTY", () => {
@@ -84,14 +83,15 @@ describe("setupTerminalResize", () => {
   test("registers an input handler for CSI 48 resize reports", () => {
     const r = createMockRenderer();
     setupTerminalResize(r);
-    expect(r.addInputHandler).toHaveBeenCalledOnce();
+    expect(r.addInputHandler).toHaveBeenCalledTimes(1);
   });
 
   test("input handler parses CSI 48;rows;cols;t and calls resize", () => {
     const r = createMockRenderer();
     setupTerminalResize(r);
 
-    const handler = (r.addInputHandler as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // biome-ignore lint/suspicious/noExplicitAny: mock call introspection
+    const handler = (r.addInputHandler as any).mock.calls[0][0];
     const consumed = handler("\x1b[48;50;120t");
 
     expect(consumed).toBe(true);
@@ -102,7 +102,8 @@ describe("setupTerminalResize", () => {
     const r = createMockRenderer();
     setupTerminalResize(r);
 
-    const handler = (r.addInputHandler as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // biome-ignore lint/suspicious/noExplicitAny: mock call introspection
+    const handler = (r.addInputHandler as any).mock.calls[0][0];
     const consumed = handler("\x1b[1;2R");
 
     expect(consumed).toBe(false);
@@ -113,7 +114,9 @@ describe("setupTerminalResize", () => {
     const r = createMockRenderer(80, 24);
     setupTerminalResize(r);
 
-    const onResize = mockStdout.on.mock.calls.find((call: [string, (...args: unknown[]) => void]) => call[0] === "resize")?.[1];
+    const onResize = mockStdout.on.mock.calls.find(
+      (call: [string, () => void]) => call[0] === "resize",
+    )?.[1];
     expect(onResize).toBeDefined();
 
     mockStdout.columns = 120;
@@ -127,56 +130,51 @@ describe("setupTerminalResize", () => {
     const r = createMockRenderer(80, 24);
     setupTerminalResize(r);
 
-    const onResize = mockStdout.on.mock.calls.find((call: [string, (...args: unknown[]) => void]) => call[0] === "resize")?.[1];
+    const onResize = mockStdout.on.mock.calls.find(
+      (call: [string, () => void]) => call[0] === "resize",
+    )?.[1];
     onResize?.();
 
     expect(r.resize).not.toHaveBeenCalled();
   });
 
-  test("SIGWINCH handler calls resize after 50ms delay when dims changed", () => {
-    vi.useFakeTimers();
+  test("SIGWINCH handler calls resize after the delay when dims changed", () => {
     const r = createMockRenderer(80, 24);
     setupTerminalResize(r);
 
-    const onSigwinch = mockProcess.on.mock.calls.find((call: [string, (...args: unknown[]) => void]) => call[0] === "SIGWINCH")?.[1];
+    const onSigwinch = mockProcess.on.mock.calls.find(
+      (call: [string, () => void]) => call[0] === "SIGWINCH",
+    )?.[1];
     expect(onSigwinch).toBeDefined();
 
     mockStdout.columns = 100;
     mockStdout.rows = 30;
     onSigwinch?.();
 
-    // Before the delay, resize should not have been called
+    // The handler defers via setTimeout — resize fires only once it runs.
     expect(r.resize).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(50);
+    timeoutCb?.();
     expect(r.resize).toHaveBeenCalledWith(100, 30);
-
-    vi.useRealTimers();
   });
 
   test("poll fallback calls resize when dimensions changed", () => {
-    vi.useFakeTimers();
     const r = createMockRenderer(80, 24);
     setupTerminalResize(r);
 
     mockStdout.columns = 120;
     mockStdout.rows = 50;
+    intervalCb?.();
 
-    vi.advanceTimersByTime(200);
     expect(r.resize).toHaveBeenCalledWith(120, 50);
-
-    vi.useRealTimers();
   });
 
   test("poll fallback no-ops when dimensions unchanged", () => {
-    vi.useFakeTimers();
     const r = createMockRenderer(80, 24);
     setupTerminalResize(r);
 
-    vi.advanceTimersByTime(200);
-    expect(r.resize).not.toHaveBeenCalled();
+    intervalCb?.();
 
-    vi.useRealTimers();
+    expect(r.resize).not.toHaveBeenCalled();
   });
 
   test("cleanup removes listeners and disables DEC mode 2048", () => {
