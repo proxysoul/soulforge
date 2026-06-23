@@ -1,5 +1,5 @@
 import { decodePasteBytes, type PasteEvent, TextAttributes } from "@opentui/core";
-import { useKeyboard, useRenderer } from "@opentui/react";
+import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useRef, useState } from "react";
 import { fetchGroupedModels, fetchProviderModels } from "../../../../core/llm/models.js";
 import { getAllProviders, getProvider } from "../../../../core/llm/providers/index.js";
@@ -11,7 +11,7 @@ import {
   setSecret,
 } from "../../../../core/secrets.js";
 import { useTheme } from "../../../../core/theme/index.js";
-import { KeyCaps, Search, VSpacer } from "../../../ui/index.js";
+import { KeyCaps, Search, VirtualList, VSpacer } from "../../../ui/index.js";
 import { StepHeader } from "../primitives.js";
 import { BOLD } from "../theme.js";
 
@@ -84,22 +84,41 @@ type Phase = "provider" | "key" | "fetching" | "models" | "error";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+// Fixed chrome around the provider list (popup shell + header + intro + spacers +
+// optional status lines + keycaps). Subtracted from popup height so the list
+// scrolls instead of overflowing — see ThemeStep for the same pattern.
+const PROVIDER_CHROME_ROWS = 13;
+
 function ProviderRow({
   p,
   isSelected,
   autoAvailable,
+  width,
 }: {
   p: ProviderEntry;
   isSelected: boolean;
   autoAvailable?: boolean;
+  width: number;
 }) {
   const t = useTheme();
   const bg = isSelected ? t.bgPopupHighlight : t.bgPopup;
   const configured = hasKey(p.id);
   const tag = getStatusTag(p.id);
 
+  // Keep each row to a single line so VirtualList's per-row height stays exact;
+  // a wrapped description would desync the scroll viewport. The provider name
+  // always wins, the description is truncated to whatever width is left.
+  const tagText = configured ? `  ✓ ${tag}` : autoAvailable ? "  ✓ auto" : "";
+  const fixed = 6 + p.label.length + 3 + tagText.length;
+  const descBudget = width - 4 - fixed;
+  const showDesc = descBudget > 1;
+  const desc =
+    showDesc && descBudget < p.desc.length
+      ? `${p.desc.slice(0, Math.max(0, descBudget - 1))}…`
+      : p.desc;
+
   return (
-    <box flexDirection="row" paddingX={2} backgroundColor={bg}>
+    <box flexDirection="row" paddingX={2} height={1} backgroundColor={bg}>
       <text bg={bg}>
         <span fg={isSelected ? t.brand : t.textFaint}>
           {isSelected ? "› " : "  "}
@@ -109,10 +128,12 @@ function ProviderRow({
         <span fg={isSelected ? t.textPrimary : t.textSecondary} attributes={BOLD}>
           {p.label}
         </span>
-        <span fg={t.textFaint}>
-          {" — "}
-          {p.desc}
-        </span>
+        {showDesc ? (
+          <span fg={t.textFaint}>
+            {" — "}
+            {desc}
+          </span>
+        ) : null}
         {configured ? (
           <span fg={t.success}>
             {"  ✓ "}
@@ -168,6 +189,7 @@ export function SetupStep({
   {
     const t = useTheme();
     const renderer = useRenderer();
+    const { height: termRows } = useTerminalDimensions();
 
     const [phase, setPhase] = useState<Phase>("provider");
     const [cursor, setCursor] = useState(0);
@@ -190,6 +212,8 @@ export function SetupStep({
     const [autoAvailMap, setAutoAvailMap] = useState<Record<string, boolean>>({});
     const spinnerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const inputWidth = Math.min(Math.floor(iw * 0.8), 60);
+    const maxH = Math.max(24, Math.floor(termRows * 0.7));
+    const maxVisibleProviders = Math.max(4, maxH - PROVIDER_CHROME_ROWS);
     const refresh = () => setTick((n) => n + 1);
     void tick;
     const anyKeySet =
@@ -588,14 +612,21 @@ export function SetupStep({
         </text>
         <VSpacer />
 
-        {PROVIDERS.map((p, i) => (
-          <ProviderRow
-            key={p.id}
-            p={p}
-            isSelected={i === cursor}
-            autoAvailable={p.autoDetect ? autoAvailMap[p.id] : undefined}
-          />
-        ))}
+        <VirtualList
+          items={PROVIDERS}
+          selectedIndex={cursor}
+          width={iw}
+          maxRows={maxVisibleProviders}
+          keyExtractor={(p) => p.id}
+          renderItem={(p, { selected }) => (
+            <ProviderRow
+              p={p}
+              isSelected={selected}
+              autoAvailable={p.autoDetect ? autoAvailMap[p.id] : undefined}
+              width={iw}
+            />
+          )}
+        />
 
         {PROVIDERS[cursor]?.providerId === "copilot" ? (
           <>

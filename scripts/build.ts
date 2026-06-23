@@ -132,7 +132,9 @@ const reactCompilerPlugin: BunPlugin = {
       const result = transformSync(source, {
         filename: path,
         plugins: [["babel-plugin-react-compiler", { target: "19" }]],
-        parserOpts: { plugins: ["typescript", "jsx"] },
+        parserOpts: {
+          plugins: path.endsWith(".tsx") ? ["typescript", "jsx"] : ["typescript"],
+        },
       });
       return { contents: result?.code ?? source, loader };
     });

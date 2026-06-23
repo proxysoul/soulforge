@@ -2,6 +2,20 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.17] — 2026-06-23
+
+### Bug Fixes
+
+- **build**: gate jsx parser plugin to .tsx in build.ts inline react-compiler
+## [2.20.16] — 2026-06-23
+
+### Bug Fixes
+
+- **build**: parse .ts without jsx plugin to fix babel 8 generic-arrow crash
+- **models**: defer provider fetch to avoid Windows native segfault
+### Features
+
+- **memory**: surface active embedder, expand docs
 ## [2.20.15] — 2026-06-12
 
 ### Bug Fixes

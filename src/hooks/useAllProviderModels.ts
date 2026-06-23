@@ -150,6 +150,11 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
       toFetch.push({ cfg, wasCached });
     }
 
+    // Defer the fetch storm one tick so React commits and OpenTUI paints the
+    // scrollbox before the worker-thread HTTP burst lands. On Windows the
+    // native renderer + io.worker FFI overlapping during mount can segfault
+    // (see #120) — separating paint from fetch removes that contention.
+    let fetchTimer: ReturnType<typeof setTimeout> | null = null;
     if (toFetch.length > 0) {
       // Collect results, apply as single batch update to avoid N re-renders
       const results = new Map<string, { items: ProviderModelInfo[]; error?: string }>();
@@ -173,26 +178,30 @@ export function useAllProviderModels(active: boolean): UseAllProviderModelsRetur
         if (--pending === 0) flush();
       };
 
-      for (const { cfg, wasCached } of toFetch) {
-        const fail = () => {
-          if (!wasCached) done(cfg.id, []);
-          else if (--pending === 0) flush();
-        };
+      fetchTimer = setTimeout(() => {
+        if (dead) return;
+        for (const { cfg, wasCached } of toFetch) {
+          const fail = () => {
+            if (!wasCached) done(cfg.id, []);
+            else if (--pending === 0) flush();
+          };
 
-        if (cfg.grouped) {
-          fetchGroupedModels(cfg.id, { bypassCache: wasCached })
-            .then((r) => done(cfg.id, flattenGrouped(r), r.error))
-            .catch(fail);
-        } else {
-          fetchProviderModels(cfg.id, { bypassCache: wasCached })
-            .then((r) => done(cfg.id, r.models, r.error))
-            .catch(fail);
+          if (cfg.grouped) {
+            fetchGroupedModels(cfg.id, { bypassCache: wasCached })
+              .then((r) => done(cfg.id, flattenGrouped(r), r.error))
+              .catch(fail);
+          } else {
+            fetchProviderModels(cfg.id, { bypassCache: wasCached })
+              .then((r) => done(cfg.id, r.models, r.error))
+              .catch(fail);
+          }
         }
-      }
+      }, 0);
     }
 
     return () => {
       dead = true;
+      if (fetchTimer) clearTimeout(fetchTimer);
     };
   }, [active]);
 

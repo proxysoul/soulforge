@@ -81,4 +81,28 @@ Memory works in any script — English, CJK, Arabic, Cyrillic, mixed-script iden
 }
 ```
 
-Optional. Sets a real embedding provider for semantic recall. Default is a built-in offline embedder that works without any API calls — good enough for word-overlap paraphrases.
+Optional. Sets a real embedding provider for semantic recall. Default is a built-in offline embedder (hashbag-v2) that works without any API calls, good enough for word-overlap paraphrases.
+
+### Do I need an API key?
+
+Yes, if you set a provider model. The embedder runs through the AI SDK, so it needs that provider's key. For `openai/text-embedding-3-small` that is your OpenAI key. Without a valid key the embedder fails its startup probe and silently falls back to the offline embedder. Memory keeps working either way.
+
+### Which models can I use?
+
+Any AI SDK `provider/model` id. Verified routes:
+
+| Provider | Model |
+|---|---|
+| OpenAI | `openai/text-embedding-3-small`, `openai/text-embedding-3-large` |
+| Google | `google/text-embedding-004` |
+| Vercel Gateway | `vercel_gateway/openai/text-embedding-3-small` |
+| LLM Gateway | `llmgateway/openai/text-embedding-3-small` |
+| OpenRouter | `openrouter/openai/text-embedding-3-small` |
+
+Providers with no embedding API (Anthropic, xAI, Groq, DeepSeek, Mistral, Bedrock, proxy, codex, copilot) always fall back to the offline embedder. Local providers (Ollama, LM Studio) and custom OpenAI-compatible providers work only if you set `embeddingModel` explicitly.
+
+You do not have to set this at all. When unset, it auto-resolves in order: `taskRouter.semantic`, a default for your active chat provider, then the offline embedder.
+
+### How do I check it is working?
+
+Open `/memory`, go to the **Settings** tab, and read the **Embedding** row. It shows the active model and where the choice came from, or `offline (hashbag-v2)` when the offline embedder is in use. If you set a provider model but the row still says offline, the key is missing or the model was rejected.
