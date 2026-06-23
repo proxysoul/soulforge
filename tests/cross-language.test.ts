@@ -627,6 +627,12 @@ describe("RegexBackend — extension edge cases", () => {
     expect(outline?.language).toBe("vue");
   });
 
+  it(".luau file detected as lua", async () => {
+    const f = writeTemp("Module.luau", "local function setup(opts)\n    return opts\nend");
+    const outline = await backend.getFileOutline(f);
+    expect(outline?.language).toBe("lua");
+  });
+
   it("double extension .test.ts detected as typescript", async () => {
     const f = writeTemp("app.test.ts", "function test() {}");
     const outline = await backend.getFileOutline(f);

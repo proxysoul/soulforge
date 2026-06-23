@@ -388,7 +388,7 @@ const PROJECT_INDICATORS: Record<string, string[]> = {
   Python: ["pyproject.toml", "setup.py", "requirements.txt", "*.py"],
   Go: ["go.mod", "*.go"],
   Rust: ["Cargo.toml", "*.rs"],
-  Lua: ["*.lua", ".luacheckrc"],
+  Lua: ["*.lua", "*.luau", ".luacheckrc"],
   C: ["*.c", "*.h", "CMakeLists.txt", "Makefile"],
   "C++": ["*.cpp", "*.hpp", "*.cc", "CMakeLists.txt"],
   Ruby: ["Gemfile", "*.rb"],

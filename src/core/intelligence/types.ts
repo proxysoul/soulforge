@@ -100,8 +100,9 @@ export const EXT_TO_LANGUAGE: Record<string, Language> = {
   // Scala
   ".scala": "scala",
   ".sc": "scala",
-  // Lua
+  // Lua / Luau (luau-lsp handles both; .luau is Roblox/Rojo's standard extension)
   ".lua": "lua",
+  ".luau": "lua",
   // Elixir
   ".ex": "elixir",
   ".exs": "elixir",

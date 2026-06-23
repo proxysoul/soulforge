@@ -35,7 +35,12 @@ const SERVER_CANDIDATES: Record<string, ServerCandidate[]> = {
   ],
   go: [{ command: "gopls", args: ["serve"] }],
   rust: [{ command: "rust-analyzer", args: [] }],
-  lua: [{ command: "lua-language-server", args: [] }],
+  lua: [
+    { command: "lua-language-server", args: [] },
+    // luau-lsp serves both .lua and .luau (.luau maps to `lua` in EXT_TO_LANGUAGE).
+    // Listed second so existing pure-Lua setups keep lua-language-server.
+    { command: "luau-lsp", args: ["lsp"] },
+  ],
   c: [{ command: "clangd", args: [] }],
   cpp: [{ command: "clangd", args: [] }],
   ruby: [{ command: "solargraph", args: ["stdio"] }],
