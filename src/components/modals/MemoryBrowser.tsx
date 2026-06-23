@@ -43,7 +43,7 @@ interface SettingsRow {
   meta?: string;
   active?: boolean;
   status?: "online" | "offline" | "warning" | "error" | "idle";
-  kind: "write" | "read" | "settings-storage";
+  kind: "write" | "read" | "settings-storage" | "embedding";
 }
 
 const SETTINGS_MODAL_TITLE: Record<SettingsModalKind, string> = {
@@ -318,6 +318,10 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
   // Settings groups: scope rules.
   const settingsGroups = useMemo<GroupedListGroup<SettingsRow>[]>(() => {
     const scopeCfg = memMgr.scopeConfig;
+    const resolution = contextManager.getEmbedderResolution();
+    const embedderMeta = resolution?.modelId
+      ? `${resolution.modelId} (${resolution.source})`
+      : "offline (hashbag-v2)";
     return [
       {
         id: "scopes",
@@ -342,10 +346,17 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
             meta: memMgr.settingsScope,
             kind: "settings-storage" as const,
           },
+          {
+            id: "embedding",
+            label: "Embedding",
+            meta: embedderMeta,
+            status: resolution?.modelId ? ("online" as const) : ("offline" as const),
+            kind: "embedding" as const,
+          },
         ],
       },
     ];
-  }, [memMgr]);
+  }, [memMgr, contextManager]);
 
   const settingsRows = useMemo(
     () => buildGroupedRows(settingsGroups, new Set(["scopes"])),
