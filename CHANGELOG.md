@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.17] — 2026-06-23
+
+### Bug Fixes
+
+- **build**: gate jsx parser plugin to .tsx in build.ts inline react-compiler
 ## [2.20.16] — 2026-06-23
 
 ### Bug Fixes
