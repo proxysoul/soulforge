@@ -2,6 +2,12 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.19] — 2026-06-23
+
+### Bug Fixes
+
+- **command-picker**: marquee-scroll long option descriptions instead of cutting
+- **lsp**: support .luau files — map to lua and register luau-lsp server
 ## [2.20.18] — 2026-06-23
 
 ### Bug Fixes
