@@ -28,6 +28,19 @@ export function fuzzyMatch(pattern: string, target: string): FuzzyMatch | null {
   }
 
   if (pi < p.length) return null;
+
+  // Prefix matches rank above scattered subsequence matches (e.g. "/mod" → "/models"
+  // beats "/model-scope"). Ignore a leading slash on both sides so "/model" prefixes
+  // "/models". Shorter targets win ties so the exact command surfaces first.
+  const strip = (s: string) => (s.startsWith("/") ? s.slice(1) : s);
+  const sp = strip(p);
+  const st = strip(t);
+  if (sp.length > 0 && st.startsWith(sp)) {
+    score += 100;
+    if (st.length === sp.length) score += 50;
+    score -= st.length;
+  }
+
   return { entry: target, score, indices };
 }
 
