@@ -1,11 +1,13 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { wrapLanguageModel } from "ai";
 import { loadConfig } from "../../../config/index.js";
 import { getActiveProxyApiKey } from "../../proxy/key-resolver.js";
 import { ensureProxy, stopProxy } from "../../proxy/lifecycle.js";
 import { getCompatReasoningBody } from "../compat-reasoning.js";
 import { SHARED_CONTEXT_WINDOWS } from "./context-windows.js";
 import { createSessionFetchWrapper, withSessionHeaders } from "./reasoning-fetch.js";
+import { recoverLeakedToolCallsMiddleware } from "./recover-leaked-tool-calls.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 const baseURL = process.env.PROXY_API_URL || "http://127.0.0.1:8317/v1";
@@ -13,6 +15,16 @@ const GPT_55_INPUT_CONTEXT = 272_000;
 
 function isAnthropicModel(modelId: string): boolean {
   return modelId.toLowerCase().startsWith("claude");
+}
+
+/** Some proxies (e.g. CLIProxyAPI) intermittently leak Claude's native tool-call
+ *  syntax as plain text instead of a structured tool_use block, which strands the
+ *  agent loop (it sees text, not a tool call, and stops). Recover those into real
+ *  tool calls. Scoped to Claude-over-proxy only; opt out with
+ *  SOULFORGE_PROXY_TOOL_RECOVERY=0. */
+function leakRecoveryEnabled(): boolean {
+  const v = process.env.SOULFORGE_PROXY_TOOL_RECOVERY;
+  return v !== "0" && v !== "false";
 }
 
 export const proxy: ProviderDefinition = {
@@ -33,9 +45,14 @@ export const proxy: ProviderDefinition = {
     // module-level constant.
     const apiKey = getActiveProxyApiKey();
     if (isAnthropicModel(modelId)) {
-      return createAnthropic({ baseURL, apiKey, fetch: withSessionHeaders() as typeof fetch })(
-        modelId,
-      );
+      const model = createAnthropic({
+        baseURL,
+        apiKey,
+        fetch: withSessionHeaders() as typeof fetch,
+      })(modelId);
+      return leakRecoveryEnabled()
+        ? wrapLanguageModel({ model, middleware: recoverLeakedToolCallsMiddleware() })
+        : model;
     }
     // Non-Claude routed through OpenAI SDK — inject reasoning body params for
     // upstream providers (xAI, Gemini, GLM, etc.) that accept reasoning_effort.
