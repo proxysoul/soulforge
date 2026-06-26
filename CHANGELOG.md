@@ -2,6 +2,17 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.20] — 2026-06-26
+
+### Bug Fixes
+
+- **fuzzy**: rank prefix matches above scattered subsequence matches
+- **provider-settings**: clamp info/section rows to one line so options stay visible
+- **ui**: improve fuzzy matching in command picker and setup wizard
+### Features
+
+- **providers**: add dedicated LLM Gateway options tab
+- **proxy**: recover Claude tool calls leaked as text over the proxy
 ## [2.20.19] — 2026-06-23
 
 ### Bug Fixes
