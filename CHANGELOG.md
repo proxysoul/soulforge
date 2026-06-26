@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.21] — 2026-06-26
+
+### Bug Fixes
+
+- **tui**: delegate resize to OpenTUI built-in handler, fixing post-resize screen corruption (#125)
 ## [2.20.20] — 2026-06-26
 
 ### Bug Fixes
