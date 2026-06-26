@@ -459,6 +459,8 @@ export function App({
     closeEditor,
     hasTabBarRef.current,
     editorSplitRef.current,
+    termWidth,
+    termHeight,
   );
 
   const pendingEditorFileRef = useRef<string | null>(null);

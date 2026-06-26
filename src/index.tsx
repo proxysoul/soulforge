@@ -20,7 +20,6 @@ import { getRestartSpec } from "./core/restart.js";
 import { flushEmergencySession } from "./core/sessions/emergency-save.js";
 import type { PrerequisiteStatus } from "./core/setup/prerequisites.js";
 import { closeAllTerminals } from "./core/terminal/manager.js";
-import { setupTerminalResize } from "./core/terminal/resize-handler.js";
 import { getThemeTokens, useTheme } from "./core/theme/index.js";
 import { garble } from "./core/utils/splash.js";
 import { resetStatusBarStore } from "./stores/statusbar.js";
@@ -42,8 +41,8 @@ function restoreTerminal(): void {
     }
   } catch {}
   try {
-    // ?2048l: disable in-band resize notifications enabled at startup.
-    process.stdout.write("\x1b[?2048l\x1b[?25h\x1b[0m");
+    // ?25h: restore cursor. 0m: reset SGR attributes.
+    process.stdout.write("\x1b[?25h\x1b[0m");
   } catch {}
 }
 
@@ -402,20 +401,6 @@ export async function start(opts: StartOptions): Promise<void> {
   // default EventEmitter limit (10) to suppress spurious leak warnings.
   r.setMaxListeners(30);
   r.keyInput.setMaxListeners(30);
-
-  // Resize handling beyond SIGWINCH (#91) — some transports drop the signal
-  // entirely (Win32-OpenSSH client → sshd loses window-change), so the
-  // renderer's SIGWINCH handler never fires even though the PTY size updated.
-  //
-  // Primary: DEC mode 2048 in-band resize notifications (the mechanism modern
-  // TUIs use instead of SIGWINCH). The terminal reports size changes as a
-  // stdin escape sequence — CSI 48 ; rows ; cols ; hpix ; wpix t — which
-  // travels the same data stream as keystrokes, so it survives any transport
-  // that delivers input at all. Supported by kitty, ghostty, iTerm2, foot;
-  // unsupported terminals ignore the enable sequence — strictly additive.
-  if (process.stdout.isTTY) {
-    setupTerminalResize(r);
-  }
 
   // Register custom renderables for JSX usage
   {

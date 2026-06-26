@@ -69,6 +69,8 @@ export function useNeovim(
   onExit?: () => void,
   hasTabBar = true,
   splitPct = 60,
+  termWidth = 120,
+  termHeight = 40,
 ): UseNeovimReturn {
   const nvimRef = useRef<NvimInstance | null>(null);
   const mountedRef = useRef(true);
@@ -107,9 +109,7 @@ export function useNeovim(
       return;
     }
 
-    const termCols = process.stdout.columns ?? 120;
-    const termRows = process.stdout.rows ?? 40;
-    const dims = getEditorDimensions(termCols, termRows, hasTabBar, splitPct);
+    const dims = getEditorDimensions(termWidth, termHeight, hasTabBar, splitPct);
 
     launchNeovim(nvimPath ?? "nvim", dims.cols, dims.rows, nvimConfig)
       .then((nvim) => {
@@ -152,28 +152,20 @@ export function useNeovim(
       .finally(() => {
         launchingRef.current = false;
       });
-  }, [active, nvimPath, nvimConfig, hasTabBar, splitPct, launchGeneration]);
+  }, [active, nvimPath, nvimConfig, hasTabBar, splitPct, launchGeneration, termWidth, termHeight]);
 
-  // Resize neovim when terminal dimensions change
+  // Keep the nvim PTY sized to the editor pane. termWidth/termHeight come from
+  // useTerminalDimensions(), which OpenTUI updates from its own (debounced)
+  // resize pipeline — so this fires once per settled resize with authoritative
+  // dimensions, never racing the renderer.
   useEffect(() => {
     if (!ready || !active) return;
-
-    const onResize = () => {
-      const nvim = nvimRef.current;
-      if (!nvim || !mountedRef.current) return;
-      const tc = process.stdout.columns ?? 120;
-      const tr = process.stdout.rows ?? 40;
-      const d = getEditorDimensions(tc, tr, hasTabBar, splitPct);
-      nvim.pty.resize(d.cols, d.rows);
-      setNvimDims({ cols: d.cols, rows: d.rows });
-    };
-
-    onResize();
-    process.stdout.on("resize", onResize);
-    return () => {
-      process.stdout.removeListener("resize", onResize);
-    };
-  }, [ready, active, hasTabBar, splitPct]);
+    const nvim = nvimRef.current;
+    if (!nvim || !mountedRef.current) return;
+    const d = getEditorDimensions(termWidth, termHeight, hasTabBar, splitPct);
+    nvim.pty.resize(d.cols, d.rows);
+    setNvimDims({ cols: d.cols, rows: d.rows });
+  }, [ready, active, hasTabBar, splitPct, termWidth, termHeight]);
 
   // Poll buffer name, cursor position, and visual selection when ready
   useEffect(() => {
