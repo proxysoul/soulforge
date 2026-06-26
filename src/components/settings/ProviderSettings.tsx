@@ -35,6 +35,7 @@ interface SettingInfo {
 }
 type SettingItem = SettingRow | SettingSection | SettingInfo;
 type ProviderTab =
+  | "llmgateway"
   | "claude"
   | "openai"
   | "google"
@@ -44,6 +45,7 @@ type ProviderTab =
   | "compat"
   | "general";
 const TABS: ProviderTab[] = [
+  "llmgateway",
   "claude",
   "openai",
   "google",
@@ -298,10 +300,44 @@ const OPENROUTER_ITEMS: SettingItem[] = [
   },
 ];
 
+const LLMGATEWAY_ITEMS: SettingItem[] = [
+  {
+    type: "info",
+    text: "api.llmgateway.io unified gateway — one key, every model. Effort emits reasoning_effort for non-Claude SKUs (DeepSeek · Qwen · GLM). Claude routes native Anthropic thinking via the Claude tab.",
+  },
+  { type: "section", label: "Reasoning" },
+  {
+    key: "llmgatewayReasoningEffort",
+    label: "Effort",
+    desc: "Sent as reasoning_effort in the request body. Overrides the shared Other-tab compat effort when set.",
+    type: "cycle",
+    options: ["off", "low", "medium", "high", "xhigh"],
+  },
+  { type: "section", label: "Prompt caching" },
+  {
+    type: "info",
+    text: "Ephemeral cache TTL for cacheable prefixes (system + tools). Gateway bills cache writes/reads separately.",
+  },
+  {
+    key: "cacheTtl",
+    label: "Cache TTL",
+    desc: "5m or 1h ephemeral cache window. Longer TTL costs more to write, cheaper on repeated reads.",
+    type: "cycle",
+    options: ["5m", "1h"],
+  },
+  { type: "section", label: "Tools" },
+  {
+    key: "webSearch",
+    label: "Web search",
+    desc: "Allow models to call the gateway's web_search tool. Billed as web_search_cost per request.",
+    type: "toggle",
+  },
+];
+
 const COMPAT_ITEMS: SettingItem[] = [
   {
     type: "info",
-    text: "Catch-all for providers without their own tab: Groq · Fireworks · OpenCode Zen · OpenCode Go · LM Studio · Ollama · Copilot · GitHub Models · MiniMax · Proxy · LLM Gateway (non-Claude lane). DeepSeek has its own tab.",
+    text: "Catch-all for providers without their own tab: Groq · Fireworks · OpenCode Zen · OpenCode Go · LM Studio · Ollama · Copilot · GitHub Models · MiniMax · Proxy. DeepSeek and LLM Gateway have their own tabs.",
   },
   { type: "section", label: "Shared effort" },
   {
@@ -333,6 +369,7 @@ const COMPAT_ITEMS: SettingItem[] = [
 ];
 
 const TAB_ITEMS: Record<ProviderTab, SettingItem[]> = {
+  llmgateway: LLMGATEWAY_ITEMS,
   claude: CLAUDE_ITEMS,
   openai: OPENAI_ITEMS,
   google: GOOGLE_ITEMS,
@@ -371,6 +408,7 @@ interface CurrentValues {
   openrouterReasoningMaxTokens: string;
   openrouterExcludeReasoning: boolean;
   compatReasoningEffort: string;
+  llmgatewayReasoningEffort: string;
   groqReasoningEffort: string;
   openaiReasoningSummary: string;
   openaiVerbosity: string;
@@ -406,6 +444,7 @@ const DEFAULTS: CurrentValues = {
   openrouterReasoningMaxTokens: "off",
   openrouterExcludeReasoning: false,
   compatReasoningEffort: "off",
+  llmgatewayReasoningEffort: "off",
   groqReasoningEffort: "off",
   openaiReasoningSummary: "off",
   openaiVerbosity: "off",
@@ -449,6 +488,8 @@ function readValuesFromLayer(layer: Partial<AppConfig> | null): Partial<CurrentV
     v.openrouterExcludeReasoning = layer.performance.openrouterExcludeReasoning;
   if (layer.performance?.compatReasoningEffort !== undefined)
     v.compatReasoningEffort = layer.performance.compatReasoningEffort;
+  if (layer.performance?.llmgatewayReasoningEffort !== undefined)
+    v.llmgatewayReasoningEffort = layer.performance.llmgatewayReasoningEffort;
   if (layer.performance?.groqReasoningEffort !== undefined)
     v.groqReasoningEffort = layer.performance.groqReasoningEffort;
   if (layer.performance?.openaiReasoningSummary !== undefined)
@@ -524,6 +565,10 @@ function buildPatch(key: string, value: string | number | boolean): Partial<AppC
       return { performance: { openrouterExcludeReasoning: value as boolean } as PerformanceConfig };
     case "compatReasoningEffort":
       return { performance: { compatReasoningEffort: value as string } as PerformanceConfig };
+    case "llmgatewayReasoningEffort":
+      return {
+        performance: { llmgatewayReasoningEffort: value as string } as PerformanceConfig,
+      };
     case "groqReasoningEffort":
       return { performance: { groqReasoningEffort: value as string } as PerformanceConfig };
     case "openaiReasoningSummary":
@@ -578,6 +623,7 @@ const EFFORT_KEY_MODELS: Record<string, (model: string) => string> = {
   openaiReasoningEffort: () => "openai/gpt-5",
   xaiReasoningEffort: () => "xai/grok-4",
   googleThinkingLevel: () => "google/gemini-3-pro",
+  llmgatewayReasoningEffort: (m) => `llmgateway/${m.split("/").pop() ?? m}`,
 };
 
 /** Narrow a cycle's options to the active model when the key is effort-style
@@ -613,7 +659,7 @@ export function ProviderSettings({
   const maxVisible = Math.max(6, Math.floor(containerRows * 0.85) - CHROME_ROWS);
 
   const t = useTheme();
-  const [tab, setTab] = useState<ProviderTab>("claude");
+  const [tab, setTab] = useState<ProviderTab>("llmgateway");
   const [cursor, setCursor] = useState(0);
   const [scope, setScope] = useState<ConfigScope>(() => detectInitialScope(projectConfig));
   const vals = effectiveValues(globalConfig, projectConfig);
@@ -757,6 +803,12 @@ export function ProviderSettings({
       title="Provider Options"
       titleIcon="system"
       tabs={[
+        {
+          id: "llmgateway",
+          label: "LLM Gateway",
+          icon: "cloud",
+          blurb: "unified gateway · effort · cache · web search",
+        },
         { id: "claude", label: "Claude", icon: "ai", blurb: "thinking · reasoning · beta" },
         { id: "openai", label: "OpenAI", icon: "ai", blurb: "reasoning · service tier" },
         { id: "google", label: "Gemini", icon: "ai", blurb: "thinking level · budget" },

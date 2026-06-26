@@ -421,6 +421,19 @@ describe("getCompatReasoningBody", () => {
     expect(body.reasoning).toBeUndefined();
   });
 
+  test("llmgateway dedicated effort overrides shared compat knob", () => {
+    const cfg = baseConfig({ compatReasoningEffort: "low", llmgatewayReasoningEffort: "high" });
+    const body = getCompatReasoningBody("llmgateway/deepseek-v4-pro", cfg);
+    expect(body.reasoning_effort).toBe("high");
+    expect(body.reasoning).toBeUndefined();
+  });
+
+  test("llmgateway off effort falls through to shared/global knobs", () => {
+    const cfg = baseConfig({ llmgatewayReasoningEffort: "off", effort: "medium" });
+    const body = getCompatReasoningBody("llmgateway/deepseek-v4-pro", cfg);
+    expect(body.reasoning_effort).toBe("medium");
+  });
+
   test("llmgateway Claude is guarded (no reasoning_effort body)", () => {
     const cfg = baseConfig({ effort: "high" });
     expect(getCompatReasoningBody("llmgateway/claude-sonnet-4-6", cfg)).toEqual({});

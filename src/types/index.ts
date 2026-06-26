@@ -257,6 +257,8 @@ export interface PerformanceConfig {
   groqReasoningEffort?: GroqReasoningEffort;
   /** OpenAI-compatible body-injection reasoning effort. Used by groq/fireworks/lmstudio/ollama/copilot/github-models/opencode-go/opencode-zen/deepseek-chat fallback when no native providerOptions key exists. */
   compatReasoningEffort?: CompatReasoningEffort;
+  /** LLM Gateway reasoning effort — emitted as reasoning_effort for non-Claude SKUs. Overrides the shared compat knob when set. "off" = not sent. */
+  llmgatewayReasoningEffort?: CompatReasoningEffort;
 }
 
 type PruningTarget = "none" | "main" | "subagents" | "both";

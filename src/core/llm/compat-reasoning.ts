@@ -56,6 +56,13 @@ export function getCompatReasoningBody(
     if (g) effort = g === "off" ? "off" : g;
   }
 
+  // LLM Gateway gets a dedicated knob — overrides the shared compat effort.
+  // "off"/unset falls through to the shared knobs below.
+  if (provider === "llmgateway") {
+    const l = config.performance?.llmgatewayReasoningEffort;
+    if (l && l !== "off") effort = l;
+  }
+
   if (!effort || effort === "off") {
     const e = config.performance?.effort;
     if (e && e !== "off") {
