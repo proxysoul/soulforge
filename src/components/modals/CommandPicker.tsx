@@ -100,6 +100,14 @@ function fuzzyScore(query: string, target: string): { score: number; indices: nu
     if (k > 0 && (indices[k] as number) === (indices[k - 1] as number) + 1) score += 5;
   }
   score -= indices.length > 0 ? (indices[0] as number) : 0;
+  // Prefix matches rank above scattered subsequence matches (e.g. "mod" → "/models"
+  // beats "/model-scope"). Ignore a leading slash so "/models" prefixes "models".
+  const stripped = lower.startsWith("/") ? lower.slice(1) : lower;
+  if (stripped.startsWith(q)) {
+    score += 100;
+    if (stripped.length === q.length) score += 50; // exact match
+    score -= stripped.length; // shorter target wins ties
+  }
   return { score, indices };
 }
 
