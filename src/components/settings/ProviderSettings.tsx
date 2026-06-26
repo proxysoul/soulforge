@@ -860,7 +860,7 @@ export function ProviderSettings({
             renderItem={(item, { selected }) => {
               if (item.type === "section") {
                 return (
-                  <box flexDirection="row" backgroundColor={t.bgPopup} paddingX={1}>
+                  <box flexDirection="row" backgroundColor={t.bgPopup} paddingX={1} height={1}>
                     <text bg={t.bgPopup} fg={t.textMuted} attributes={1}>
                       {item.label.toUpperCase()}
                     </text>
@@ -873,8 +873,8 @@ export function ProviderSettings({
               }
               if (item.type === "info") {
                 return (
-                  <box flexDirection="row" backgroundColor={t.bgPopup} paddingX={1}>
-                    <text bg={t.bgPopup} fg={t.textFaint}>
+                  <box flexDirection="row" backgroundColor={t.bgPopup} paddingX={1} height={1}>
+                    <text bg={t.bgPopup} fg={t.textFaint} truncate>
                       ℹ {item.text}
                     </text>
                   </box>
