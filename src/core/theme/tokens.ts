@@ -1718,6 +1718,47 @@ const PROXYSOUL_WATER: ThemeTokens = {
   accentAssistant: "#00a2ce",
 };
 
+export const LATE_NIGHT: ThemeTokens = {
+  ...DARK_THEME,
+  brand: "#7C6FD4",
+  brandSecondary: "#A89EE8",
+  brandDim: "#2D2850",
+  brandAlt: "#C4BCEF",
+  error: "#E05C6A",
+  success: "#5DBB8A",
+  warning: "#E2C08D",
+  info: "#5B9BD4",
+  amber: "#C9894A",
+  textPrimary: "#EEEAE3",
+  textSecondary: "#B8B3AA",
+  textMuted: "#847F78",
+  textDim: "#5C5852",
+  textFaint: "#3A3833",
+  textSubtle: "#6B6762",
+  bgApp: "#0A0A0C",
+  bgPrimary: "#0F0F12",
+  bgSecondary: "#141417",
+  bgElevated: "#1A1A1F",
+  bgPopup: "#1C1C22",
+  bgPopupHighlight: "#25252D",
+  bgOverlay: "#0A0A0C",
+  bgInput: "#16161B",
+  bgBanner: "#1A1A1F",
+  bgBannerError: "#1F1218",
+  bgUser: "#141420",
+  border: "#222228",
+  borderFocused: "#7C6FD4",
+  borderActive: "#A89EE8",
+  borderSlash: "#2E2E38",
+  diffAddedBg: "#0E1F16",
+  diffRemovedBg: "#1F0E12",
+  diffAddedSign: "#5DBB8A",
+  diffRemovedSign: "#E05C6A",
+  accentUser: "#3a79e2",
+  accentAssistant: "#d061fc",
+  accentSystem: "#3A3845",
+};
+
 /** Theme metadata for the picker UI */
 export interface ThemeMeta {
   label: string;
@@ -1874,6 +1915,11 @@ export const THEME_META: Record<string, ThemeMeta> = {
     description: "Midnight amber & golden warmth",
     variant: "dark",
   },
+  "late-night": {
+    label: "Late Night",
+    description: "Premium near-black with cyan and indigo — built for long sessions",
+    variant: "dark",
+  },
 };
 
 export const BUILTIN_THEMES: Record<string, ThemeTokens> = {
@@ -1913,6 +1959,7 @@ export const BUILTIN_THEMES: Record<string, ThemeTokens> = {
   iceberg: ICEBERG,
   ember: EMBER,
   vesper: VESPER,
+  "late-night": LATE_NIGHT,
 };
 
 /** Convert kebab-case token key to camelCase (e.g. "bg-primary" → "bgPrimary") */
