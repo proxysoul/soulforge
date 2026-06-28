@@ -1377,9 +1377,9 @@ describe("Deadlock & Hang resistance", () => {
     expect(r3).toBe(20);
   });
 
-  // requestCallback has NO timeout. If the callback handler never resolves,
-  // the worker hangs on that handler forever. The main thread's RPC timeout
-  // is the only safety net. Verify it fires.
+  // requestCallback has a default 60s timeout (overridable per-call). If the
+  // callback handler never resolves, the main thread's RPC timeout fires first
+  // here. Verify it fires.
   it("unresponsive callback: RPC timeout is the safety net", async () => {
     client = new TestClient();
     client.registerCallback("hang", async () => {

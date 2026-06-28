@@ -60,7 +60,7 @@ type HandlerFn = (...args: unknown[]) => unknown;
 
 export interface WorkerHandlerContext {
   emit(event: string, data: unknown): void;
-  requestCallback<T>(name: string, data: unknown): Promise<T>;
+  requestCallback<T>(name: string, data: unknown, timeoutMs?: number): Promise<T>;
 }
 
 export function createWorkerHandler(

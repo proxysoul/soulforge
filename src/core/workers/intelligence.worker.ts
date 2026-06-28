@@ -132,10 +132,11 @@ const handlers: Record<string, (...args: unknown[]) => unknown> = {
   generateSemanticSummaries: async (maxSymbols: unknown) => {
     const rm = requireRepoMap();
     rm.setSummaryGenerator(async (batch, batchTotal) => {
-      return ctx.requestCallback<Array<{ name: string; summary: string }>>("summaryGenerator", {
-        batch,
-        batchTotal,
-      });
+      return ctx.requestCallback<Array<{ name: string; summary: string }>>(
+        "summaryGenerator",
+        { batch, batchTotal },
+        300_000,
+      );
     });
     const count = await rm.generateSemanticSummaries(maxSymbols as number | undefined);
     rm.setSummaryGenerator(null);
