@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.22] — 2026-06-28
+
+### Bug Fixes
+
+- **repo-map**: raise summaryGenerator callback timeout to 5min
 ## [2.20.21] — 2026-06-26
 
 ### Bug Fixes
